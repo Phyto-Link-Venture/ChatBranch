@@ -30,7 +30,9 @@ public static partial class ToolCatalog
 
         yield return T(g, "contacts_list_calls", "List a contact's calls",
             "Voice calls with this contact (SIP and WhatsApp): when, outcome, duration, summary, and whether a " +
-            "recording exists.", "GET", "/api/contacts/{id:int}/calls", viewOrChats, new[] { A.Id("contact") });
+            "recording exists. company (id or slug) keeps only the calls placed for that company.",
+            "GET", "/api/contacts/{id:int}/calls", viewOrChats,
+            new[] { A.Id("contact"), A.Str("company", "Only the calls placed for this company (id or slug).") });
 
         yield return T(g, "contacts_get_channels", "Get a contact's channel profile",
             "The contact's identities across every channel (WhatsApp, email, SMS, Telegram, Messenger…): the " +
@@ -131,9 +133,10 @@ public static partial class ToolCatalog
             outside: true);
 
         yield return T(g, "contacts_get_conversation_history", "Read a contact's messages",
-            "Every message with this contact across all their conversations and channels, newest last.",
+            "Every message with this contact across all their conversations and channels you may see, newest last. " +
+            "company (id or slug) keeps only that company's conversations.",
             "GET", "/api/messaging/contacts/{id:int}/conversation", viewOrChats,
-            new[] { A.Id("contact"), A.Limit(50, 500) });
+            new[] { A.Id("contact"), A.Limit(50, 500), A.Str("company", "Only this company's conversations (id or slug).") });
 
         yield return T(g, "contacts_get_timeline", "Get a communications timeline",
             "The communications timeline for a phone number or email: messages, calls and business records in " +

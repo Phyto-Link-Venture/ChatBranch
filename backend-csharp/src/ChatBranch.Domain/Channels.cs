@@ -64,9 +64,19 @@ public class Thread : IEntityScoped
     public int? AccountId { get; set; }
     public ChannelAccount? Account { get; set; }
     // Denormalized entity, recomputed by ScopingService.SyncThreadEntity at
-    // every seam that moves a thread.
+    // every seam that moves a thread — always inside the thread's company.
     public int? EntityId { get; set; }
     public Entity? Entity { get; set; }
+    /// <summary>
+    /// The COMPANY (top-level entity) this conversation belongs to — part of its
+    /// identity: one conversation per customer per company, unique on
+    /// (channel, key, company). Set when the thread is created (the receiving
+    /// account's company, else its entity's) or the first time an unattributed
+    /// thread gets an entity; never changed afterwards — nothing moves a thread
+    /// into another company. Null = unattributed (no account, no entity: the
+    /// organization-wide bucket every viewer sees).
+    /// </summary>
+    public int? CompanyEntityId { get; set; }
     public bool AiEnabled { get; set; } = true;
     // Per-sending-account chatbot ticks: {account_pk(str): bool}.
     public Dictionary<string, object?> AiOverrides { get; set; } = new();

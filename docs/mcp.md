@@ -85,7 +85,12 @@ tools your key may use.
   `list_tags`.
 - **Conversations** are addressed by `channel` + `key`, as the conversation
   tools return them; results carry a dashboard deep link
-  (`href: /chats?thread=whatsapp:60123456789`).
+  (`href: /chats?thread=whatsapp:60123456789&thread_id=12`). A customer has
+  **one conversation per company**: when the key's owner can see several
+  companies' conversations with the same customer, a conversation tool without
+  `thread_id` (or `company` = the company's id or slug) fails with an error that
+  lists the candidates (`thread_id N = <company> via <number>`) — it never
+  picks one. Someone bound to a company only ever reaches that company's.
 - **Annotations** on every tool: `readOnlyHint`, `destructiveHint`,
   `idempotentHint`, `openWorldHint` (it messages or calls a customer, or calls
   an outside provider).
@@ -145,8 +150,10 @@ yield return T("tags", "tags_delete", "Delete a tag",
 ```
 
 Arguments map onto the route's `{params}`, the query (GET/DELETE) or the JSON
-body; `thread: true` adds `channel` + `key` and checks the conversation is in
-your scope first; `wa:` names the WhatsApp twin of a conversation route.
+body; `thread: true` adds `channel` + `key` (+ the optional `thread_id` /
+`company` that say which company's conversation) and resolves ONE conversation
+in your scope first (`ThreadResolver`); `wa:` names the WhatsApp twin of a
+conversation route.
 
 ## Tool catalogue
 

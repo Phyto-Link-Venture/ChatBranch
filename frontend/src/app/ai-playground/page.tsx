@@ -208,7 +208,7 @@ export default function AiPlaygroundPage() {
       mode: c.contact ? 'contact' : 'made_up',
       contact: c.contact ? { id: c.contact.id, name: c.contact.name } : null,
       profile: c.contact ? s.profile : { ...s.profile, name: c.name },
-      imported: { thread: c.thread, name: c.name, accountId: c.account?.id ?? null },
+      imported: { thread: c.thread, threadId: c.thread_id ?? null, name: c.name, accountId: c.account?.id ?? null },
     }))
     setEntries(
       c.messages.map((m) =>

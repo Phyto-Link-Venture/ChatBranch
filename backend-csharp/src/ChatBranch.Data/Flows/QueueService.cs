@@ -181,30 +181,15 @@ public class QueueService
     /// <summary>routing._pinned_account: payload <c>account_id</c> (the business redirect) fixes the carrier.</summary>
     private static int? Pinned(OutboundJob job) => AiGate.Num(job.Payload, "account_id") is double d ? (int)d : null;
 
-    /// <summary>
-    /// The thread a job belongs to. WhatsApp threads are keyed by the digits-only
-    /// wa_id, but flows address jobs to the contact's phone ("+60…"): an existing
-    /// thread under the literal address still wins, else the digits key — so a
-    /// flow message lands in the same conversation the customer writes into.
-    /// </summary>
-    private string ThreadKey(OutboundJob job)
-    {
-        if (job.Channel != ChatBranch.Domain.Channels.WhatsApp) return job.ToAddress;
-        var digits = PhoneMatch.Digits(job.ToAddress);
-        if (digits.Length == 0 || digits == job.ToAddress) return job.ToAddress;
-        var literal = _db.Threads.AsNoTracking().Any(t => t.Channel == job.Channel && t.Key == job.ToAddress);
-        return literal ? job.ToAddress : digits;
-    }
-
-    /// <summary>Dry run: the account this job would go out on now (no writes).</summary>
+    /// <summary>Dry run: the account this job would go out on now (no writes). The
+    /// conversation is the job's own (<see cref="ThreadStore.FindForJob"/>: pinned,
+    /// else resolved within the job's company — never another company's thread).</summary>
     private int? PeekAccountId(OutboundJob job)
     {
         try
         {
             if (Pinned(job) is int pin) return pin;
-            var key = ThreadKey(job);
-            var thread = _db.Threads.AsNoTracking()
-                .FirstOrDefault(t => t.Channel == job.Channel && t.Key == key);
+            var thread = _threads.FindForJob(job);
             if (job.Kind == JobKind.Call || thread == null) return job.AccountId ?? thread?.AccountId;
             var r = _routing.ForThread(thread, NeedFor(job), thread.AccountId ?? job.AccountId, apply: false);
             return r.Account?.Id ?? thread.AccountId ?? job.AccountId;
@@ -221,7 +206,10 @@ public class QueueService
     {
         int? carrier;
         RouteResult? route = null;
-        if (Pinned(job) is int pin) carrier = pin;
+        // a pin to ANOTHER company's number is never honoured: routing picks one of the conversation's own
+        if (Pinned(job) is int pin
+            && ScopingService.SameCompanyOrShared(_scoping.ThreadCompany(thread), _scoping.AccountCompany(pin)))
+            carrier = pin;
         else
         {
             route = _routing.ForThread(thread, NeedFor(job), thread.AccountId ?? job.AccountId, apply: true);
@@ -273,8 +261,9 @@ public class QueueService
         var draftId = (int?)AiGate.Num(job.Payload, "draft_id");
         try
         {
-            var thread = _threads.GetOrCreateThread(job.Channel, ThreadKey(job),
-                contactId: job.ContactId, accountId: job.AccountId);
+            // the job's OWN conversation: the one it was queued from, else resolved
+            // within the company it was queued for — never another company's thread
+            var thread = _threads.GetOrCreateForJob(job);
             var source = AiGate.Str(job.Payload, "source", "");
 
             // the carrying account, resolved NOW (routing: pin → the thread's
@@ -485,8 +474,7 @@ public class QueueService
     {
         try
         {
-            return _db.Threads.AsNoTracking().Where(t => t.Channel == job.Channel && t.Key == job.ToAddress)
-                .Select(t => t.EntityId).FirstOrDefault();
+            return _threads.FindForJob(job)?.EntityId;
         }
         catch { return null; }
     }

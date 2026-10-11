@@ -54,15 +54,22 @@ public class AiResponder
     public OutboundJob ScheduleReply(Thread thread, int waitSeconds, int maxWaitSeconds)
     {
         var now = Now;
-        var job = _db.OutboundJobs.FirstOrDefault(j => j.Kind == JobKind.AiReply
-            && j.Status == JobStatus.Queued && j.Channel == thread.Channel && j.ToAddress == thread.Key);
+        // THIS conversation's job — another company's conversation with the same
+        // customer (same channel + address) keeps its own
+        var store = new Stores.ThreadStore(_db, _scoping);
+        var job = _db.OutboundJobs.Where(j => j.Kind == JobKind.AiReply
+                && j.Status == JobStatus.Queued && j.Channel == thread.Channel && j.ToAddress == thread.Key)
+            .ToList().FirstOrDefault(j => store.JobBelongsTo(j, thread));
         var target = now.AddSeconds(Math.Max(0, waitSeconds));
         if (job == null)
         {
             job = new OutboundJob
             {
                 Channel = thread.Channel, Kind = JobKind.AiReply, ToAddress = thread.Key,
-                Payload = new Dictionary<string, object?> { ["wait_s"] = waitSeconds },
+                Payload = new Dictionary<string, object?>
+                {
+                    ["wait_s"] = waitSeconds, [Stores.ThreadStore.JobThreadKey] = thread.Id,
+                },
                 ContactId = thread.ContactId, AccountId = thread.AccountId, Status = JobStatus.Queued,
                 NotBefore = waitSeconds > 0 ? target : null, CreatedAt = now, UpdatedAt = now,
             };

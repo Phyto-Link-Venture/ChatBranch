@@ -167,8 +167,9 @@ public static class SearchEndpoints
             var sub = snippets.TryGetValue(t.Id, out var text)
                 ? $"{ChannelLabel(t.Channel)} · “{ShellScope.SnipAround(text, term)}”"
                 : $"{ChannelLabel(t.Channel)} · {(t.Address.Length > 0 ? t.Address : t.Key)}";
-            return new SearchHit("conversation", $"{t.Channel}:{t.Key}", who, sub,
-                ShellScope.ChatUrl(t.Channel, t.Key), t.Channel);
+            // the id names THIS conversation (a customer has one per company)
+            return new SearchHit("conversation", $"{t.Channel}:{t.Key}#{t.Id}", who, sub,
+                ShellScope.ChatUrl(t.Channel, t.Key, t.Id), t.Channel);
         }).ToList();
     }
 

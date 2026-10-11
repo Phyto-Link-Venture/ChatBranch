@@ -496,11 +496,10 @@ public static class BindingsEndpoints
                 foreach (var a in accounts)
                     a.EntityId = toAdd.Contains(a.Id) ? target : null;
                 await db.SaveChangesAsync();
-                // Re-file the numbers' existing conversations under their new scope.
-                var moved = accounts.Select(a => a.Id).ToList();
-                foreach (var thread in await db.Threads.Include(x => x.Contact).Include(x => x.Account)
-                             .Where(x => x.AccountId != null && moved.Contains(x.AccountId.Value)).ToListAsync())
-                    sc.SyncThreadEntity(thread, save: false);
+                // Re-file the numbers' existing conversations under their new scope — within
+                // one company; another company's conversation lets go of the number instead
+                foreach (var a in accounts)
+                    ChatBranch.Data.Stores.ThreadCompanies.AfterAccountRebound(db, sc, a.Id);
                 break;
             }
         }

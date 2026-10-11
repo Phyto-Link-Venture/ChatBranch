@@ -53,15 +53,21 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
-export const listThreadDocuments = (channel: string, key: string) =>
-  call<{ documents: ChatDocument[] }>(`/documents?thread=${encodeURIComponent(`${channel}:${key}`)}`).then((d) => d.documents)
+/** `&thread_id=` — WHICH company's conversation (a customer has one per company). */
+const one = (threadId?: number | null) => (threadId ? `&thread_id=${threadId}` : '')
 
-export const documentForm = (channel: string, key: string) =>
-  call<DocumentForm>(`/documents/form?channel=${encodeURIComponent(channel)}&key=${encodeURIComponent(key)}`)
+export const listThreadDocuments = (channel: string, key: string, threadId?: number | null) =>
+  call<{ documents: ChatDocument[] }>(`/documents?thread=${encodeURIComponent(`${channel}:${key}`)}${one(threadId)}`).then(
+    (d) => d.documents,
+  )
+
+export const documentForm = (channel: string, key: string, threadId?: number | null) =>
+  call<DocumentForm>(`/documents/form?channel=${encodeURIComponent(channel)}&key=${encodeURIComponent(key)}${one(threadId)}`)
 
 export const createDocument = (body: {
   channel: string
   key: string
+  thread_id?: number | null
   type: DocumentType
   send: boolean
   fields: Record<string, unknown>

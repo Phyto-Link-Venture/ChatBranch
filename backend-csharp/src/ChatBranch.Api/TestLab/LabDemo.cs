@@ -63,7 +63,7 @@ public static class LabDemo
     /// <summary>Move a conversation back in time (messages, thread) so the inbox reads like a real week.</summary>
     private static void Age(LabContext ctx, string channel, string key, double hours)
     {
-        var t = ctx.Db.Threads.FirstOrDefault(x => x.Channel == channel && x.Key == key);
+        var t = ctx.ThreadOf(channel, key) is { } fresh ? ctx.Db.Threads.FirstOrDefault(x => x.Id == fresh.Id) : null;
         if (t == null) return;
         var shift = TimeSpan.FromHours(hours);
         foreach (var m in ctx.Db.Messages.Where(m => m.ThreadId == t.Id).ToList()) m.CreatedAt -= shift;
@@ -224,7 +224,7 @@ public static class LabDemo
 
         var open = Chat("Aisha Rahman", new[] { "Hi! Do you deliver to Penang?" },
             new[] { "Yes — we deliver to Penang every Tuesday and Friday, and it's free over RM 100. Shall I note an order for you?" }, age: 2);
-        links.Add(new LabLink("Open conversation (AI answered)", $"/chats?thread=whatsapp:{open}"));
+        links.Add(new LabLink("Open conversation (AI answered)", ChatBranch.Data.Stores.ThreadCompanies.ChatHref("whatsapp", open, ctx.ThreadOf("whatsapp", open)?.Id)));
 
         var byHand = Chat("Tan Wei Ming", new[] { "Can you do 40 boxes of egg tarts for Friday?" }, new[] { "Let me check with the kitchen for you." }, age: 5);
         await ctx.Api(agent, "POST", "/api/whatsapp/threads/{key}/send",
@@ -233,7 +233,7 @@ public static class LabDemo
         var flagged = Chat("Nurul Huda", new[] { "Saya nak tukar pesanan untuk majlis perkahwinan." }, new[] { "Baik, saya semak dahulu ya." }, age: 3);
         await ctx.Api(agent, "POST", "/api/inbox/threads/{channel}/{key}/handover",
             new { action = "flag", reason = "Wedding order change — needs the manager." }, route: new() { ["channel"] = "whatsapp", ["key"] = flagged });
-        links.Add(new LabLink("Open conversation (needs human)", $"/chats?thread=whatsapp:{flagged}"));
+        links.Add(new LabLink("Open conversation (needs human)", ChatBranch.Data.Stores.ThreadCompanies.ChatHref("whatsapp", flagged, ctx.ThreadOf("whatsapp", flagged)?.Id)));
 
         var resolved = Chat("Priya Nair", new[] { "What time do you close today?", "Thanks!" },
             new[] { "We close at 6pm today.", "You're welcome — see you soon!" }, age: 30);
@@ -244,7 +244,7 @@ public static class LabDemo
         var stop = Chat("Daniel Wong", new[] { "Please stop sending promotions", "STOP" }, new[] { "Sorry about that — noted." }, age: 26);
         var refund = Chat("Melissa Teo", new[] { "The cake was damaged, I'd like a refund please." },
             new[] { "I'm sorry to hear that — a manager will review your refund request today." }, age: 1);
-        links.Add(new LabLink("Open conversation (refund rule)", $"/chats?thread=whatsapp:{refund}"));
+        links.Add(new LabLink("Open conversation (refund rule)", ChatBranch.Data.Stores.ThreadCompanies.ChatHref("whatsapp", refund, ctx.ThreadOf("whatsapp", refund)?.Id)));
 
         // waiting on AI review (an inbox that reviews every reply)
         var reviewInbox = ctx.Inbox("review every reply", new() { ["ai_review_mode"] = "review_all" });

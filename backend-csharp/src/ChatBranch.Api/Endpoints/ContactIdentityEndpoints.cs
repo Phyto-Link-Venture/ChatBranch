@@ -154,9 +154,11 @@ public static class ContactIdentityEndpoints
 
         // ---- unknown customer: state for the chat + the quick action -----------
         app.MapGet("/api/contacts/identify/{channel}/{key}", async (string channel, string key, AppDbContext db,
-            ScopingService sc, ClaimsPrincipal me, IdentityRequestService identity) =>
+            ScopingService sc, ClaimsPrincipal me, IdentityRequestService identity, HttpContext ctx) =>
         {
-            var thread = await VisibleThread(db, sc, me, channel, key);
+            var pick = await ThreadResolver.ForRequestAsync(ctx);
+            if (ThreadResolver.Refusal(pick) is { } refused) return refused;
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return NotFound("Conversation not found.");
             var req = identity.For(thread.Id);
             var suggest = identity.Suggest(thread, req);
@@ -165,7 +167,9 @@ public static class ContactIdentityEndpoints
             var candidates = new List<object>();
             if (req?.State == IdentityStates.Ambiguous && thread.ContactId == null)
             {
-                var ids = identity.Candidates(IdentityRequestService.Collected(req), identity.TenantFor(thread))
+                // only contacts the conversation's company may link (never another company's)
+                var ids = identity.Candidates(IdentityRequestService.Collected(req), identity.TenantFor(thread),
+                        thread.EntityId)
                     .Select(c => c.Id).Take(20).ToList();
                 candidates = (await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
                         .Where(c => ids.Contains(c.Id)).OrderBy(c => c.Id).Take(6)
@@ -188,10 +192,13 @@ public static class ContactIdentityEndpoints
 
         app.MapPost("/api/contacts/identify/{channel}/{key}/contact", async (string channel, string key,
             JsonElement body, AppDbContext db, ScopingService sc, ClaimsPrincipal me,
-            IdentityRequestService identity, InboundProcessor inbound) =>
+            IdentityRequestService identity, InboundProcessor inbound, HttpContext ctx) =>
         {
-            var thread = await VisibleThread(db, sc, me, channel, key, tracked: true);
+            var pick = await ThreadResolver.ForRequestAsync(ctx);
+            if (ThreadResolver.Refusal(pick) is { } refused) return refused;
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return NotFound("Conversation not found.");
+            var threadCompany = sc.ThreadCompany(thread);
             var actor = me.Identity?.Name ?? "";
             Contact contact;
             string state, note;
@@ -200,6 +207,13 @@ public static class ContactIdentityEndpoints
                 var found = await ContactsEndpoints.ScopeContacts(db.Contacts, me, db, sc)
                     .FirstOrDefaultAsync(c => c.Id == existingId);
                 if (found == null) return NotFound("Contact not found.");
+                // a conversation only links a contact of its OWN company (or an organization-wide one)
+                if (!ContactCompanies.MayLink(db, sc, found.Id, threadCompany))
+                    return Results.Json(new
+                    {
+                        detail = "That contact belongs to another company — this conversation can only be linked to a contact of its own company.",
+                        code = "contact_other_company",
+                    }, statusCode: 409);
                 contact = found;
                 state = IdentityStates.Linked;
                 note = $"{actor} linked this conversation to {contact.Name}.";
@@ -227,6 +241,10 @@ public static class ContactIdentityEndpoints
                     var allowed = await AllowedEntityIdsAsync(db, sc, me);
                     if (allowed != null && !allowed.Contains(entityId.Value))
                         return Results.Json(new { detail = "That entity is outside your scope." }, statusCode: 403);
+                    // the new contact belongs to the conversation's company, never another one
+                    if (threadCompany != null && sc.CompanyOf(entityId) != threadCompany)
+                        return Results.Json(new { detail = "That entity belongs to another company than this conversation." },
+                            statusCode: 409);
                 }
                 var tenant = identity.TenantFor(thread) ?? TenantId(me);
                 contact = identity.CreateContact(identity.For(thread.Id), thread, identity.AccountFor(thread), tenant,
@@ -333,19 +351,6 @@ public static class ContactIdentityEndpoints
         if (a.EntityId is not int eid) return true;
         var allowed = await AllowedEntityIdsAsync(db, sc, me);
         return allowed == null || allowed.Contains(eid);
-    }
-
-    /// <summary>A conversation the caller may see (the inbox rule), or null.</summary>
-    internal static async Task<Thread?> VisibleThread(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
-        string channel, string key, bool tracked = false)
-    {
-        IQueryable<Thread> q = db.Threads.Include(t => t.Account).Include(t => t.Contact);
-        if (!tracked) q = q.AsNoTracking();
-        var thread = await q.FirstOrDefaultAsync(t => t.Channel == channel && t.Key == key);
-        if (thread == null) return null;
-        var ids = ShellScope.ThreadEntityIds(db, sc, me, null);
-        if (ids != null && thread.EntityId is int eid && !ids.Contains(eid)) return null;
-        return thread;
     }
 
     /// <summary>

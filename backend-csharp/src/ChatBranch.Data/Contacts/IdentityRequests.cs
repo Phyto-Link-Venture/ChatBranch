@@ -381,7 +381,7 @@ public class IdentityRequestService
                 Payload = new Dictionary<string, object?>
                 {
                     ["text"] = text, ["source"] = "system", ["identity_request"] = req.Id,
-                    ["account_id"] = thread.AccountId,
+                    ["account_id"] = thread.AccountId, [Stores.ThreadStore.JobThreadKey] = thread.Id,
                 },
                 AccountId = thread.AccountId, Status = JobStatus.Queued, CreatedAt = now, UpdatedAt = now,
             };
@@ -511,6 +511,8 @@ public class IdentityRequestService
 
     private void LinkThread(Thread thread, Contact contact)
     {
+        // never another company's contact on this conversation (one per company)
+        if (!ContactCompanies.MayLink(_db, _sc, contact.Id, _sc.ThreadCompany(thread))) return;
         thread.ContactId = contact.Id;
         thread.Contact = contact;
         if (thread.AccountId is int aid && thread.Account == null)
@@ -656,7 +658,7 @@ public class IdentityRequestService
         {
             NotificationService.Notify(_db, NotificationCategories.Messages, "identity", title,
                 $"{thread.Name} ({thread.Channel}) — {detail}",
-                $"/chats?thread={Uri.EscapeDataString(thread.Channel)}:{Uri.EscapeDataString(thread.Key)}",
+                Stores.ThreadCompanies.ChatHref(thread),
                 NotificationAudience.Admins(TenantOf(thread, AccountOf(thread))),
                 new NotifyOptions { Thread = thread, Save = false, RefKey = $"identity:{thread.Id}" });
         }

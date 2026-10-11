@@ -12,6 +12,12 @@ export interface DispatchMetadata {
   // --- who the call is to ---
   phone?: string;
   contact_id?: number | string;
+  /** The outlet (entity id) the call is placed for — echoed into calls.json so the API files
+   *  the call record under that company's contact views. */
+  entity_id?: number | string;
+  /** false = the contact is shared by several companies: never read or write the per-contact
+   *  memory file (memory/{contact_id}.md) on this call — one company's notes never reach another. */
+  file_memory?: boolean;
   contact_name?: string;
   company_name?: string;
   /** Demographic language hint: "en" | "ms" | "zh"; anything else = auto-detect. */
@@ -76,6 +82,7 @@ export interface CallContact {
   record_currency?: string;
   phone?: string;
   contact_id?: number | string;
+  entity_id?: number | string;
 }
 
 /** Parse the job's dispatch metadata; malformed JSON degrades to {} (a generic call). */
@@ -118,5 +125,6 @@ export function contactFromMetadata(md: DispatchMetadata): CallContact {
   }
   if (md.phone) contact.phone = md.phone;
   if (md.contact_id !== undefined && md.contact_id !== null) contact.contact_id = md.contact_id;
+  if (md.entity_id !== undefined && md.entity_id !== null) contact.entity_id = md.entity_id;
   return contact;
 }

@@ -137,6 +137,8 @@ export interface PlaygroundReply {
 
 export interface ImportedConversation {
   thread: string
+  /** which company's conversation (a customer has one per company) */
+  thread_id?: number | null
   name: string
   channel: string
   entity: { slug: string; name: string } | null
@@ -198,7 +200,7 @@ export interface Setup {
   profile: MadeUpProfile
   contact: { id: number; name: string } | null
   /** An imported real conversation (its AI switch / inbox apply). */
-  imported: { thread: string; name: string; accountId: number | null } | null
+  imported: { thread: string; threadId?: number | null; name: string; accountId: number | null } | null
 }
 
 export const DEFAULT_SETUP: Setup = {
@@ -316,15 +318,16 @@ export function requestReply(setup: Setup, variant: Variant, messages: { role: s
   else body.profile = { ...setup.profile, language: profileLanguage(setup, uiLocale), fields }
   if (setup.imported) {
     body.thread = setup.imported.thread
+    if (setup.imported.threadId) body.thread_id = setup.imported.threadId
     if (setup.imported.accountId) body.account_id = setup.imported.accountId
   }
   return aiApi<PlaygroundReply>('ai/playground/reply', { method: 'POST', body: JSON.stringify(body) })
 }
 
-export const importConversation = (channel: string, key: string, take = 20) =>
+export const importConversation = (channel: string, key: string, take = 20, threadId?: number | null) =>
   aiApi<ImportedConversation>('ai/playground/import', {
     method: 'POST',
-    body: JSON.stringify({ channel, key, take }),
+    body: JSON.stringify({ channel, key, take, thread_id: threadId ?? undefined }),
   })
 
 /** The note a lesson taught here carries (stored text stays English, like audit text). */

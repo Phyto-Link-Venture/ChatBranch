@@ -170,7 +170,8 @@ public static class MetaWebhookEndpoints
 
         var account = await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Channel == ev.Channel
                                                                         && a.ExternalId == ev.PageId);
-        var isNew = !await db.Threads.AnyAsync(t => t.Channel == ev.Channel && t.Key == ev.SenderId);
+        // new for THIS page's company (another company's chat with the sender doesn't count)
+        var isNew = store.FindForAccount(ev.Channel, ev.SenderId, account?.Id) == null;
         var msg = processor.ProcessInbound(ev.Channel, ev.SenderId, ev.Text, null, account?.Id, ev.Mid, ev.Timestamp,
             replyToExternalId: ev.ReplyTo);
 
@@ -183,7 +184,7 @@ public static class MetaWebhookEndpoints
             var target = msg;
             if (i > 0)
             {
-                var thread = store.GetThread(ev.Channel, ev.SenderId);
+                var thread = store.ById(msg.ThreadId);
                 if (thread == null) break;
                 target = store.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
                     $"[{MetaWebhook.AttachmentKind(att.Type)}]", status: "received",

@@ -196,6 +196,8 @@ async function pushInboundMedia(id, m, waId, media) {
       // a fresh form per try (a body stream is consumed once)
       const form = new FormData()
       form.append('wa_id', waId)
+      // the receiving number: the API files the file in THAT number's company's conversation
+      form.append('account_id', id)
       form.append('msg_id', m.key?.id || '')
       form.append('media_type', media.type)
       // the customer's own file name (documents) — a photo or voice note has none

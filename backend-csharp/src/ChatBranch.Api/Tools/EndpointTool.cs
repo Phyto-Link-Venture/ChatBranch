@@ -188,6 +188,8 @@ public sealed class EndpointTool : ChatBranchTool
                 oneOf: Channels ?? ChannelNames, @in: ArgIn.None);
             yield return A.Str("key", "The conversation key (WhatsApp number, email address, chat id…).", req: true,
                 @in: ArgIn.None);
+            yield return A.Int("thread_id", ToolScope.ThreadIdHelp, @in: ArgIn.None);
+            yield return A.Str("company", ToolScope.CompanyHelp, @in: ArgIn.None);
         }
         foreach (var a in Args) yield return a;
         if (IsDestructive)
@@ -238,9 +240,13 @@ public sealed class EndpointTool : ChatBranchTool
         var route = Route;
         var rv = new Dictionary<string, string>();
         var fixedBody = FixedBody;
+        var fixedQuery = FixedQuery;
         if (OnThread)
         {
-            t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"));
+            t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"), Int(a, "thread_id"),
+                Str(a, "company"));
+            // the endpoint resolves exactly this conversation (one per customer per company)
+            fixedQuery = new Dictionary<string, string>(FixedQuery ?? new()) { ["thread_id"] = t.Id.ToString() };
             if (Channels != null && !Channels.Contains(t.Channel))
                 throw new ToolException($"This works on {string.Join(" / ", Channels)} conversations only.");
             if (t.Channel == ChatBranch.Domain.Channels.WhatsApp && WaRoute != null) route = WaRoute;
@@ -248,12 +254,15 @@ public sealed class EndpointTool : ChatBranchTool
             rv["key"] = t.Key;
             // a route that doesn't carry the conversation in its path takes it in the body
             if (!PathParams(route).Contains("key") && Method != "GET")
-                fixedBody = new Dictionary<string, object?>(FixedBody ?? new()) { ["channel"] = t.Channel, ["key"] = t.Key };
+                fixedBody = new Dictionary<string, object?>(FixedBody ?? new())
+                {
+                    ["channel"] = t.Channel, ["key"] = t.Key, ["thread_id"] = t.Id,
+                };
         }
-        var r = ToolContext.Require(await CallEndpointAsync(ctx, Method, route, a, Args, rv, FixedQuery, fixedBody, ct));
+        var r = ToolContext.Require(await CallEndpointAsync(ctx, Method, route, a, Args, rv, fixedQuery, fixedBody, ct));
         if (t != null)
             ctx.Links.Add(new ToolLink($"Open {(t.Name.Length > 0 ? t.Name : t.Key)}",
-                ToolResults.ChatLink(t.Channel, t.Key)));
+                ToolResults.ChatLink(t.Channel, t.Key, t.Id)));
         if (Link?.Invoke(a, r.Body) is { } link) ctx.Links.Add(link);
         return Shape != null
             ? Shape(new ShapeInput(r.Body, a, ctx, t))

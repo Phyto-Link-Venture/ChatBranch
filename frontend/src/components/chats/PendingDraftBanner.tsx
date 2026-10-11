@@ -23,10 +23,13 @@ import { useT } from '@/i18n'
 export default function PendingDraftBanner({
   channel,
   threadKey,
+  threadId,
   refreshToken,
 }: {
   channel: string
   threadKey: string
+  /** which company's conversation (a customer has one per company) */
+  threadId?: number | null
   /** Any value that changes when the conversation updates (refetch trigger). */
   refreshToken?: unknown
 }) {
@@ -38,13 +41,14 @@ export default function PendingDraftBanner({
   const load = useCallback(async () => {
     try {
       const thread = encodeURIComponent(`${channel}:${threadKey}`)
-      const d = await aiApi<DraftList>(`ai/monitor?thread=${thread}&status=pending&page_size=1&sort=oldest`)
+      const one = threadId ? `&thread_id=${threadId}` : ''
+      const d = await aiApi<DraftList>(`ai/monitor?thread=${thread}${one}&status=pending&page_size=1&sort=oldest`)
       setDraft(d.drafts[0] ?? null)
     } catch {
       // no ai.monitor capability, or the API is down — no banner
       setDraft(null)
     }
-  }, [channel, threadKey])
+  }, [channel, threadKey, threadId])
 
   useEffect(() => {
     setError(null)

@@ -49,10 +49,13 @@ const input = `w-full ${field}`
 export function DocumentsCard({
   channel,
   threadKey,
+  threadId,
   refreshToken,
 }: {
   channel: string
   threadKey: string
+  /** which company's conversation (a customer has one per company) */
+  threadId?: number | null
   /** Any value that changes when the conversation updates (refetch trigger). */
   refreshToken?: unknown
 }) {
@@ -67,18 +70,18 @@ export function DocumentsCard({
 
   const load = useCallback(async () => {
     try {
-      setRows(await listThreadDocuments(channel, threadKey))
+      setRows(await listThreadDocuments(channel, threadKey, threadId))
       setFailed(false)
     } catch {
       setRows([])
       setFailed(true)
     }
-  }, [channel, threadKey])
+  }, [channel, threadKey, threadId])
 
   useEffect(() => {
     void load()
   }, [load, refreshToken])
-  useEffect(() => setNotice(null), [channel, threadKey])
+  useEffect(() => setNotice(null), [channel, threadKey, threadId])
 
   const labelOf = (d: ChatDocument) => (d.type === 'qr' ? d.label : `${t(TYPE_LABEL[d.type])} ${d.number}`.trim())
 
@@ -152,6 +155,7 @@ export function DocumentsCard({
         <CreateDocumentModal
           channel={channel}
           threadKey={threadKey}
+          threadId={threadId}
           onClose={() => setCreating(false)}
           onCreated={(d, sent) => {
             setCreating(false)
@@ -179,11 +183,13 @@ const EMPTY_ITEM: ItemRow = { description: '', qty: '1', unit_price: '', discoun
 function CreateDocumentModal({
   channel,
   threadKey,
+  threadId,
   onClose,
   onCreated,
 }: {
   channel: string
   threadKey: string
+  threadId?: number | null
   onClose: () => void
   onCreated: (d: ChatDocument, sent: boolean) => void
 }) {
@@ -205,7 +211,7 @@ function CreateDocumentModal({
 
   useEffect(() => {
     let live = true
-    documentForm(channel, threadKey)
+    documentForm(channel, threadKey, threadId)
       .then((f) => {
         if (!live) return
         setForm(f)
@@ -215,7 +221,7 @@ function CreateDocumentModal({
     return () => {
       live = false
     }
-  }, [channel, threadKey])
+  }, [channel, threadKey, threadId])
 
   const chosen: DocumentFormType | undefined = useMemo(() => form?.types.find((x) => x.type === type), [form, type])
   const fields = useMemo(() => chosen?.fields ?? [], [chosen])
@@ -270,7 +276,7 @@ function CreateDocumentModal({
     }
     setBusy(true)
     try {
-      const d = await createDocument({ channel, key: threadKey, type, send, fields: args })
+      const d = await createDocument({ channel, key: threadKey, thread_id: threadId, type, send, fields: args })
       onCreated(d, send)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))

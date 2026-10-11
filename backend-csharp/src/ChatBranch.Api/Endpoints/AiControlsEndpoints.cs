@@ -200,25 +200,39 @@ public static class AiControlsEndpoints
 
             List<int> ids;
             var skipped = new List<string>();
-            if (body.TryGetProperty("threads", out var refsEl) && refsEl.ValueKind == JsonValueKind.Array)
+            if (body.TryGetProperty("thread_ids", out var idsEl) && idsEl.ValueKind == JsonValueKind.Array)
+            {
+                // the conversations by id (a customer has one per company: channel + key is not one)
+                var wanted = idsEl.EnumerateArray()
+                    .Select(x => x.ValueKind == JsonValueKind.Number && x.TryGetInt32(out var n) ? n
+                        : x.ValueKind == JsonValueKind.String && int.TryParse(x.GetString(), out var m) ? m : 0)
+                    .Where(x => x > 0).Distinct().ToList();
+                if (wanted.Count == 0) return Bad("thread_ids must list conversation ids.");
+                if (wanted.Count > BulkMax) return TooMany(wanted.Count);
+                var visible = await InboxThreadsEndpoints.VisibleEntityIdsAsync(db, sc, me);
+                var rows = await db.Threads.AsNoTracking().Where(t => wanted.Contains(t.Id))
+                    .Select(t => new { t.Id, t.EntityId }).ToListAsync();
+                ids = rows.Where(r => visible == null || r.EntityId is not int e || visible.Contains(e))
+                    .Select(r => r.Id).ToList();
+                skipped.AddRange(wanted.Except(ids).Select(x => $"#{x}"));
+            }
+            else if (body.TryGetProperty("threads", out var refsEl) && refsEl.ValueKind == JsonValueKind.Array)
             {
                 var refs = refsEl.EnumerateArray()
                     .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() ?? "" : "")
                     .Where(x => x.Contains(':')).Distinct().ToList();
                 if (refs.Count == 0) return Bad("threads must list \"channel:key\" references.");
                 if (refs.Count > BulkMax) return TooMany(refs.Count);
-                var visible = await InboxThreadsEndpoints.VisibleEntityIdsAsync(db, sc, me);
                 ids = new List<int>();
                 foreach (var r in refs)
                 {
                     var i = r.IndexOf(':');
                     var ch = r[..i].Trim().ToLowerInvariant();
                     var key = r[(i + 1)..].Trim();
-                    var row = await db.Threads.AsNoTracking().Where(t => t.Channel == ch && t.Key == key)
-                        .Select(t => new { t.Id, t.EntityId }).FirstOrDefaultAsync();
-                    if (row == null || (visible != null && row.EntityId is int e && !visible.Contains(e)))
-                        skipped.Add(r);
-                    else ids.Add(row.Id);
+                    // the caller's ONE conversation there — several (one per company) is skipped, never guessed
+                    var pick = await ThreadResolver.ResolveAsync(db, sc, me, ch, new[] { key });
+                    if (pick.ThreadId is int id) ids.Add(id);
+                    else skipped.Add(r);
                 }
             }
             else if (body.TryGetProperty("filter", out var filterEl) && filterEl.ValueKind == JsonValueKind.Object)
@@ -226,7 +240,7 @@ public static class AiControlsEndpoints
                 ids = await InboxThreadsEndpoints.MatchingThreadIdsAsync(db, sc, me, ToQuery(filterEl));
                 if (ids.Count > BulkMax) return TooMany(ids.Count);
             }
-            else return Bad("Pick the conversations: threads: [\"channel:key\"…] or filter: {…the list's query…}.");
+            else return Bad("Pick the conversations: thread_ids: [id…], threads: [\"channel:key\"…] or filter: {…the list's query…}.");
 
             var actor = me.Identity?.Name ?? "unknown";
             var changed = 0;
@@ -274,10 +288,9 @@ public static class AiControlsEndpoints
         app.MapPost("/api/inbox/threads/{channel}/{key}/handover", async (string channel, string key,
             HttpContext ctx, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
-            var visible = await InboxThreadsEndpoints.VisibleEntityIdsAsync(db, sc, me);
-            var t = await db.Threads.Include(x => x.Contact).Include(x => x.Account)
-                .FirstOrDefaultAsync(x => x.Channel == channel && x.Key == key);
-            if (t == null || (visible != null && t.EntityId is int e && !visible.Contains(e)))
+            // the ONE conversation the route names (ThreadAccessFilter: scope, thread_id / company)
+            var t = await ThreadResolver.LoadAsync(ctx);
+            if (t == null)
                 return Results.NotFound(new { detail = "Conversation not found." });
             JsonElement body = default;
             try { body = await JsonSerializer.DeserializeAsync<JsonElement>(ctx.Request.Body); }

@@ -315,7 +315,7 @@ public class AutomationService
         // Through the one notifier (org mutes + personal prefs); Run() saves.
         NotificationService.Notify(_db, NotificationCategories.Flows, "system",
             $"Automation · {rule.Name}", $"{thread.Name} ({thread.Channel}) — {text}",
-            $"/chats?channel={Uri.EscapeDataString(thread.Channel)}&key={Uri.EscapeDataString(thread.Key)}",
+            Stores.ThreadCompanies.LegacyChatHref(thread),
             NotificationAudience.Admins(), new NotifyOptions { Thread = thread, Save = false });
     }
 

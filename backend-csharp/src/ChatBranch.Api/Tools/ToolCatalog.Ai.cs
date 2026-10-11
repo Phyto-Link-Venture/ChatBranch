@@ -24,6 +24,7 @@ public static partial class ToolCatalog
                 A.Str("kind", "reply | followup | flow …"),
                 A.Str("q", "Text in the draft or the customer's message."),
                 A.Str("thread", "One conversation as channel:key."),
+                A.Int("thread_id", "Exactly one conversation by its thread_id (a customer has one per company under the same channel:key)."),
                 A.Str("sort", "newest (default) | oldest.", oneOf: new[] { "newest", "oldest" }),
                 A.Page, A.PageSize(100),
             }, link: (_, _) => Page("Open the AI monitor", "/ai-monitor"));
@@ -245,6 +246,8 @@ public static partial class ToolCatalog
                 A.Obj("profile", "Or a made-up customer: {name, language: en | ms | zh, tags: [...], fields: {key: value}}."),
                 A.Int("account_id", "The inbox whose review policy applies (optional)."),
                 A.Str("thread", "A real conversation (channel:key) whose AI switch applies (optional)."),
+                A.Int("thread_id", "With thread: " + Tools.ToolScope.ThreadIdHelp),
+                A.Str("company", "With thread: " + Tools.ToolScope.CompanyHelp),
                 A.Obj("options", "{provider, model, persona, knowledge, lessons, skills, memory, show_prompt} — " +
                                  "anything but the defaults needs ai.behaviour.manage."),
             }, write: false);
@@ -258,6 +261,8 @@ public static partial class ToolCatalog
                 A.Str("channel", "The conversation's channel.", req: true),
                 A.Str("key", "The conversation's key.", req: true),
                 A.Int("take", "How many of its latest messages (default 20, max 60).", min: 1, max: 60),
+                A.Int("thread_id", Tools.ToolScope.ThreadIdHelp),
+                A.Str("company", Tools.ToolScope.CompanyHelp),
             }, write: false);
 
         // ---- AI review (on demand: a stronger model checks past replies) -------

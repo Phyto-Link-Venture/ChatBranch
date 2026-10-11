@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using ChatBranch.Data.Contacts;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 using Thread = ChatBranch.Domain.Thread;
@@ -287,23 +288,60 @@ public partial class FlowEngine
     // ---- the conversation --------------------------------------------------------------
 
     /// <summary>The run's conversation: the one that started it, else the one
-    /// the latest reply came in on, else the contact's most recent one.</summary>
+    /// the latest reply came in on, else the contact's most recent one — always one
+    /// of the journey's own company (an organization-wide journey: any).</summary>
     private Thread? RunThread(FlowRun run, Contact? contact, ConditionFacts? facts = null)
     {
         if (facts is { ThreadLoaded: true }) return facts.Thread;
+        var (scoped, company) = WorkflowCompany(run);
+        bool Fits(Thread x) => !scoped || _scoping.ThreadCompany(x) == company;
         Thread? t = null;
-        foreach (var (ch, key) in new[] { ("trigger_channel", "trigger_key"), ("last_reply_channel", "last_reply_key") })
-        {
-            var c = Ctx(run, ch); var k = Ctx(run, key);
-            if (c == "" || k == "") continue;
-            t = _db.Threads.AsNoTracking().FirstOrDefault(x => x.Channel == c && x.Key == k);
-            if (t != null) break;
-        }
+        foreach (var idKey in new[] { "trigger_thread_id", "last_reply_thread_id" })
+            if (int.TryParse(Ctx(run, idKey), out var tid)
+                && _db.Threads.AsNoTracking().FirstOrDefault(x => x.Id == tid) is { } byId && Fits(byId))
+            {
+                t = byId;
+                break;
+            }
+        // older runs carry only channel + key: the contact's own conversation there, else any that fits
+        if (t == null)
+            foreach (var (ch, key) in new[] { ("trigger_channel", "trigger_key"), ("last_reply_channel", "last_reply_key") })
+            {
+                var c = Ctx(run, ch); var k = Ctx(run, key);
+                if (c == "" || k == "") continue;
+                var hits = _db.Threads.AsNoTracking().Where(x => x.Channel == c && x.Key == k)
+                    .OrderByDescending(x => x.UpdatedAt).ToList().Where(Fits).ToList();
+                t = hits.FirstOrDefault(x => contact != null && x.ContactId == contact.Id) ?? hits.FirstOrDefault();
+                if (t != null) break;
+            }
         if (t == null && contact != null)
             t = _db.Threads.AsNoTracking().Where(x => x.ContactId == contact.Id)
-                .OrderByDescending(x => x.UpdatedAt).ThenByDescending(x => x.Id).FirstOrDefault();
+                .OrderByDescending(x => x.UpdatedAt).ThenByDescending(x => x.Id).ToList().FirstOrDefault(Fits);
         if (facts != null) { facts.Thread = t; facts.ThreadLoaded = true; }
         return t;
+    }
+
+    /// <summary>The company a run's journey belongs to (Scoped = it has an entity).</summary>
+    private (bool Scoped, int? Company) WorkflowCompany(FlowRun run)
+    {
+        var entity = _db.Workflows.AsNoTracking().Where(w => w.Id == run.WorkflowId)
+            .Select(w => w.EntityId).FirstOrDefault();
+        return entity is int e ? (true, _scoping.CompanyOf(e)) : (false, null);
+    }
+
+    /// <summary>
+    /// The company a run's messages and history belong to: its journey's, else its
+    /// conversation's, else the contact's one company — null = the unattributed
+    /// conversations only. A journey never reads another company's conversations.
+    /// </summary>
+    private int? RunCompany(FlowRun run, Contact? contact, Thread? thread)
+    {
+        var (scoped, company) = WorkflowCompany(run);
+        if (scoped) return company;
+        if (thread != null) return _scoping.ThreadCompany(thread);
+        if (contact == null) return null;
+        var links = ContactCompanies.LinkCompanies(_db, _scoping, contact.Id);
+        return links.Count == 1 ? links.First() : null;
     }
 
     private bool ConversationMatches(FlowRun run, Contact? contact, FlowCondition c, ConditionFacts facts)

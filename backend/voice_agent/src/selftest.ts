@@ -52,6 +52,7 @@ async function check(name: string, fn: () => void | Promise<void>): Promise<void
 const sampleMd = {
   phone: '+60123456789',
   contact_id: 42,
+  entity_id: 7,
   contact_name: 'Aisyah',
   company_name: 'Kedai Maju',
   language: 'ms',
@@ -81,6 +82,7 @@ await check('metadata: contact = fallbacks overridden by dispatch keys', () => {
   assert.equal(contact.contact_name, 'Aisyah');
   assert.equal(contact.record_type, 'shipment');
   assert.equal(contact.contact_id, 42);
+  assert.equal(contact.entity_id, 7); // echoed into calls.json: the API files the call under that company
   assert.equal(contact.phone, '+60123456789');
   assert.equal(contact.knowledge, sampleMd.knowledge);
   assert.equal(contact.skills, sampleMd.skills);
@@ -88,6 +90,7 @@ await check('metadata: contact = fallbacks overridden by dispatch keys', () => {
   assert.equal(bare.contact_name, config.CONTACT.contact_name);
   assert.equal(bare.company_name, 'our team');
   assert.equal(bare.contact_id, undefined);
+  assert.equal(bare.entity_id, undefined);
 });
 
 // ── prompts ─────────────────────────────────────────────────────────────────

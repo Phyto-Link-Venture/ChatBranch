@@ -118,7 +118,7 @@ the message is stored with `status="sandbox"` and never leaves the machine.
 | SIP voice | dial / live / say / hangup / escalate through LiveKit | — |
 | Media serving | `/api/whatsapp/media/{id}` + `/api/messaging/media/{id}` (`chats.view` + the conversation's entity scope, Range, non-renderable types as downloads; files under `data/{whatsapp,messaging}/media/`, `Channels/WhatsAppMediaStore.cs`); the payload's `media` = `{type, url, mime, name, size}` (`crm_message.media_name` / `media_mime` / `media_size`, stamped by `MediaStore.Stamp` at every save; older rows derive them from the extension + the file) + for a signed-in SESSION `stream_url` / `download_url` / `alt_url` = **signed links** `GET /api/media/s/{token}` (`Endpoints/MediaStreamLinks.cs`: anonymous route, HMAC-SHA256 with a per-process key over message + profile + username + expiry, 60–90 min on a 30-min grid so a re-rendered thread keeps the same src; on open the person must still be active, hold `chats.view` and see the conversation — else 404, expired 410; Range; `?download=1` = attachment with the original name; `?format=m4a` = an AAC rendering of Ogg/Opus/AMR audio made by ffmpeg (`Channels/AudioTranscoder.cs`, env `MEDIA_FFMPEG` path / `off`, else PATH; cached as `{file}.m4a`; the API image installs it)) — the inbox plays them in the bubble (`components/chats/MediaPlayers.tsx`: images, an audio player with seek + speed that switches to the M4A when `canPlayType` says no, `<video playsInline>`, file cards with size + Download / Open; a placeholder `[image]` is never shown under its attachment and reads "Image — not available" when the file never came), `/api/whatsapp/calls/recording/{name}` (gateway WAV or the agent's), `/api/calls/recording/{call_id}` (SIP); AI-generated documents (PDF / QR, see Documents) live in the same media roots, `/api/documents/{id}/file` (`chats.view`, scoped) + the customer's anonymous `/api/documents/public/{token}` link, sent as a FILE on WhatsApp, Messenger/IG, Telegram, email, WeChat, Zalo and as that LINK on LINE, Viber, SMS, TikTok, Douyin and the website widget | — |
 | Channel health | writer `AccountHealth.SetStatus` (one audit row + an admin `account_health` bell per problem/recovery transition); periodic prober `Workers/HealthProbeWorker` (`WHATSAPP_HEALTH_INTERVAL` s, default 300; `HEALTH_WORKER=0` off) via `Channels/HealthProber.cs`: Cloud Graph ping, Baileys = the gateway's own session state (`connected` → healthy; not paired / QR expired / logged out / gateway unreachable → disconnected; a banned number stays banned — `ChannelHealthProber.BaileysVerdict`), Telegram getMe + getWebhookInfo, SMTP login, Messenger/IG `GET /me`, the newer channels' own probes (`IChannelTransport.ProbeAsync`), default SMTP → `email_health`; Meta send / status / test results classified by `Channels/MetaErrors.cs`; "Check now" runs the prober for the caller's scope; saving credentials resets to unknown + re-probes in the background | SIP voice stays config-presence only (by design) |
-| Routing | `Channels/Routing.cs` at SEND time (queue drain, manual sends, email mailbox + Telegram bot choice, and the AI gate — instant / approved / auto-sent AI replies, follow-ups): thread's healthy number → sticky `AccountAssignment` → least-loaded auto-assign → failover off banned/disconnected (pin cleared, thread moved, note + audit + notification); roles/providers/templates are WhatsApp-only (`RouteNeed.For`; templates → Cloud, never Baileys; 409 when none); account-bound channels (Telegram, Messenger/IG, widget, LINE, Viber, WeChat, TikTok, Douyin, Zalo) keep their own account, email and SMS spread even contactless threads; inbound re-attribution; `business_redirect` (`Channels/BusinessRedirect.cs`); recovery one-click + auto (`Channels/Recovery.cs`, hooked in `AccountHealth.SetStatus`) | — |
+| Routing | `Channels/Routing.cs` at SEND time (queue drain, manual sends, email mailbox + Telegram bot choice, and the AI gate — instant / approved / auto-sent AI replies, follow-ups): thread's healthy number → sticky `AccountAssignment` → least-loaded auto-assign → failover off banned/disconnected (pin cleared, thread moved, note + audit + notification); roles/providers/templates are WhatsApp-only (`RouteNeed.For`; templates → Cloud, never Baileys; 409 when none); account-bound channels (Telegram, Messenger/IG, widget, LINE, Viber, WeChat, TikTok, Douyin, Zalo) keep their own account, email and SMS spread even contactless threads; inbound re-attribution (between numbers of the SAME company only — never across companies); `business_redirect` (`Channels/BusinessRedirect.cs`); recovery one-click + auto (`Channels/Recovery.cs`, hooked in `AccountHealth.SetStatus`) | — |
 | Compliance | STOP/UNSUBSCRIBE/BERHENTI (+ `opt_out_keywords`) → `Thread.OptedOut` on every inbound channel, START/UNSTOP/MULA opts back in (`Channels/OptOut.cs`); platform signals set it too (Viber unsubscribed, LINE / WeChat / Zalo unfollow, Twilio `OptOutType` and error 21610 — `ChannelOptOut` in `Channels/More/MoreChannels.cs`); queued jobs cancelled; manual sends need `force`; cold-text guard (manual + queued WhatsApp text), cold-call guard, do-not-call | — (the opt-out lives on the conversation by design: consent is per channel, as in the original spec) |
 
 The seven newer channels (LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo —
@@ -154,8 +154,13 @@ When you fix one of these, update this table, `README.md` and
   (portable), never `[col]`; a raw SQL statement that may fail must not run inside
   a Postgres transaction (a failed statement aborts it). Entities live in
   `ChatBranch.Domain/`. Field reference: `docs/DATABASE_SCHEMA.md`.
-  **Write messages through `Stores/ThreadStore`**: `GetOrCreateThread` adopts
-  the receiving account / matched contact and re-syncs the thread's entity;
+  **Write messages through `Stores/ThreadStore`**: `GetOrCreateThread` finds
+  or creates the conversation of the RECEIVING account's company — one per
+  customer PER COMPANY, unique `(channel, key, company_entity_id)` (the
+  company = the top-level entity, set at creation and never moved; null =
+  unattributed, one per `(channel, key)`; `Stores/ThreadCompanies.cs`) — adopts
+  the account and a contact that company may see (`ContactCompanies.MayLink`)
+  and re-syncs the thread's entity inside its company;
   `AppendMessage` dedupes on `(thread, external_id)`, stamps
   `Message.AccountId`, reopens a resolved/snoozed thread on inbound and bumps
   `Thread.UpdatedAt` — the SSE change token. A bulk `ExecuteUpdate` on
@@ -387,7 +392,11 @@ When you fix one of these, update this table, `README.md` and
   consume-once), `calls.json` (finished records — folded into `CallRecord` +
   `LlmUsage` by `Sidecars/VoiceCallSync.cs`, idempotent by call id),
   `memory/{contact_id}.md` and `pronunciation.json`.
-- **The unified inbox.** Every channel is a `Thread` (unique `(channel, key)`)
+- **The unified inbox.** Every channel is a `Thread` (unique `(channel, key,
+  company)` — one conversation per customer per company; a route that names
+  `{channel}/{key}` resolves the caller's ONE through `Auth/ThreadResolver.cs`:
+  a bound person only their company's, anyone who sees several passes
+  `thread_id` / `company`, else 409 with the candidates — never a silent pick)
   + `Message` rows. `/chats` is a three-pane inbox → chat → info panel; its list
   is SERVER-filtered by `GET /api/inbox/threads`
   (`Endpoints/InboxThreadsEndpoints.cs` — status, channel, account, assignee,
@@ -448,7 +457,8 @@ When you fix one of these, update this table, `README.md` and
   stripped, the original kept in the note, audit `contact.invite_used`; Messenger
   `referral.ref` is bound in its webhook) → link a contact (email exact, else
   last-8-digit phone on WhatsApp and SMS, `Stores/PhoneMatch`) → move the thread
-  onto the RECEIVING number → the inbox's AI default on a brand-new thread → store
+  onto the RECEIVING number (`Reattribute`: only between numbers of the SAME
+  company — another company's number has its own conversation) → the inbox's AI default on a brand-new thread → store
   (dedup) → STOP/START (`Channels/OptOut`) → resume flow runs parked on a reply →
   team auto-assign (`TeamsEndpoints.AutoAssignAsync` via the
   `InboundProcessor.TeamRouter` hook set in Program.cs) → automation rules →
@@ -1776,6 +1786,10 @@ When you fix one of these, update this table, `README.md` and
   conversation's entity; `Seed.BackfillContactEntities` linked the old ones once
   (Setting `contacts_entity_backfill_v1`). The contacts list under an entity
   also shows contacts with a conversation there; `?entity=__none__` = no entity.
+  A contact's views (merged conversation, calls, bookings, timeline + its AI
+  summary, channel hub, documents, search hits) list only the caller's own
+  entities' conversations / calls / bookings / documents — "has a conversation
+  there" makes a contact visible, never another company's data.
 - **Contacts:** `/contacts` is a list (the kanban board is gone) with a 4-step
   **import wizard** (`components/contacts/ContactImportModal.tsx`: a .csv / .xlsx
   / .vcf file or your own Google Contacts → map columns → duplicates skip / fill

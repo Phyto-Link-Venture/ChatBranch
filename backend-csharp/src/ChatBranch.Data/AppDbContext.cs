@@ -19,6 +19,13 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
+    /// <summary>Unique (channel, key, company) — one conversation per customer per company.</summary>
+    public const string ThreadCompanyIndex = "uniq_thread_channel_key_company";
+    /// <summary>Unique (channel, key) among the unattributed (company-less) threads.</summary>
+    public const string ThreadUnattributedIndex = "uniq_thread_channel_key_unattributed";
+    /// <summary>The pre-company index: (channel, key) unique for the whole tenant — dropped on upgrade.</summary>
+    public const string LegacyThreadIndex = "uniq_thread_channel_key";
+
     // ingest
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<Entity> Entities => Set<Entity>();
@@ -287,10 +294,21 @@ public class AppDbContext : DbContext
             .HasDatabaseName("uniq_message_thread_external_id");
         // receipts look a message up by its provider id alone (statuses carry no thread)
         b.Entity<Message>().HasIndex(m => m.ExternalId).HasDatabaseName("ix_message_external_id");
+        // ONE conversation per customer PER COMPANY: (channel, key, company) is
+        // unique, and (channel, key) once more among the unattributed threads —
+        // NULLs are distinct in SQL, hence the second, filtered index (the same
+        // pair of partial indexes crm_setting uses). Stores.ThreadCompanies.Upgrade
+        // swaps the old (channel, key) index on an existing database.
+        b.Entity<Thread>()
+            .HasIndex(t => new { t.Channel, t.Key, t.CompanyEntityId })
+            .IsUnique()
+            .HasFilter("\"company_entity_id\" IS NOT NULL")
+            .HasDatabaseName(ThreadCompanyIndex);
         b.Entity<Thread>()
             .HasIndex(t => new { t.Channel, t.Key })
             .IsUnique()
-            .HasDatabaseName("uniq_thread_channel_key");
+            .HasFilter("\"company_entity_id\" IS NULL")
+            .HasDatabaseName(ThreadUnattributedIndex);
         // the inbox's "Needs human" filter (handover open = at set, not resolved)
         b.Entity<Thread>().HasIndex(t => new { t.HandoverAt, t.HandoverResolvedAt })
             .HasDatabaseName("ix_thread_handover");

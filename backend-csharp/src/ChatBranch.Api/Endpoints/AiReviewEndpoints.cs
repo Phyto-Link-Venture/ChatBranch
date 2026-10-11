@@ -522,7 +522,7 @@ public static class AiReviewEndpoints
         links = new
         {
             chat = f.Channel.Length > 0 && f.ThreadKey.Length > 0
-                ? $"/chats?thread={Uri.EscapeDataString(f.Channel)}:{Uri.EscapeDataString(f.ThreadKey)}" : null,
+                ? ChatBranch.Data.Stores.ThreadCompanies.ChatHref(f.Channel, f.ThreadKey, f.ThreadId) : null,
             draft = f.DraftId is int d ? $"/api/ai/monitor/{d}" : null,
         },
     };

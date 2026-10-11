@@ -5,6 +5,7 @@ using ChatBranch.Data.Sidecars;
 using ChatBranch.Data.Stores;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
+using Thread = ChatBranch.Domain.Thread;
 
 namespace ChatBranch.Data.Flows;
 
@@ -175,7 +176,7 @@ public class QueueCallPlacer
         if (_livekit.Settings.MissingForSip() is string reason)
             return new CallAttempt(CallAttempt.Failed, reason);
 
-        var entityId = ContactEntity(contact);
+        var entityId = CallEntity(job, contact);
         if (Ai.AiQuota.EntityBlock(_db, _scoping, entityId) is { } quota)
             return new CallAttempt(CallAttempt.Failed, Ai.AiQuota.Reason(quota));
         var metadata = await VoiceDispatch.BuildAsync(_db, _knowledge, _assistant, _scoping, _dataDir, contact,
@@ -196,7 +197,9 @@ public class QueueCallPlacer
     {
         var waId = new string((job.ToAddress ?? "").Where(char.IsDigit).ToArray());
         if (waId.Length < 8) return new CallAttempt(CallAttempt.Failed, "No WhatsApp number to call.");
-        var account = ResolveAccount(job);
+        // the job's OWN conversation (its company's), never another company's chat with that number
+        var thread = _threads.FindForJob(job);
+        var account = ResolveAccount(job, thread);
         if (account == null)
             return new CallAttempt(CallAttempt.Failed,
                 "No linked WhatsApp (Baileys) number can place the call — pair one in Channels → WhatsApp.");
@@ -205,7 +208,6 @@ public class QueueCallPlacer
         if (_livekit.Settings.MissingForServer() is string reason)
             return new CallAttempt(CallAttempt.Failed, reason, AccountId: account.Id);
 
-        var thread = _db.Threads.FirstOrDefault(t => t.Channel == ChatBranch.Domain.Channels.WhatsApp && t.Key == waId);
         if (thread?.OptedOut == true)
             return new CallAttempt(CallAttempt.Failed, "Contact opted out — calls are blocked.", AccountId: account.Id);
         // cold-call guard: a WhatsApp call to someone who never wrote to us is the ban-risk case
@@ -248,8 +250,15 @@ public class QueueCallPlacer
                 : new CallAttempt(CallAttempt.Failed, started.Detail, AccountId: account.Id);
         }
 
-        thread ??= _threads.GetOrCreateThread(ChatBranch.Domain.Channels.WhatsApp, waId, contact?.Name,
-            accountId: account.Id, contactId: contact?.Id);
+        if (thread == null)
+        {
+            var (known, company) = _threads.JobCompany(job);
+            thread = known
+                ? _threads.GetOrCreateInCompany(ChatBranch.Domain.Channels.WhatsApp, waId, company, contact?.Name,
+                    accountId: account.Id, contactId: contact?.Id)
+                : _threads.GetOrCreateThread(ChatBranch.Domain.Channels.WhatsApp, waId, contact?.Name,
+                    accountId: account.Id, contactId: contact?.Id);
+        }
         thread.CallId = started.ExternalId.Length > 0 ? started.ExternalId : room;
         thread.CallStatus = "connecting";
         thread.CallRoom = room;
@@ -265,13 +274,17 @@ public class QueueCallPlacer
     /// <summary>
     /// The Baileys number that carries the call: the job's own account, else the
     /// contact's sticky assignment, else the account its WhatsApp thread is on,
-    /// else the healthy Baileys number with the fewest calls today.
+    /// else the healthy Baileys number with the fewest calls today — always a
+    /// number of the conversation's own company (or an organization-wide one).
     /// </summary>
-    private ChannelAccount? ResolveAccount(OutboundJob job)
+    private ChannelAccount? ResolveAccount(OutboundJob job, Thread? thread = null)
     {
-        static bool Usable(ChannelAccount? a) => a != null && a.Channel == ChatBranch.Domain.Channels.WhatsApp
+        thread ??= _threads.FindForJob(job);
+        var company = thread != null ? _scoping.ThreadCompany(thread) : _threads.JobCompany(job).Company;
+        bool Usable(ChannelAccount? a) => a != null && a.Channel == ChatBranch.Domain.Channels.WhatsApp
             && a.Provider == Providers.Baileys && a.ExternalId.Length > 0
-            && a.HealthStatus is not (Health.Banned or Health.Disconnected);
+            && a.HealthStatus is not (Health.Banned or Health.Disconnected)
+            && ScopingService.SameCompanyOrShared(company, _scoping.AccountCompany(a));
 
         var accounts = _db.ChannelAccounts.AsNoTracking()
             .Where(a => a.Channel == ChatBranch.Domain.Channels.WhatsApp && a.Provider == Providers.Baileys)
@@ -286,10 +299,7 @@ public class QueueCallPlacer
                 .Select(a => (int?)a.AccountId).FirstOrDefault();
             if (Usable(Find(pinned))) return Find(pinned);
         }
-        var waId = new string((job.ToAddress ?? "").Where(char.IsDigit).ToArray());
-        var threadAccount = _db.Threads.AsNoTracking()
-            .Where(t => t.Channel == ChatBranch.Domain.Channels.WhatsApp && t.Key == waId)
-            .Select(t => t.AccountId).FirstOrDefault();
+        var threadAccount = thread?.AccountId;
         if (Usable(Find(threadAccount))) return Find(threadAccount);
 
         var since = Now.AddHours(-24);
@@ -300,10 +310,21 @@ public class QueueCallPlacer
             .FirstOrDefault();
     }
 
-    private int? ContactEntity(Contact? contact) => contact == null
-        ? null
-        : _db.ContactEntities.AsNoTracking().Where(l => l.ContactId == contact.Id)
-            .OrderBy(l => l.Id).Select(l => (int?)l.EntityId).FirstOrDefault();
+    /// <summary>
+    /// The outlet a SIP call is placed for: inside the company the job was queued for
+    /// (its journey's) — the contact's link there, else that company — else the
+    /// contact's first entity link. Its knowledge, skills, quota and call record follow it.
+    /// </summary>
+    private int? CallEntity(OutboundJob job, Contact? contact)
+    {
+        var links = contact == null ? new List<int>()
+            : _db.ContactEntities.AsNoTracking().Where(l => l.ContactId == contact.Id)
+                .OrderBy(l => l.Id).Select(l => l.EntityId).ToList();
+        var (known, company) = _threads.JobCompany(job);
+        if (known && company is int c)
+            return links.FirstOrDefault(l => _scoping.CompanyOf(l) == c) is var hit && hit != 0 ? hit : c;
+        return links.Count > 0 ? links[0] : null;
+    }
 
     private static int MaxCallSeconds() =>
         int.TryParse(Environment.GetEnvironmentVariable("MAX_CALL_SECONDS"), out var s) && s > 0 ? s : 300;

@@ -83,8 +83,11 @@ public sealed class FlowAiDecision
     /// | conversation (only <paramref name="threadId"/>) — oldest first, private
     /// notes excluded, optionally only those since <paramref name="since"/>.
     /// </summary>
+    /// <param name="company">The company the run reads (its journey's / conversation's): the
+    /// contact's conversations of OTHER companies never reach the decision. Null = only
+    /// unattributed conversations.</param>
     public List<FlowAiLine> History(int contactId, string scope, string? channel, int? threadId,
-        DateTime? since, int take)
+        DateTime? since, int take, int? company = null)
     {
         try
         {
@@ -93,7 +96,10 @@ public sealed class FlowAiDecision
                 threads = threadId is int tid ? _db.Threads.AsNoTracking().Where(t => t.Id == tid) : threads.Where(t => false);
             else if (scope == "channel")
                 threads = string.IsNullOrEmpty(channel) ? threads.Where(t => false) : threads.Where(t => t.Channel == channel);
-            var ids = threads.Select(t => t.Id).ToList();
+            var sc = new ScopingService(_db);
+            var ids = threads.Select(t => new { t.Id, t.CompanyEntityId, t.EntityId }).ToList()
+                .Where(t => (t.CompanyEntityId ?? sc.CompanyOf(t.EntityId)) == company)
+                .Select(t => t.Id).ToList();
             if (ids.Count == 0) return new();
             var q = _db.Messages.AsNoTracking().Include(m => m.Thread)
                 .Where(m => ids.Contains(m.ThreadId) && !m.Private);

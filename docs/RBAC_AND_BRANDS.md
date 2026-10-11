@@ -331,13 +331,31 @@ conversation yet passes (a first send creates it). The multipart
 reaction route `POST /api/messaging/threads/{channel}/{key}/messages/{pk}/react`
 (`chats.send`; the message must belong to that conversation, else 404).
 
+**One conversation per customer PER COMPANY** (incident 2026-10-11). The same
+customer writing to two companies' numbers has two conversations, so
+`{channel}/{key}` can name more than one; every per-conversation route (the
+filter above), every body or query that names a conversation and every MCP
+conversation tool resolve it with ONE rule, `Auth/ThreadResolver.cs`: only
+conversations the caller may see count; a person bound to entities means their
+own company's (another company's never matches — and while their own company's
+sits in a branch they can't open it is a 404, never a second conversation);
+`thread_id` (or `company` = the company's id or slug, `none` = the unattributed
+one) picks exactly one; someone who sees several without it gets **409**
+`{code: "ambiguous_thread", candidates: [{thread_id, company, entity, account,
+name, updated_at}]}` — never a silent pick. A `thread_id` must belong to the
+route's channel + key. Thread payloads and inbox rows carry `thread_id` and
+`company {id, name}`; `/api/inbox/threads` says `multi_company` when the caller
+sees more than one company (the dashboard then names the company on each chat).
+
 Routes that name the conversation in the BODY apply the same rule with
 `ThreadAccessFilter.InScope`:
 
 - `POST /api/aicore/reply` (an AI draft for the operator) — out of scope = 404.
 - Starting a chat, `POST /api/messaging/threads` and `POST /api/whatsapp/threads`
-  (`chats.send`): an existing conversation outside the caller's scope is a 404
-  and is left untouched; a new one only links a contact the caller can see
+  (`chats.send`): the caller's OWN company's conversation (a customer another
+  company talks to gets a new one in the caller's company — the other company's
+  is neither opened nor moved, and nothing of it comes across); one of their
+  company's in a branch outside their scope is a 404 and is left untouched; a new one only links a contact the caller can see
   (`ContactsEndpoints.ScopeContacts`) and never takes a number from another
   outlet (named explicitly = 403, picked automatically = left to send-time
   routing); moving an existing conversation to another number is the admin's
@@ -351,6 +369,27 @@ Around it:
   and `POST /api/messaging/timeline/summary` need `chats.view` or
   `contacts.view` and are scoped (contact + threads);
   `GET /api/messaging/contacts/{id}/conversation` is scoped the same way.
+- **A contact's views show only the caller's own data** (Fix 3 of the
+  2026-10-11 incident; superadmin and organization-wide admins unchanged). A
+  contact is visible when it is linked to the caller's entities OR has a
+  conversation there — but that never reveals another company's records:
+  `/api/messaging/contacts/{id}/conversation`, `/api/contacts/{id}/calls`,
+  `/api/bookings?contact_id=`, the timeline (`/api/messaging/timeline`) and
+  its AI summary (a cached summary is served only to a caller who sees every
+  conversation and call it was written from; a new one is written from what the
+  caller sees), the channel hub (`/api/contacts/{id}/channels`), documents
+  (`/api/documents`) and search hits list only conversations in the caller's
+  inbox scope, calls placed for their entities (`crm_callrecord.entity_id`,
+  `Endpoints/CallScope.cs`; a call with no entity only for unbound viewers) and
+  bookings / documents of those conversations or entities. `?company=` (id,
+  slug or `none`) narrows the merged conversation and the calls to ONE company
+  — the chat's merged view uses it so two companies' chats are never mixed,
+  even for an organization-wide admin.
+- **Linking** never crosses companies: a conversation of company A is linked
+  only to a contact of A or an organization-wide contact
+  (`ContactCompanies.MayLink`), on inbound matching, the identity exchange and
+  `…/link` alike, and a link never moves a conversation's entity out of its
+  company.
 - The vCard export (`GET /api/messaging/contacts/vcard`) needs
   `contacts.manage` or `channels.manage`.
 - Both thread lists — `GET /api/whatsapp/threads` and

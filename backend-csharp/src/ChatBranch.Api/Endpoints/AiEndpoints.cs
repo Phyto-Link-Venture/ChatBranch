@@ -39,7 +39,11 @@ public static class AiEndpoints
     /// Django name. Accept both — binding only `query` made the preview silently
     /// ignore the message you typed and always return the whole block.</summary>
     public record PreviewRequest(string? Query, string? Text, string? Channel, string? Entity);
-    public record ReplyRequest(string Channel, string Key);
+    /// <summary><c>thread_id</c> / <c>company</c> say which conversation when the customer has one with
+    /// several companies the caller sees (else 409 with the candidates).</summary>
+    public record ReplyRequest(string Channel, string Key,
+        [property: System.Text.Json.Serialization.JsonPropertyName("thread_id")] int? ThreadId = null,
+        string? Company = null);
 
     public static void MapAiEndpoints(this IEndpointRouteBuilder app)
     {
@@ -391,11 +395,12 @@ public static class AiEndpoints
         app.MapPost("/api/aicore/reply", async (ReplyRequest body, ThreadStore store,
             AssistantService assistant, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
-            var thread = store.GetThread(body.Channel, body.Key);
             // the conversation names come in the body, so the route filter can't see
-            // them: the inbox's scope rule is applied here (out of scope = not found)
-            if (thread == null || !ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
-                return Results.NotFound(new { detail = "thread not found" });
+            // them: the same resolution is applied here (out of scope = not found, one per
+            // company — several the caller sees need thread_id / company)
+            var (refused, thread) = await ThreadResolver.FindAsync(db, sc, me, body.Channel, body.Key,
+                body.ThreadId, body.Company);
+            if (refused != null || thread == null) return refused ?? Results.NotFound(new { detail = "thread not found" });
             // AI usage quotas: the caller's own cap, then the conversation's outlet
             // (or any level above it) — a suggestion is AI spend like any other
             if (QuotaGuard.Refusal(db, sc, me) is { } userQuota) return userQuota;

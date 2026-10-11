@@ -393,7 +393,7 @@ public static class WhatsAppSettingsEndpoints
             .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.view");
 
         // ---- approved templates --------------------------------------------
-        app.MapGet("/api/whatsapp/templates", async (string? account_id, string? wa_id,
+        app.MapGet("/api/whatsapp/templates", async (string? account_id, string? wa_id, int? thread_id,
             AppDbContext db, ScopingService sc, FlowEngine flows, WhatsAppTemplateCatalog catalog,
             ClaimsPrincipal me) =>
         {
@@ -406,9 +406,13 @@ public static class WhatsAppSettingsEndpoints
             var key = NormalizeWaId(wa_id);
             if (key != "")
             {
-                var thread = await db.Threads.AsNoTracking().Include(t => t.Contact)
-                    .FirstOrDefaultAsync(t => t.Channel == Channels.WhatsApp && t.Key == key);
-                // only a conversation the caller may open (no other outlet's customer data)
+                // only THE conversation the caller means and may open (one per company; an
+                // ambiguous one pre-fills nothing — never another company's customer data)
+                var pick = await ChatBranch.Api.Auth.ThreadResolver.ResolveAsync(db, sc, me, Channels.WhatsApp,
+                    new[] { key }, thread_id);
+                var thread = pick.ThreadId is int tid
+                    ? await db.Threads.AsNoTracking().Include(t => t.Contact).FirstOrDefaultAsync(t => t.Id == tid)
+                    : null;
                 var contact = thread != null && await WhatsAppMediaEndpoints.CanSeeThread(db, sc, me, thread)
                     ? thread.Contact : null;
                 if (contact != null) resolvedVars = SafeVariables(flows, contact);
@@ -752,9 +756,11 @@ public static class WhatsAppSettingsEndpoints
                 // Re-file this number's existing conversations under the new
                 // outlet — otherwise binding a number leaves its whole history
                 // in the old scope and the inbox looks like it lost chats.
-                foreach (var thread in await db.Threads.Include(t => t.Contact).Include(t => t.Account)
-                             .Where(t => t.AccountId == row.Id).ToListAsync())
-                    sc.SyncThreadEntity(thread);
+                // (within one company: another company's conversation lets go of the number)
+            {
+                ChatBranch.Data.Stores.ThreadCompanies.AfterAccountRebound(db, sc, row.Id);
+                await db.SaveChangesAsync();
+            }
 
             // Becoming the reminder cannon retires the chatbot across this
             // account's existing threads. The AI tick is per account

@@ -354,6 +354,12 @@ public static class Seed
             + "\"last_uid\" INTEGER NOT NULL, \"updated_at\" TEXT NOT NULL, "
             + "CONSTRAINT \"uniq_mailboxcursor_folder\" UNIQUE (\"mailbox\", \"folder\")");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
+        // one conversation per customer PER COMPANY (incident 2026-10-11): the stored
+        // company, its backfill, and (channel, key) → (channel, key, company) uniqueness
+        AddColumnIfMissing(db, "crm_thread", "company_entity_id", "INTEGER NULL");
+        // a call's outlet (stamped from the dispatch) — contact views show only the caller's calls
+        AddColumnIfMissing(db, "crm_callrecord", "entity_id", "INTEGER NULL");
+        Stores.ThreadCompanies.Upgrade(db);
     }
 
     /// <summary>A partial UNIQUE index EnsureCreated() will never add to an existing

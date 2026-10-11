@@ -33,6 +33,8 @@ public static class VoiceCallSync
             {
                 CallId = callId,
                 ContactId = contactId,
+                // the outlet the call was placed for (the dispatch's entity_id, echoed by the agent)
+                EntityId = await ExistingEntityAsync(db, contact, ct),
                 Phone = Str(contact, "phone"),
                 Name = Str(contact, "contact_name"),
                 StartedAt = Str(r, "started_at"),
@@ -55,6 +57,13 @@ public static class VoiceCallSync
     {
         if (!int.TryParse(Str(contact, "contact_id"), out var id)) return null;
         return await db.Contacts.AsNoTracking().AnyAsync(x => x.Id == id, ct) ? id : null;
+    }
+
+    /// <summary>The record's outlet (dispatch <c>entity_id</c>), when that entity still exists.</summary>
+    private static async Task<int?> ExistingEntityAsync(AppDbContext db, JsonElement contact, CancellationToken ct)
+    {
+        if (!int.TryParse(Str(contact, "entity_id"), out var id)) return null;
+        return await db.Entities.AsNoTracking().AnyAsync(x => x.Id == id, ct) ? id : null;
     }
 
     private static void AddUsage(AppDbContext db, JsonElement live, string callId, int? contactId, DateTime now)

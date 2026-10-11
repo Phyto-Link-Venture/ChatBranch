@@ -199,9 +199,10 @@ public static class AiPlaygroundEndpoints
             Thread? real = null;
             if (Str(b, "thread") is { Length: > 0 } threadRef)
             {
-                real = await FindThreadAsync(db, threadRef);
-                if (real == null || !ThreadAccessFilter.InScope(db, sc, me, real.EntityId))
-                    return Results.NotFound(new { detail = "Conversation not found." });
+                // the caller's ONE conversation (a customer has one per company: thread_id / company say which)
+                var (refused, found) = await FindThreadAsync(db, sc, me, threadRef, Int(b, "thread_id"), Str(b, "company"));
+                if (refused != null) return refused;
+                real = found;
             }
 
             // ---- who: a real contact (scoped, read only) or a made-up profile
@@ -414,9 +415,10 @@ public static class AiPlaygroundEndpoints
             if (channel.Length == 0 || key.Length == 0) return Bad("Send the conversation's channel and key.");
             var take = Math.Clamp(Int(b, "take") ?? ImportDefault, 1, MaxTurns);
 
-            var t = await FindThreadAsync(db, $"{channel}:{key}");
-            if (t == null || !ThreadAccessFilter.InScope(db, sc, me, t.EntityId))
-                return Results.NotFound(new { detail = "Conversation not found." });
+            // the caller's ONE conversation (a customer has one per company: thread_id / company say which)
+            var (refused, t) = await FindThreadAsync(db, sc, me, $"{channel}:{key}", Int(b, "thread_id"), Str(b, "company"));
+            if (refused != null) return refused;
+            if (t == null) return Results.NotFound(new { detail = "Conversation not found." });
 
             var rows = await db.Messages.AsNoTracking()
                 .Where(m => m.ThreadId == t.Id && !m.Private && m.Text != "")
@@ -444,6 +446,7 @@ public static class AiPlaygroundEndpoints
             return Results.Ok(new
             {
                 thread = $"{t.Channel}:{t.Key}",
+                thread_id = t.Id,   // a customer has one conversation per company: the id says which
                 name = string.IsNullOrWhiteSpace(t.Name) ? t.Key : t.Name,
                 channel = PlaygroundChannels.Contains(t.Channel) ? t.Channel : Channels.WhatsApp,
                 entity = ent == null ? null : new { slug = ent.Slug, name = ent.Name },
@@ -494,17 +497,26 @@ public static class AiPlaygroundEndpoints
         int.TryParse(me.FindFirstValue("tenant_id"), out var t) ? t : null;
 
     /// <summary>"channel:key" → the conversation (WhatsApp keys also as digits only, like the inbox routes).</summary>
-    private static async Task<Thread?> FindThreadAsync(AppDbContext db, string reference)
+    /// <summary>
+    /// The conversation a "channel:key" reference names FOR THIS CALLER — a customer has one
+    /// per company, so the resolver picks the caller's own (thread_id / company when they see
+    /// several: 409 with the candidates); out of scope or unknown = 404. Never "the first
+    /// thread with that key".
+    /// </summary>
+    private static async Task<(IResult? Refused, Thread? Thread)> FindThreadAsync(AppDbContext db, ScopingService sc,
+        ClaimsPrincipal me, string reference, int? threadId, string? company)
     {
+        var notFound = Results.NotFound(new { detail = "Conversation not found." });
         var i = reference.IndexOf(':');
-        if (i <= 0 || i == reference.Length - 1) return null;
+        if (i <= 0 || i == reference.Length - 1) return (notFound, null);
         var channel = reference[..i].Trim().ToLowerInvariant();
         var key = reference[(i + 1)..].Trim();
-        var keys = new List<string> { key };
-        if (channel == Channels.WhatsApp) keys.Add(new string(key.Where(char.IsDigit).ToArray()));
-        keys = keys.Where(k => k.Length > 0).Distinct().ToList();
-        return await db.Threads.AsNoTracking().Include(t => t.Contact)
-            .FirstOrDefaultAsync(t => t.Channel == channel && keys.Contains(t.Key));
+        var pick = await ThreadResolver.ResolveAsync(db, sc, me, channel, ThreadResolver.KeyVariants(channel, key),
+            threadId, company);
+        if (pick.Outcome == ThreadResolver.Outcome.Ambiguous) return (ThreadResolver.Ambiguous(pick.Candidates), null);
+        if (pick.ThreadId is not int id) return (notFound, null);
+        var t = await db.Threads.AsNoTracking().Include(x => x.Contact).FirstOrDefaultAsync(x => x.Id == id);
+        return t == null ? (notFound, null) : (null, t);
     }
 
     // ---- small helpers --------------------------------------------------------------------

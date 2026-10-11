@@ -399,9 +399,10 @@ public static partial class PendingRef
     }
 
     /// <summary>The waiting code for a thread whose customer has not written yet (null otherwise).</summary>
-    public static string? Take(AppDbContext db, string channel, string key)
+    public static string? Take(AppDbContext db, string channel, string key, int? accountId = null)
     {
-        var thread = db.Threads.AsNoTracking().FirstOrDefault(t => t.Channel == channel && t.Key == key);
+        // the waiting code of THIS account's conversation (another company's chat keeps its own)
+        var thread = new ThreadStore(db, new ScopingService(db)).FindForAccount(channel, key, accountId);
         if (thread == null) return null;
         if (db.Messages.Any(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In)) return null;
         var note = db.Messages.AsNoTracking()

@@ -56,7 +56,7 @@ public static class AiMonitorEndpoints
     {
         // ---- list ---------------------------------------------------------------
         app.MapGet("/api/ai/monitor", async (string? status, string? channel, string? entity,
-            string? kind, string? q, string? thread, int? page, int? page_size, string? sort,
+            string? kind, string? q, string? thread, int? thread_id, int? page, int? page_size, string? sort,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me, TimeProvider clock) =>
         {
             var scope = await ScopeFor(db, sc, me, entity);
@@ -71,6 +71,9 @@ public static class AiMonitorEndpoints
                 var key = thread[(thread.IndexOf(':') + 1)..];
                 baseQ = baseQ.Where(d => d.Channel == ch && d.ThreadKey == key);
             }
+            // one conversation exactly — the customer may have one per company under that key
+            if (thread_id is int tid && tid > 0)
+                baseQ = baseQ.Where(d => d.ThreadId == tid);
             if (!string.IsNullOrWhiteSpace(q))
             {
                 var like = $"%{q.Trim()}%";

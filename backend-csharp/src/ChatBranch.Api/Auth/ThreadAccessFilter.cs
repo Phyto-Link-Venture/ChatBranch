@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using ChatBranch.Api.Endpoints;
 using ChatBranch.Data;
-using Microsoft.EntityFrameworkCore;
 
 namespace ChatBranch.Api.Auth;
 
@@ -9,11 +8,16 @@ namespace ChatBranch.Api.Auth;
 /// The guard on every per-conversation route (<c>/api/whatsapp/threads/{key}/…</c>,
 /// <c>/api/messaging/threads/{channel}/{key}/…</c>, the inbox's
 /// <c>{channel}/{key}</c> routes): the caller needs <paramref name="capability"/>
-/// AND must be able to see the conversation under the inbox's rule — inside their
-/// entity scope (<see cref="ShellScope.ThreadEntityIds"/>), unassigned
-/// conversations visible to everyone. A conversation outside it answers 404, the
-/// same as one that does not exist, so its existence doesn't leak either. A key
-/// with no conversation yet passes through (a first send creates it).
+/// AND the route must name ONE conversation they may see
+/// (<see cref="ThreadResolver"/>: inside their entity scope — unassigned
+/// conversations visible to everyone — and, when the customer has a
+/// conversation with several companies the caller sees, the <c>thread_id</c> /
+/// <c>company</c> query parameter that says which; without it → 409 with the
+/// candidates). An unknown <c>thread_id</c> answers 404, the same as a
+/// conversation that does not exist, so existence doesn't leak. A key with no
+/// conversation of the caller's yet passes through (a first send creates one,
+/// in the caller's company); the handler reads the pick with
+/// <see cref="ThreadResolver.LoadAsync"/>, never by channel + key again.
 /// </summary>
 public static class ThreadAccessFilter
 {
@@ -30,8 +34,8 @@ public static class ThreadAccessFilter
                 var need = $"The {capability} capability is required.";
                 return Results.Json(new { detail = need, error = need }, statusCode: StatusCodes.Status403Forbidden);
             }
-            if (!await VisibleAsync(http, db))
-                return Results.Json(new { detail = "Thread not found." }, statusCode: StatusCodes.Status404NotFound);
+            var pick = await ThreadResolver.ForRequestAsync(http);
+            if (ThreadResolver.Refusal(pick) is { } refused) return refused;
             return await next(ctx);
         });
 
@@ -44,27 +48,5 @@ public static class ThreadAccessFilter
         if (threadEntityId == null) return true;
         var allowed = ShellScope.ThreadEntityIds(db, sc, me, null);
         return allowed == null || allowed.Contains(threadEntityId.Value);
-    }
-
-    /// <summary>True unless a conversation the route names lies outside the caller's scope.</summary>
-    private static async Task<bool> VisibleAsync(HttpContext http, AppDbContext db)
-    {
-        var values = http.Request.RouteValues;
-        var raw = (values.TryGetValue("key", out var k) ? k?.ToString() : null) ?? "";
-        var channel = (values.TryGetValue("channel", out var c) ? c?.ToString() : null)
-                      ?? ChatBranch.Domain.Channels.WhatsApp;
-        // the lookups the handlers use: a trim (messaging store) and, for WhatsApp, digits only
-        var keys = new List<string> { raw, raw.Trim() };
-        if (channel == ChatBranch.Domain.Channels.WhatsApp) keys.Add(new string(raw.Where(char.IsDigit).ToArray()));
-        keys = keys.Where(x => x.Length > 0).Distinct().ToList();
-        if (keys.Count == 0) return true;
-
-        var entities = await db.Threads.AsNoTracking()
-            .Where(t => t.Channel == channel && keys.Contains(t.Key))
-            .Select(t => t.EntityId).ToListAsync();
-        if (entities.Count == 0) return true;
-        var sc = http.RequestServices.GetRequiredService<ScopingService>();
-        var allowed = ShellScope.ThreadEntityIds(db, sc, http.User, null);
-        return allowed == null || entities.All(e => e == null || allowed.Contains(e.Value));
     }
 }

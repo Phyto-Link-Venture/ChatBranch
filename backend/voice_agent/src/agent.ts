@@ -208,7 +208,9 @@ async function runCall(ctx: JobContext): Promise<void> {
   // agent can neither auto-reply after the read nor be "interrupted" by line noise.
   const scriptText = (md.script ?? '').trim();
   const contactId = contact.contact_id;
-  const memory = contactId !== undefined ? loadMemory(contactId) : null;
+  // a contact shared by several companies: the per-contact memory file is neither read nor written
+  const fileMemory = md.file_memory !== false;
+  const memory = contactId !== undefined && fileMemory ? loadMemory(contactId) : null;
   const callId = ctx.room.name ?? '';
   const startedAt = nowIso();
   const transcriptLines: string[] = [];
@@ -493,7 +495,7 @@ async function runCall(ctx: JobContext): Promise<void> {
     }
     END_CAUSE.delete(callId);
 
-    if (contactId !== undefined) {
+    if (contactId !== undefined && fileMemory) {
       try {
         saveMemory(contactId, {
           language: summary.language_used,

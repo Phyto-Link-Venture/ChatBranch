@@ -22,6 +22,8 @@ const POLL_MS = 15_000
 export interface LiveCall {
   channel: string
   key: string
+  /** which company's conversation (a customer has one per company) */
+  thread_id?: number | null
   name: string
   status: string
   room: string | null
@@ -32,6 +34,7 @@ export interface LiveCall {
 export interface LiveWaiting {
   channel: string
   key: string
+  thread_id?: number | null
   name: string
   preview: string
   assignee: string

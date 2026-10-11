@@ -238,6 +238,12 @@ export const chats: Dict<typeof source> = {
     gaveUpSaid: '未知客户没有说明身份（{said}）',
     createContact: '创建联系人',
   },
+  company: {
+    rowHint: '{name} 的对话——每位客户在每家公司各有一个对话',
+    pickTitle: '打开哪家公司的对话？',
+    pickHint: '这位客户与不止一家公司有对话。请选择要打开的那一个——它们彼此分开保存。',
+    none: '无公司',
+  },
   draft: {
     title: 'AI 回复等待审核',
     approveSend: '批准并发送',

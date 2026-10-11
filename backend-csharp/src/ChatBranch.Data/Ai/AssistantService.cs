@@ -95,8 +95,13 @@ public partial class AssistantService
 
         if (contact != null)
         {
-            sb.AppendLine().AppendLine(ContactBlock(contact, parts.Memory));
-            var memory = parts.Memory ? MemoryBlock(contact) : "";
+            // only what the ANSWERING company may know: the conversation's company (its
+            // entity's), and contact-level memory only when no other company wrote it
+            var company = _scoping.CompanyOf(entityId);
+            var contactMemory = parts.Memory && Contacts.ContactCompanies.MemoryAllowed(_db, _scoping, contact.Id, company);
+            sb.AppendLine().AppendLine(ContactBlock(contact, contactMemory,
+                Contacts.ContactCompanies.VisibleTags(_db, _scoping, contact, company, contactMemory)));
+            var memory = parts.Memory ? MemoryBlock(contact, company, contactMemory) : "";
             if (memory.Length > 0) sb.AppendLine().AppendLine(memory);
         }
 
@@ -278,32 +283,55 @@ public partial class AssistantService
         (result.PendingActions.Count == 0 ? 0 : _skills.Bookings.Release(result.PendingActions, reason))
         + (result.Attachments.Count == 0 ? 0 : _skills.Documents.Release(result.Attachments, reason));
 
-    private static string ContactBlock(Contact c, bool withMemory = true)
+    private static string ContactBlock(Contact c, bool withMemory = true, IReadOnlyCollection<string>? tags = null)
     {
         var bits = new List<string> { $"Name: {c.Name}" };
         if (!string.IsNullOrEmpty(c.CompanyName)) bits.Add($"Company: {c.CompanyName}");
         if (!string.IsNullOrEmpty(c.Language)) bits.Add($"Language: {c.Language}");
-        if (c.Tags.Count > 0) bits.Add($"Tags: {string.Join(", ", c.Tags)}");
+        var shown = tags ?? c.Tags;
+        if (shown.Count > 0) bits.Add($"Tags: {string.Join(", ", shown)}");
         if (withMemory && !string.IsNullOrEmpty(c.AiProfileSummary)) bits.Add($"Memory: {c.AiProfileSummary}");
         return "CONTACT:\n" + string.Join("\n", bits.Select(b => "- " + b));
     }
 
     /// <summary>
     /// Durable memory (aicore/memory.py build_context): learned preferences plus
-    /// the latest conversation summaries, bounded so it never crowds the prompt.
+    /// the latest conversation summaries, bounded so it never crowds the prompt —
+    /// only what <paramref name="company"/> may know: a conversation's summary when
+    /// that conversation is the company's, contact-level items (preferences, flow and
+    /// timeline notes) only when <paramref name="contactLevel"/> (no other company's
+    /// chats could have written them).
     /// </summary>
-    private string MemoryBlock(Contact c)
+    private string MemoryBlock(Contact c, int? company, bool contactLevel)
     {
         try
         {
             var lines = new List<string>();
-            if (!string.IsNullOrWhiteSpace(c.PreferredContactTime)) lines.Add($"Prefers contact: {c.PreferredContactTime}");
-            if (!string.IsNullOrWhiteSpace(c.CommunicationStyle)) lines.Add($"Style: {c.CommunicationStyle}");
-            if (!string.IsNullOrWhiteSpace(c.SentimentTrend)) lines.Add($"Sentiment: {c.SentimentTrend}");
-            foreach (var s in _db.ConversationSummaries.AsNoTracking().Where(s => s.ContactId == c.Id)
-                         .OrderByDescending(s => s.Id).Take(3).ToList())
-                if (!string.IsNullOrWhiteSpace(s.Summary))
-                    lines.Add($"{s.CreatedAt:yyyy-MM-dd} ({s.Source}): {Trim(s.Summary, 400)}");
+            if (contactLevel)
+            {
+                if (!string.IsNullOrWhiteSpace(c.PreferredContactTime)) lines.Add($"Prefers contact: {c.PreferredContactTime}");
+                if (!string.IsNullOrWhiteSpace(c.CommunicationStyle)) lines.Add($"Style: {c.CommunicationStyle}");
+                if (!string.IsNullOrWhiteSpace(c.SentimentTrend)) lines.Add($"Sentiment: {c.SentimentTrend}");
+            }
+            var rows = _db.ConversationSummaries.AsNoTracking().Where(s => s.ContactId == c.Id)
+                .OrderByDescending(s => s.Id).Take(30).ToList();
+            var threadIds = rows.Select(s => Stores.ThreadCompanies.ThreadOfSummaryRef(s.Ref))
+                .OfType<int>().Distinct().ToList();
+            var companyOf = _db.Threads.AsNoTracking().Where(t => threadIds.Contains(t.Id))
+                .Select(t => new { t.Id, t.CompanyEntityId, t.EntityId }).ToList()
+                .ToDictionary(t => t.Id, t => t.CompanyEntityId ?? _scoping.CompanyOf(t.EntityId));
+            var taken = 0;
+            foreach (var s in rows)
+            {
+                if (taken == 3) break;
+                if (string.IsNullOrWhiteSpace(s.Summary)) continue;
+                var ok = Stores.ThreadCompanies.ThreadOfSummaryRef(s.Ref) is int tid
+                    ? companyOf.TryGetValue(tid, out var tc) && tc == company
+                    : contactLevel;
+                if (!ok) continue;
+                lines.Add($"{s.CreatedAt:yyyy-MM-dd} ({s.Source}): {Trim(s.Summary, 400)}");
+                taken++;
+            }
             if (lines.Count == 0) return "";
             return Trim("CONTACT MEMORY:\n" + string.Join("\n", lines.Select(l => "- " + l)), 1500);
         }
@@ -449,7 +477,15 @@ public partial class AssistantService
             if (!_llm.IsConfigured)
                 return Static("No AI model is configured (sandbox) — the step's script was used as written.");
 
-            var entityId = await FlowEntityAsync(run, contact, ct);
+            // the run's own conversation (the one that started it / the latest reply's)
+            var runThread = await RunThreadAsync(run, ct);
+            var wfEntity = await _db.Workflows.AsNoTracking().Where(w => w.Id == run.WorkflowId)
+                .Select(w => w.EntityId).FirstOrDefaultAsync(ct);
+            var entityId = wfEntity ?? runThread?.EntityId ?? await FlowEntityAsync(run, contact, ct);
+            // the company this message is written for: the journey's, else its conversation's
+            var company = wfEntity != null ? _scoping.CompanyOf(wfEntity)
+                : runThread != null ? _scoping.ThreadCompany(runThread)
+                : _scoping.CompanyOf(entityId);
             AgentSkill? skill = null;
             if (skillRef.Length > 0)
             {
@@ -460,9 +496,13 @@ public partial class AssistantService
             var channel = channels.Select(c => c.ToLowerInvariant())
                 .FirstOrDefault(c => c is "whatsapp" or "email" or "telegram")
                 ?? await LatestChannelAsync(contact, ct) ?? "whatsapp";
-            var thread = contact == null ? null : await _db.Threads.AsNoTracking()
-                .Where(t => t.ContactId == contact.Id && t.Channel == channel)
-                .OrderByDescending(t => t.UpdatedAt).FirstOrDefaultAsync(ct);
+            // the history it reads: that company's conversation on the channel — never another company's
+            var thread = runThread != null && runThread.Channel == channel && _scoping.ThreadCompany(runThread) == company
+                ? runThread
+                : contact == null ? null : (await _db.Threads.AsNoTracking()
+                    .Where(t => t.ContactId == contact.Id && t.Channel == channel)
+                    .OrderByDescending(t => t.UpdatedAt).ToListAsync(ct))
+                    .FirstOrDefault(t => _scoping.ThreadCompany(t) == company);
 
             var sb = new System.Text.StringBuilder(BuildSystemPrompt(entityId, channel, contact, renderedScript));
             sb.AppendLine().AppendLine()
@@ -540,6 +580,16 @@ public partial class AssistantService
         return rows.Where(s => s.SkillId == skillRef).OrderByDescending(s => s.EntityId == entityId).FirstOrDefault()
                ?? rows.Where(s => string.Equals(s.Name.Trim(), skillRef, StringComparison.OrdinalIgnoreCase))
                    .OrderByDescending(s => s.EntityId == entityId).FirstOrDefault();
+    }
+
+    /// <summary>The conversation a run was started from / last answered on (its context ids), else null.</summary>
+    private async Task<Thread?> RunThreadAsync(FlowRun run, CancellationToken ct)
+    {
+        foreach (var k in new[] { "last_reply_thread_id", "trigger_thread_id" })
+            if (AiGate.Num(run.Context, k) is double d
+                && await _db.Threads.AsNoTracking().FirstOrDefaultAsync(t => t.Id == (int)d, ct) is { } t)
+                return t;
+        return null;
     }
 
     private async Task<int?> FlowEntityAsync(FlowRun run, Contact? contact, CancellationToken ct)
@@ -843,7 +893,7 @@ public partial class AssistantService
                 Title = Trim($"AI needs a human · {who}", 160),
                 Body = Trim(r.Reason, 400),
                 Link = thread != null
-                    ? $"/chats?channel={Uri.EscapeDataString(thread.Channel)}&key={Uri.EscapeDataString(thread.Key)}"
+                    ? Stores.ThreadCompanies.LegacyChatHref(thread)
                     : "",
                 CreatedAt = DateTime.UtcNow,
             });

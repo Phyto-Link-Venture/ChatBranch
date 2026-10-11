@@ -837,6 +837,8 @@ public class AiGate
         Dictionary<string, object?> payload, DateTime notBefore)
     {
         var now = Now;
+        // pinned to THIS conversation: another company's chat with the same customer never receives it
+        payload = new Dictionary<string, object?>(payload) { [Stores.ThreadStore.JobThreadKey] = thread.Id };
         _db.OutboundJobs.Add(new OutboundJob
         {
             Channel = thread.Channel, Kind = kind, ToAddress = thread.Key, Payload = payload,

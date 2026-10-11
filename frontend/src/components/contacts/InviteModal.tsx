@@ -23,6 +23,8 @@ const LOGO: Record<string, string> = { facebook: 'messenger' }
 export interface InviteThread {
   channel: string
   key: string
+  /** which company's conversation (a customer has one per company) */
+  thread_id?: number | null
   label: string
 }
 
@@ -222,12 +224,12 @@ export function InviteModal({
               <div className="flex flex-wrap gap-2">
                 {threads.map((th) => (
                   <Button
-                    key={`${th.channel}:${th.key}`}
+                    key={`${th.channel}:${th.key}#${th.thread_id ?? ''}`}
                     variant="secondary"
                     size="sm"
                     onClick={() =>
                       router.push(
-                        `/chats?thread=${encodeURIComponent(`${th.channel}:${th.key}`)}&draft=${encodeURIComponent(allText)}`,
+                        `/chats?thread=${encodeURIComponent(`${th.channel}:${th.key}`)}${th.thread_id ? `&thread_id=${th.thread_id}` : ''}&draft=${encodeURIComponent(allText)}`,
                       )
                     }
                   >

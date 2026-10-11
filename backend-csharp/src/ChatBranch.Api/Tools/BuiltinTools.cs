@@ -31,7 +31,17 @@ public static class BuiltinTools
     internal static string Iso(DateTime? dt) => dt is DateTime d
         ? DateTime.SpecifyKind(d, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ssZ") : "";
 
-    internal static string ChatHref(string channel, string key) => ToolResults.ChatLink(channel, key);
+    internal static string ChatHref(string channel, string key, int? threadId = null) =>
+        ToolResults.ChatLink(channel, key, threadId);
+
+    /// <summary>The conversation's company (null = unattributed) — a customer has one conversation per company.</summary>
+    internal static string? ThreadCompanyName(ToolContext ctx, Thread t)
+    {
+        var company = ctx.Services.GetRequiredService<ScopingService>().ThreadCompany(t);
+        return company is int c
+            ? ctx.Db.Entities.AsNoTracking().Where(e => e.Id == c).Select(e => e.Name).FirstOrDefault()
+            : null;
+    }
 
     /// <summary>The compact contact card every contact tool returns.</summary>
     internal static Dictionary<string, object?> ContactCard(JsonElement c)
@@ -130,8 +140,8 @@ public static class BuiltinTools
                 if (await ToolScope.CanSeeThreadAsync(ctx, t, bounded))
                     visible.Add(new
                     {
-                        channel = t.Channel, key = t.Key, status = t.Status, assignee = t.Assignee,
-                        updated_at = Iso(t.UpdatedAt),
+                        channel = t.Channel, key = t.Key, thread_id = t.Id, company = ThreadCompanyName(ctx, t),
+                        status = t.Status, assignee = t.Assignee, updated_at = Iso(t.UpdatedAt),
                     });
             card["conversations"] = visible;
             LinkContact(ctx, card);
@@ -306,6 +316,8 @@ public static class BuiltinTools
                 {
                     channel = t.Channel,
                     key = t.Key,
+                    thread_id = t.Id,
+                    company = ThreadCompanyName(ctx, t),
                     name = t.Name.Length > 0 ? t.Name : t.Key,
                     status = t.Status,
                     assignee = t.Assignee,
@@ -326,7 +338,7 @@ public static class BuiltinTools
             var limit = Limit(a, 20, 100);
             ctx.Links.Add(new ToolLink("Open the inbox", "/chats"));
             foreach (var i in items.Take(2))
-                ctx.Links.Add(new ToolLink($"Open {i.name}", ChatHref(i.channel, i.key)));
+                ctx.Links.Add(new ToolLink($"Open {i.name}", ChatHref(i.channel, i.key, i.thread_id)));
             return new
             {
                 total = items.Count,
@@ -349,6 +361,7 @@ public static class BuiltinTools
         {"type":"object","properties":{
           "channel":{"type":"string","description":"whatsapp, email, facebook, instagram, telegram or website."},
           "key":{"type":"string","description":"The conversation key (WhatsApp number, email address, chat id…)."},
+          "thread_id":{"type":"integer","description":"Which conversation, when this customer has one with more than one company (as the conversation tools return it)."},"company":{"type":"string","description":"Or that company's id or slug (one conversation per customer per company)."},
           "limit":{"type":"integer","minimum":1,"maximum":100,"default":20}},
          "required":["channel","key"]}
         """;
@@ -356,14 +369,16 @@ public static class BuiltinTools
 
         public override async Task<object?> ExecuteAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
         {
-            var t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"));
+            var t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"), Int(a, "thread_id"), Str(a, "company"));
             var store = ctx.Services.GetRequiredService<ThreadStore>();
             var msgs = store.GetMessages(t, Limit(a, 20, 100));
-            ctx.Links.Add(new ToolLink($"Open {(t.Name.Length > 0 ? t.Name : t.Key)}", ChatHref(t.Channel, t.Key)));
+            ctx.Links.Add(new ToolLink($"Open {(t.Name.Length > 0 ? t.Name : t.Key)}", ChatHref(t.Channel, t.Key, t.Id)));
             return new
             {
                 channel = t.Channel,
                 key = t.Key,
+                thread_id = t.Id,
+                company = ThreadCompanyName(ctx, t),
                 name = t.Name.Length > 0 ? t.Name : t.Key,
                 status = t.Status,
                 assignee = t.Assignee,
@@ -399,7 +414,7 @@ public static class BuiltinTools
         public override bool IsWrite => true;
         protected override string Schema => """
         {"type":"object","properties":{
-          "channel":{"type":"string"},"key":{"type":"string"},
+          "channel":{"type":"string"},"key":{"type":"string"},"thread_id":{"type":"integer","description":"Which conversation, when this customer has one with more than one company (as the conversation tools return it)."},"company":{"type":"string","description":"Or that company's id or slug (one conversation per customer per company)."},
           "text":{"type":"string","description":"The message to send."},
           "subject":{"type":"string","description":"Email only: the subject (default Re: the thread's subject)."},
           "force":{"type":"boolean","description":"Send to an opted-out contact as a deliberate manual exception."}},
@@ -411,20 +426,21 @@ public static class BuiltinTools
         public override async Task<object?> ExecuteAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
         {
             var text = Req(a, "text");
-            var t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"));
+            var t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"), Int(a, "thread_id"), Str(a, "company"));
             var force = Bool(a, "force") == true;
             var r = t.Channel == Channels.WhatsApp
                 ? await ctx.CallAsync("POST", "/api/whatsapp/threads/{key}/send",
-                    new Dictionary<string, string> { ["key"] = t.Key }, new { text, force }, ct: ct)
+                    new Dictionary<string, string> { ["key"] = t.Key }, new { text, force },
+                    query: ToolScope.ThreadQuery(t), ct: ct)
                 : await ctx.CallAsync("POST", "/api/messaging/threads/{channel}/{key}/send",
                     new Dictionary<string, string> { ["channel"] = t.Channel, ["key"] = t.Key },
                     new Dictionary<string, object?> { ["text"] = text, ["force"] = force, ["subject"] = Str(a, "subject") },
-                    ct: ct);
+                    query: ToolScope.ThreadQuery(t), ct: ct);
             ToolContext.Require(r);
             var status = r.Body.TryGetProperty("message", out var m) && m.TryGetProperty("status", out var s)
                 ? s.ToString() : "";
-            ctx.Links.Add(new ToolLink($"Open {(t.Name.Length > 0 ? t.Name : t.Key)}", ChatHref(t.Channel, t.Key)));
-            return new { sent = true, channel = t.Channel, key = t.Key, delivery_status = status };
+            ctx.Links.Add(new ToolLink($"Open {(t.Name.Length > 0 ? t.Name : t.Key)}", ChatHref(t.Channel, t.Key, t.Id)));
+            return new { sent = true, channel = t.Channel, key = t.Key, thread_id = t.Id, delivery_status = status };
         }
     }
 
@@ -440,7 +456,7 @@ public static class BuiltinTools
         public override IReadOnlyList<RouteRef> Covers => R("POST /api/messaging/threads/{channel}/{key}/note");
         public override bool IsWrite => true;
         protected override string Schema => """
-        {"type":"object","properties":{"channel":{"type":"string"},"key":{"type":"string"},
+        {"type":"object","properties":{"channel":{"type":"string"},"key":{"type":"string"},"thread_id":{"type":"integer","description":"Which conversation, when this customer has one with more than one company (as the conversation tools return it)."},"company":{"type":"string","description":"Or that company's id or slug (one conversation per customer per company)."},
           "text":{"type":"string"}},"required":["channel","key","text"]}
         """;
         public override string Summarize(JsonElement a) =>
@@ -449,11 +465,11 @@ public static class BuiltinTools
         public override async Task<object?> ExecuteAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
         {
             var text = Req(a, "text");
-            var t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"));
+            var t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"), Int(a, "thread_id"), Str(a, "company"));
             ToolContext.Require(await ctx.CallAsync("POST", "/api/messaging/threads/{channel}/{key}/note",
                 new Dictionary<string, string> { ["channel"] = t.Channel, ["key"] = t.Key },
-                new { text }, ct: ct));
-            return new { noted = true, channel = t.Channel, key = t.Key };
+                new { text }, query: ToolScope.ThreadQuery(t), ct: ct));
+            return new { noted = true, channel = t.Channel, key = t.Key, thread_id = t.Id };
         }
     }
 
@@ -471,7 +487,7 @@ public static class BuiltinTools
             R("POST /api/messaging/threads/{channel}/{key}/status", "POST /api/whatsapp/threads/{key}/status");
         public override bool IsWrite => true;
         protected override string Schema => """
-        {"type":"object","properties":{"channel":{"type":"string"},"key":{"type":"string"},
+        {"type":"object","properties":{"channel":{"type":"string"},"key":{"type":"string"},"thread_id":{"type":"integer","description":"Which conversation, when this customer has one with more than one company (as the conversation tools return it)."},"company":{"type":"string","description":"Or that company's id or slug (one conversation per customer per company)."},
           "status":{"type":"string","enum":["open","pending","snoozed","resolved"]}},
          "required":["channel","key","status"]}
         """;
@@ -483,12 +499,12 @@ public static class BuiltinTools
             var status = Req(a, "status").ToLowerInvariant();
             if (!ThreadStatuses.Contains(status))
                 throw new ToolException($"status must be one of {string.Join(", ", ThreadStatuses)}.");
-            var t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"));
+            var t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"), Int(a, "thread_id"), Str(a, "company"));
             ToolContext.Require(await ctx.CallAsync("POST", t.Channel == Channels.WhatsApp
                     ? "/api/whatsapp/threads/{key}/status" : "/api/messaging/threads/{channel}/{key}/status",
                 new Dictionary<string, string> { ["channel"] = t.Channel, ["key"] = t.Key },
-                new { status }, ct: ct));
-            return new { channel = t.Channel, key = t.Key, status };
+                new { status }, query: ToolScope.ThreadQuery(t), ct: ct));
+            return new { channel = t.Channel, key = t.Key, thread_id = t.Id, status };
         }
     }
 
@@ -506,7 +522,7 @@ public static class BuiltinTools
             R("POST /api/teams/assign", "POST /api/messaging/threads/{channel}/{key}/assign");
         public override bool IsWrite => true;
         protected override string Schema => """
-        {"type":"object","properties":{"channel":{"type":"string"},"key":{"type":"string"},
+        {"type":"object","properties":{"channel":{"type":"string"},"key":{"type":"string"},"thread_id":{"type":"integer","description":"Which conversation, when this customer has one with more than one company (as the conversation tools return it)."},"company":{"type":"string","description":"Or that company's id or slug (one conversation per customer per company)."},
           "assignee":{"type":"string","description":"Username of the agent, or \"\" to unassign."},
           "team_id":{"type":"integer","description":"Team id, or 0 to clear the team."}},
          "required":["channel","key"]}
@@ -523,11 +539,11 @@ public static class BuiltinTools
         {
             if (!Has(a, "assignee") && !Has(a, "team_id"))
                 throw new ToolException("Pass an assignee, a team_id, or both.");
-            var t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"));
+            var t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"), Int(a, "thread_id"), Str(a, "company"));
             var rv = new Dictionary<string, string> { ["channel"] = t.Channel, ["key"] = t.Key };
             if (Int(a, "team_id") is int teamId)
                 ToolContext.Require(await ctx.CallAsync("POST", "/api/teams/assign",
-                    body: new { channel = t.Channel, key = t.Key, team_id = teamId }, ct: ct));
+                    body: new { channel = t.Channel, key = t.Key, team_id = teamId, thread_id = t.Id }, ct: ct));
             string? assignee = null;
             if (Has(a, "assignee"))
             {
@@ -536,9 +552,9 @@ public static class BuiltinTools
                 if (assignee.Length > 0 && !await ctx.Db.Users.AnyAsync(u => u.Username == assignee && u.IsActive, ct))
                     throw new ToolException($"No active user '{assignee}'.", 404);
                 ToolContext.Require(await ctx.CallAsync("POST", "/api/messaging/threads/{channel}/{key}/assign",
-                    rv, new { assignee }, ct: ct));
+                    rv, new { assignee }, query: ToolScope.ThreadQuery(t), ct: ct));
             }
-            return new { channel = t.Channel, key = t.Key, assignee, team_id = Int(a, "team_id") };
+            return new { channel = t.Channel, key = t.Key, thread_id = t.Id, assignee, team_id = Int(a, "team_id") };
         }
     }
 

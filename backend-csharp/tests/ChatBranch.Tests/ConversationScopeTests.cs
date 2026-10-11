@@ -53,11 +53,13 @@ public class ConversationScopeTests : IClassFixture<ApiFactory>
 
             var wendy = new Contact { Name = "Wendy CS", Phone = "+60111000222", TenantId = tenant.Id, CreatedAt = now, UpdatedAt = now };
             var eddie = new Contact { Name = "Eddie CS", Phone = "+60111000333", TenantId = tenant.Id, CreatedAt = now, UpdatedAt = now };
-            db.Contacts.AddRange(wendy, eddie);
+            var vera = new Contact { Name = "Vera CS", Phone = "+60111000444", TenantId = tenant.Id, CreatedAt = now, UpdatedAt = now };
+            db.Contacts.AddRange(wendy, eddie, vera);
             db.SaveChanges();
             db.ContactEntities.AddRange(
                 new ContactEntity { ContactId = wendy.Id, EntityId = west.Id, CreatedAt = now },
-                new ContactEntity { ContactId = eddie.Id, EntityId = east.Id, CreatedAt = now });
+                new ContactEntity { ContactId = eddie.Id, EntityId = east.Id, CreatedAt = now },
+                new ContactEntity { ContactId = vera.Id, EntityId = west.Id, CreatedAt = now });
 
             Thread T(string channel, string key, int? entity, int? contact = null) => new()
             {
@@ -68,9 +70,14 @@ public class ConversationScopeTests : IClassFixture<ApiFactory>
                 T("telegram", "cs-west", west.Id, wendy.Id),
                 T("telegram", "cs-east", east.Id),
                 T("telegram", "cs-nobody", null),
-                T("whatsapp", "60111000222", west.Id, wendy.Id));
+                T("whatsapp", "60111000222", west.Id, wendy.Id),
+                // West's conversations the start-a-chat test reaches for from East
+                T("telegram", "tg-start-w", west.Id),
+                T("whatsapp", "60111000444", west.Id, vera.Id));
             db.SaveChanges();
-            foreach (var t in db.Threads.Where(t => t.Key.StartsWith("cs-") || t.Key == "60111000222").ToList())
+            // (EnsureCreated + seed ran before these rows: they carry their company like upgraded rows do)
+            ChatBranch.Data.Stores.ThreadCompanies.Backfill(db);
+            foreach (var t in db.Threads.Where(t => t.Key.StartsWith("cs-") || t.Key == "tg-start-w" || t.Key == "60111000222" || t.Key == "60111000444").ToList())
                 db.Messages.Add(new Message
                 {
                     ThreadId = t.Id, Direction = MessageDirection.In, Source = MessageSource.Customer,
@@ -97,6 +104,19 @@ public class ConversationScopeTests : IClassFixture<ApiFactory>
         using var scope = _factory.Services.CreateScope();
         return scope.ServiceProvider.GetRequiredService<AppDbContext>().Threads.AsNoTracking()
             .Single(t => t.Channel == channel && t.Key == key);
+    }
+
+    private List<Thread> ThreadsOf(string channel, string key)
+    {
+        using var scope = _factory.Services.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<AppDbContext>().Threads.AsNoTracking()
+            .Where(t => t.Channel == channel && t.Key == key).OrderBy(t => t.Id).ToList();
+    }
+
+    private int EntityIdOf(string slug)
+    {
+        using var scope = _factory.Services.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<AppDbContext>().Entities.Single(e => e.Slug == slug).Id;
     }
 
     private int NoteCount(string channel, string key)
@@ -176,13 +196,37 @@ public class ConversationScopeTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.OK,
             (await agent.PostAsJsonAsync("/api/aicore/reply", new { channel = "telegram", key = "cs-east" })).StatusCode);
 
-        // "start a chat" with an existing out-of-scope conversation doesn't open (or move) it
-        Assert.Equal(HttpStatusCode.NotFound,
-            (await agent.PostAsJsonAsync("/api/messaging/threads", new { channel = "telegram", to = "cs-west" })).StatusCode);
-        var before = ThreadOf("whatsapp", "60111000222");
-        Assert.Equal(HttpStatusCode.NotFound,
-            (await agent.PostAsJsonAsync("/api/whatsapp/threads", new { phone = "+60111000222" })).StatusCode);
-        Assert.Equal(before.AccountId, ThreadOf("whatsapp", "60111000222").AccountId);
+        // "start a chat" with a customer ANOTHER company talks to opens the caller's OWN
+        // conversation (one per customer per company): the other company's is neither
+        // opened nor moved, and nothing of it — contact, number, messages — comes across
+        var east = EntityIdOf("cs-east");
+        var west = EntityIdOf("cs-west");
+        var westTg = ThreadOf("telegram", "tg-start-w");
+        var westWa = ThreadOf("whatsapp", "60111000444");
+        var startedTg = await agent.PostAsJsonAsync("/api/messaging/threads", new { channel = "telegram", to = "tg-start-w" });
+        Assert.Equal(HttpStatusCode.OK, startedTg.StatusCode);
+        var startedWa = await agent.PostAsJsonAsync("/api/whatsapp/threads", new { phone = "+60111000444" });
+        Assert.Equal(HttpStatusCode.OK, startedWa.StatusCode);
+        foreach (var (channel, address, theirs) in new[] { ("telegram", "tg-start-w", westTg), ("whatsapp", "60111000444", westWa) })
+        {
+            var both = ThreadsOf(channel, address);
+            Assert.Equal(2, both.Count);
+            var stillTheirs = both.Single(t => t.Id == theirs.Id);
+            Assert.Equal(west, stillTheirs.EntityId);
+            Assert.Equal(west, stillTheirs.CompanyEntityId);
+            Assert.Equal(theirs.AccountId, stillTheirs.AccountId);
+            Assert.Equal(theirs.ContactId, stillTheirs.ContactId);
+            var mine = both.Single(t => t.Id != theirs.Id);
+            Assert.Equal(east, mine.EntityId);
+            Assert.Equal(east, mine.CompanyEntityId);
+            Assert.Null(mine.ContactId);          // Vera is West's contact: never linked from East
+            using var scope = _factory.Services.CreateScope();
+            Assert.Equal(0, scope.ServiceProvider.GetRequiredService<AppDbContext>().Messages.Count(m => m.ThreadId == mine.Id));
+        }
+        // …and what East reads under that key is its own, empty conversation
+        var eastView = await agent.GetFromJsonAsync<JsonElement>("/api/whatsapp/threads/60111000444");
+        Assert.DoesNotContain("hello from", eastView.GetRawText());
+        Assert.DoesNotContain("Vera CS", eastView.GetRawText());
 
         // a new chat never links a contact from another outlet's book
         (await agent.PostAsJsonAsync("/api/messaging/threads", new { channel = "sms", to = "+60111000222" }))
@@ -223,9 +267,24 @@ public class ConversationScopeTests : IClassFixture<ApiFactory>
         Assert.Contains("Eddie CS", picker);
         Assert.DoesNotContain("Wendy CS", picker);
         Assert.Equal(HttpStatusCode.NotFound, (await agent.GetAsync($"/api/messaging/contacts/{_wendyId}/conversation")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await agent.GetAsync("/api/messaging/timeline?phone=%2B60111000222")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await agent.PostAsJsonAsync("/api/messaging/timeline/summary",
-            new { name = "Wendy", phone = "+60111000222" })).StatusCode);
+        // a phone only another outlet's contact has: none of theirs comes back — no messages, no
+        // contact, no summary (the same answer as for a number nobody knows)
+        var timeline = await agent.GetAsync("/api/messaging/timeline?phone=%2B60111000222");
+        if (timeline.StatusCode != HttpStatusCode.NotFound)
+        {
+            Assert.Equal(HttpStatusCode.OK, timeline.StatusCode);
+            var tl = await timeline.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.DoesNotContain("hello from", tl.GetRawText());
+            Assert.Equal(JsonValueKind.Null, tl.GetProperty("summary").ValueKind);
+        }
+        var summarized = await agent.PostAsJsonAsync("/api/messaging/timeline/summary", new { name = "Wendy", phone = "+60111000222" });
+        if (summarized.StatusCode != HttpStatusCode.NotFound)
+        {
+            Assert.Equal(HttpStatusCode.OK, summarized.StatusCode);
+            var sum = await summarized.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.DoesNotContain("hello from", sum.GetRawText());
+            Assert.Equal(0, sum.GetProperty("event_count").GetInt32());
+        }
         // exporting the address book is a manager's job
         Assert.Equal(HttpStatusCode.Forbidden, (await agent.GetAsync("/api/messaging/contacts/vcard")).StatusCode);
 

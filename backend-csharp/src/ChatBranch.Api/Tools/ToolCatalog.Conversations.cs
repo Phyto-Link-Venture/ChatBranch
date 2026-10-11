@@ -102,6 +102,9 @@ public static partial class ToolCatalog
                 A.Str("to", "Phone (E.164), email or chat id.", req: true),
                 A.Str("name", "Display name for a new conversation."),
                 A.Str("account_id", "WhatsApp only: the number to talk from."),
+                A.Int("thread_id", ToolScope.ThreadIdHelp),
+                A.Str("company", ToolScope.CompanyHelp),
+                A.Str("entity", "For a NEW conversation: the entity (slug) it belongs to — decides its company. Default: yours."),
             }, idempotent: true);
 
         yield return T(g, "conversations_send_template", "Send a WhatsApp template",
@@ -131,6 +134,8 @@ public static partial class ToolCatalog
             {
                 A.Str("channel", "Conversation channel.", req: true, oneOf: EndpointTool.ChannelNames),
                 A.Str("key", "Conversation key.", req: true),
+                A.Int("thread_id", ToolScope.ThreadIdHelp),
+                A.Str("company", ToolScope.CompanyHelp),
                 A.Str("file_base64", "The file, base64 encoded (max 16 MB on WhatsApp, 20 MB elsewhere)."),
                 A.Str("file_name", "File name with extension (decides the type), e.g. invoice.pdf."),
                 A.Str("media_url", "Instead of a file: a public URL (Messenger / Instagram / Telegram)."),
@@ -311,27 +316,40 @@ public static partial class ToolCatalog
     {
         var channel = Need(a, "channel").ToLowerInvariant();
         var to = Need(a, "to");
-        // An existing conversation outside the caller's scope is not theirs to reopen.
         var key = channel is Channels.WhatsApp or Channels.Sms ? PhoneMatch.Digits(to) : to;
-        var existing = await ctx.Db.Threads.AsNoTracking().FirstOrDefaultAsync(t => t.Channel == channel && t.Key == key, ct);
-        if (existing != null && !await ToolScope.CanSeeThreadAsync(ctx, existing))
-            throw new ToolException($"No conversation {channel}:{key} in your scope.", 404);
-
+        // the endpoints resolve the caller's OWN conversation (one per customer per company):
+        // out of scope = not found, several = thread_id / company say which
         var r = channel == Channels.WhatsApp
             ? await ctx.CallAsync("POST", "/api/whatsapp/threads",
-                body: new Dictionary<string, object?> { ["phone"] = to, ["name"] = S(a, "name"), ["account_id"] = S(a, "account_id") }, ct: ct)
+                body: new Dictionary<string, object?>
+                {
+                    ["phone"] = to, ["name"] = S(a, "name"), ["account_id"] = S(a, "account_id"),
+                    ["thread_id"] = I(a, "thread_id"), ["company"] = S(a, "company"), ["entity"] = S(a, "entity"),
+                }, ct: ct)
             : await ctx.CallAsync("POST", "/api/messaging/threads",
-                body: new Dictionary<string, object?> { ["channel"] = channel, ["to"] = to, ["name"] = S(a, "name") }, ct: ct);
+                body: new Dictionary<string, object?>
+                {
+                    ["channel"] = channel, ["to"] = to, ["name"] = S(a, "name"),
+                    ["thread_id"] = I(a, "thread_id"), ["company"] = S(a, "company"), ["entity"] = S(a, "entity"),
+                }, ct: ct);
+        // an existing conversation outside the caller's scope is not theirs to reopen
+        if (r.Status == 404) throw new ToolException($"No conversation {channel}:{key} in your scope.", 404);
         ToolContext.Require(r);
         var body = r.Body.TryGetProperty("thread", out var th) && th.ValueKind == JsonValueKind.Object ? th : r.Body;
-        var outKey = body.TryGetProperty("key", out var k) ? k.ToString() : key;
-        ctx.Links.Add(new ToolLink("Open the conversation", ToolResults.ChatLink(channel, outKey)));
-        return new { channel, key = outKey, href = ToolResults.ChatLink(channel, outKey), created_or_found = true };
+        var outKey = body.TryGetProperty("key", out var k) ? k.ToString()
+            : body.TryGetProperty("wa_id", out var w) ? w.ToString() : key;
+        int? threadId = body.TryGetProperty("thread_id", out var tid) && tid.TryGetInt32(out var tidv) ? tidv : null;
+        ctx.Links.Add(new ToolLink("Open the conversation", ToolResults.ChatLink(channel, outKey, threadId)));
+        return new
+        {
+            channel, key = outKey, thread_id = threadId, href = ToolResults.ChatLink(channel, outKey, threadId),
+            created_or_found = true,
+        };
     }
 
     private static async Task<object?> SendMediaAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
     {
-        var t = await ToolScope.FindThreadAsync(ctx, Need(a, "channel"), Need(a, "key"));
+        var t = await ToolScope.FindThreadAsync(ctx, Need(a, "channel"), Need(a, "key"), I(a, "thread_id"), S(a, "company"));
         var isWa = t.Channel == Channels.WhatsApp;
         var rv = new Dictionary<string, string> { ["channel"] = t.Channel, ["key"] = t.Key };
         InternalApi.Response r;
@@ -349,7 +367,7 @@ public static partial class ToolCatalog
             if (!isWa && t.Channel is Channels.Website)
                 throw new ToolException("The website chat takes text only.");
             r = await ctx.CallAsync("POST", isWa ? "/api/whatsapp/threads/{key}/send-media" : MessagingSendMedia, rv,
-                ct: ct, form: Form(fields, "file", name, bytes));
+                query: ToolScope.ThreadQuery(t), ct: ct, form: Form(fields, "file", name, bytes));
         }
         else if (S(a, "media_url") is { Length: > 0 } url)
         {
@@ -362,14 +380,14 @@ public static partial class ToolCatalog
                     ["text"] = S(a, "caption") ?? "",
                     ["subject"] = S(a, "subject"),
                     ["force"] = B(a, "force") == true,
-                }, ct: ct);
+                }, query: ToolScope.ThreadQuery(t), ct: ct);
         }
         else throw new ToolException("Pass file_base64 + file_name, or media_url.");
         ToolContext.Require(r);
-        ctx.Links.Add(new ToolLink($"Open {(t.Name.Length > 0 ? t.Name : t.Key)}", ToolResults.ChatLink(t.Channel, t.Key)));
+        ctx.Links.Add(new ToolLink($"Open {(t.Name.Length > 0 ? t.Name : t.Key)}", ToolResults.ChatLink(t.Channel, t.Key, t.Id)));
         var status = r.Body.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.Object
                      && m.TryGetProperty("status", out var st) ? st.ToString() : "";
-        return new { sent = true, channel = t.Channel, key = t.Key, delivery_status = status,
-            href = ToolResults.ChatLink(t.Channel, t.Key) };
+        return new { sent = true, channel = t.Channel, key = t.Key, thread_id = t.Id, delivery_status = status,
+            href = ToolResults.ChatLink(t.Channel, t.Key, t.Id) };
     }
 }

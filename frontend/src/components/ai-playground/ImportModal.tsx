@@ -21,10 +21,16 @@ import { fieldCls } from './SetupPane'
 interface ThreadRow {
   channel: string
   key: string
+  /** which company's conversation (a customer has one per company) */
+  thread_id?: number | null
+  company?: { id: number; name: string } | null
   name: string
   last_message?: string
   contact_name?: string
 }
+
+/** One conversation's identity — channel + key can name one per company. */
+const rowId = (r: ThreadRow) => (r.thread_id ? `${r.channel}:${r.key}#${r.thread_id}` : `${r.channel}:${r.key}`)
 
 export function ImportModal({
   open,
@@ -62,10 +68,10 @@ export function ImportModal({
   }, [open, q, entity])
 
   const pick = async (row: ThreadRow) => {
-    setBusy(`${row.channel}:${row.key}`)
+    setBusy(rowId(row))
     setError(null)
     try {
-      const c = await importConversation(row.channel, row.key, Number(take))
+      const c = await importConversation(row.channel, row.key, Number(take), row.thread_id)
       onImported(c)
       onClose()
     } catch (e) {
@@ -117,7 +123,7 @@ export function ImportModal({
             <li className="px-2 py-3 text-[12.5px] text-text-muted">{t('playground.errors.noConversations')}</li>
           )}
           {rows?.map((r) => {
-            const id = `${r.channel}:${r.key}`
+            const id = rowId(r)
             return (
               <li key={id}>
                 <button

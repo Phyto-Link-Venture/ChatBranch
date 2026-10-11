@@ -15,6 +15,7 @@ import { useFormat, useT } from '@/i18n'
 export default function HandoverBanner({
   channel,
   threadKey,
+  threadId,
   handover,
   assignee,
   me,
@@ -23,6 +24,8 @@ export default function HandoverBanner({
 }: {
   channel: string
   threadKey: string
+  /** which company's conversation (a customer has one per company) */
+  threadId?: number | null
   handover: UiHandover | null | undefined
   assignee?: string
   /** the signed-in username (null until mounted) */
@@ -40,7 +43,7 @@ export default function HandoverBanner({
     setBusy(action)
     setErr(null)
     try {
-      await handoverAction(channel, threadKey, action)
+      await handoverAction(channel, threadKey, action, undefined, threadId)
       onChanged()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))

@@ -253,7 +253,7 @@ export default function BookingsPage() {
             <span aria-hidden />
           ) : (
             <Link
-              href={threadHref(b.thread)}
+              href={threadHref(b.thread, b.thread_id)}
               title={t('bookings.page.openConversation')}
               aria-label={t('bookings.page.openConversationWith', { name: b.contact_name || t('bookings.page.thisContact') })}
               className="grid h-8 w-8 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"

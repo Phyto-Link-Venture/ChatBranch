@@ -241,7 +241,8 @@ public static class NotificationService
             var audience = await InboundAudienceAsync(db, thread, ct);
             var who = string.IsNullOrWhiteSpace(thread.Name) ? thread.Key : thread.Name.Trim();
             var body = string.IsNullOrWhiteSpace(text) ? "(attachment)" : text.Trim();
-            var link = $"/chats?channel={Uri.EscapeDataString(thread.Channel)}&key={Uri.EscapeDataString(thread.Key)}";
+            // channel + key (what the bell's older links carry) + thread_id: WHICH company's conversation
+            var link = Stores.ThreadCompanies.LegacyChatHref(thread);
             return await NotifyAsync(db, NotificationCategories.Messages, "message",
                 $"New message from {who}", body, link, audience, new NotifyOptions
                 {

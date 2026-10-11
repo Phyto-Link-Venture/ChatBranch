@@ -21,6 +21,8 @@ export interface Booking {
   contact_name: string
   /** "channel:key" of the conversation it was booked from, or null. */
   thread: string | null
+  /** its id — a customer has one conversation per company under that channel:key */
+  thread_id?: number | null
   /** UTC instants (ISO; an offset-less value is UTC, like every server timestamp). */
   start: string
   end: string
@@ -118,7 +120,8 @@ export function bookedBy(createdBy: string): string {
 }
 
 /** Deep link into the inbox for a booking's conversation. */
-export const threadHref = (thread: string) => `/chats?thread=${encodeURIComponent(thread)}`
+export const threadHref = (thread: string, threadId?: number | null) =>
+  `/chats?thread=${encodeURIComponent(thread)}${threadId ? `&thread_id=${threadId}` : ''}`
 
 /** Server timestamps without an offset are UTC. */
 export function instant(iso: string | null | undefined): number | null {

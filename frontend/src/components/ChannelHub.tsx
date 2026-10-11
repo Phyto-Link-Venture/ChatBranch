@@ -35,6 +35,8 @@ import { InviteModal } from '@/components/contacts/InviteModal'
 
 export interface ChannelIdentity {
   key: string
+  /** which company's conversation (a customer has one per company); absent on a registered-only identity */
+  thread_id?: number | null
   address: string
   name: string
   account_id: string | null
@@ -418,11 +420,11 @@ export default function ChannelHub({
   const openChat = async (channel: string, address: string) => {
     if (contactId == null) return
     try {
-      const r = await cApi<{ key: string }>(`contacts/${contactId}/channels`, {
+      const r = await cApi<{ key: string; thread_id?: number | null }>(`contacts/${contactId}/channels`, {
         method: 'POST',
         body: JSON.stringify({ channel, address }),
       })
-      router.push(`/chats?thread=${encodeURIComponent(`${channel}:${r.key}`)}`)
+      router.push(`/chats?thread=${encodeURIComponent(`${channel}:${r.key}`)}${r.thread_id ? `&thread_id=${r.thread_id}` : ''}`)
     } catch (e) {
       setFindMsg(errText(e))
     }
@@ -463,7 +465,12 @@ export default function ChannelHub({
   const chats = hub.channels.flatMap((ch) =>
     (ch.identities ?? [])
       .filter((i) => i.message_count > 0 || !i.registered)
-      .map((i) => ({ channel: ch.channel, key: i.key, label: t('contacts.hub.chatLabel', { channel: chName(t, ch.channel) }) })),
+      .map((i) => ({
+        channel: ch.channel,
+        key: i.key,
+        thread_id: i.thread_id ?? null,
+        label: t('contacts.hub.chatLabel', { channel: chName(t, ch.channel) }),
+      })),
   )
   const registeredOnly = hub.channels.flatMap((ch) =>
     (ch.identities ?? [])

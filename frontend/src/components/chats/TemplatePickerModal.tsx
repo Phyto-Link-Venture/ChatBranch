@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { ChevronLeft, Loader2, Send } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
-import { api, type UiMessage } from './inboxTypes'
+import { api, threadApi, type Channel, type UiMessage } from './inboxTypes'
 import { useT, type MessageKey, type TFunction } from '@/i18n'
 
 interface WaTemplate {
@@ -37,7 +37,7 @@ export default function TemplatePickerModal({
   onClose,
   onSent,
 }: {
-  thread: { key: string; account_id?: string | null }
+  thread: { channel: Channel; key: string; thread_id?: number | null; account_id?: string | null }
   onClose: () => void
   onSent: (m: UiMessage) => void
 }) {
@@ -70,7 +70,7 @@ export default function TemplatePickerModal({
     setSending(true)
     setSendError(null)
     try {
-      const r = await api<{ message: UiMessage }>(`whatsapp/threads/${thread.key}/send-template`, {
+      const r = await api<{ message: UiMessage }>(threadApi(thread, '/send-template'), {
         method: 'POST',
         body: JSON.stringify({ name: sel.name, language: sel.language, variables: vars }),
       })

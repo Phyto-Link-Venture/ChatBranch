@@ -109,13 +109,16 @@ public static class Recovery
             .Select(j => j.ContactId!.Value)
             .ToHashSet();
 
+        // the down number's company: its contacts are answered in THAT company's conversations
+        var company = sc.AccountCompany(account);
         int queued = 0, skipped = 0;
         foreach (var asg in affected)
         {
             var waId = PhoneMatch.Digits(asg.Contact?.Phone);
             if (waId.Length < 6 || recent.Contains(asg.ContactId)) { skipped++; continue; }
             var optedOut = db.Threads.AsNoTracking().Any(t => t.Channel == ChatBranch.Domain.Channels.WhatsApp
-                && t.ContactId == asg.ContactId && t.OptedOut);
+                && t.ContactId == asg.ContactId && t.OptedOut
+                && (company == null || t.CompanyEntityId == company));
             if (optedOut) { skipped++; continue; }
             db.OutboundJobs.Add(new OutboundJob
             {
@@ -124,6 +127,7 @@ public static class Recovery
                 {
                     ["name"] = template, ["language"] = "en", ["variables"] = "",
                     ["recovery"] = true, ["recovery_account"] = account.Id, ["source"] = "system",
+                    ["company_id"] = company,
                 },
                 ContactId = asg.ContactId, Status = JobStatus.Queued, CreatedAt = now, UpdatedAt = now,
             });

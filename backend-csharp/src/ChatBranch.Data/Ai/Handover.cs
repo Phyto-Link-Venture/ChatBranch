@@ -284,7 +284,7 @@ public static class Handover
             var who = string.IsNullOrWhiteSpace(t.Name) ? t.Key : t.Name;
             NotificationService.Notify(db, NotificationCategories.Messages, "message",
                 Cap($"Needs a human · {who}", 160), Cap(why, 400),
-                $"/chats?thread={Uri.EscapeDataString(t.Channel)}:{Uri.EscapeDataString(t.Key)}",
+                Stores.ThreadCompanies.ChatHref(t),
                 new NotificationAudience
                 {
                     UserIds = ids.Distinct().ToArray(),

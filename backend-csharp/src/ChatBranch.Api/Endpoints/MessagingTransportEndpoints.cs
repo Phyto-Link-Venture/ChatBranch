@@ -107,8 +107,9 @@ public static class MessagingTransportEndpoints
             var subject = form["subject"].ToString().Trim();
             var force = form["force"].ToString().ToLowerInvariant() is "1" or "true" or "yes";
 
-            var thread = await db.Threads.Include(t => t.Account).Include(t => t.Contact)
-                .FirstOrDefaultAsync(t => t.Channel == channel && t.Key == key.Trim());
+            // the ONE conversation the route names (ThreadAccessFilter resolved it: thread_id /
+            // company when the customer has one with several companies)
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             // STOP is honoured on every channel: a manual exception must say so
             if (thread.OptedOut && !force)

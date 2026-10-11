@@ -376,6 +376,10 @@ public class ContactInviteService
             return;
         }
         if (!SameTenant(thread, m.Contact)) { m.ConflictContactId = -1; return; }
+        // an invite never links another company's contact to this company's conversation
+        // (it would bring that contact's memory and records into this chat)
+        if (!ContactCompanies.MayLink(_db, _sc, m.Contact.Id, _sc.ThreadCompany(thread)))
+        { m.ConflictContactId = -2; return; }
         if (thread.ContactId == m.Contact.Id) return;   // already theirs — just record the use
         thread.ContactId = m.Contact.Id;
         thread.Contact = m.Contact;
@@ -415,7 +419,9 @@ public class ContactInviteService
                     : null;
                 Note(thread, other != null
                     ? $"Invite code {m.Invite.Code} for {m.Contact.Name} arrived, but this chat is already linked to {other} — relink it by hand if it is the same person. Original message: \"{Trim(m.Original, 300)}\""
-                    : $"Invite code {m.Invite.Code} belongs to another organization — ignored.", now);
+                    : m.ConflictContactId == -2
+                        ? $"Invite code {m.Invite.Code} belongs to a contact of another company — ignored."
+                        : $"Invite code {m.Invite.Code} belongs to another organization — ignored.", now);
                 _db.SaveChanges();
                 return;
             }

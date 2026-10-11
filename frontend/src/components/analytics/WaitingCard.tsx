@@ -66,7 +66,7 @@ export function WaitingCard({ entityQ, className = '' }: { entityQ: string; clas
           {rows.map((w) => {
             const secs = secondsSince(w.waiting_since)
             return (
-              <li key={`${w.channel}:${w.key}`} className="border-b border-line last:border-b-0">
+              <li key={`${w.channel}:${w.key}#${w.thread_id ?? ''}`} className="border-b border-line last:border-b-0">
                 <button
                   type="button"
                   onClick={() => router.push(w.url)}

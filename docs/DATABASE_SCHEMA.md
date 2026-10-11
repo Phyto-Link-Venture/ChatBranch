@@ -236,17 +236,18 @@ cache) live in `ChatBranch.Data/Tags/TagService.cs`.
 | `health_status` | `unknown` \| `healthy` \| `degraded` \| `disconnected` \| `banned` — written only by `AccountHealth.SetStatus` |
 | `health_detail`, `last_ok_at`, `last_inbound_at`, `fail_streak`, `health_changed_at`, `created_at` | |
 
-### `crm_thread` — one conversation per `(channel, key)`
+### `crm_thread` — one conversation per customer PER COMPANY: `(channel, key, company)`
 | Column | Notes |
 |---|---|
-| `channel` + `key` | **unique** (`uniq_thread_channel_key`); key = wa_id digits / email / PSID / IGSID / TG chat id / widget session |
+| `channel` + `key` + `company_entity_id` | **unique** — two partial unique indexes (NULLs are distinct in SQL): `uniq_thread_channel_key_company` `(channel, key, company_entity_id) WHERE company_entity_id IS NOT NULL` and `uniq_thread_channel_key_unattributed` `(channel, key) WHERE company_entity_id IS NULL`. key = wa_id digits / email / PSID / IGSID / TG chat id / widget session. The old `uniq_thread_channel_key` (`(channel, key)` for the whole tenant — incident 2026-10-11) is dropped on boot |
+| `company_entity_id` | the COMPANY (top-level entity) the conversation belongs to — part of its identity. Set at creation from the receiving account's entity (else the thread's entity); null = unattributed (no account, no entity — the organization-wide bucket). Never changed afterwards: a contact link, a same-company number taking over or an account re-binding never moves a thread into another company (an unattributed thread adopts a company once, when it first gets one and the slot is free). Backfilled on boot by `Stores/ThreadCompanies.Upgrade` (SQLite `Seed.UpgradeSchema`; PostgreSQL adds the column + indexes from the model in `PostgresSchema.Sync`, the same backfill then runs): the account's company, else the entity's; the new indexes are created BEFORE the old one is dropped |
 | `address`, `name` | |
 | `status` | `open` \| `pending` \| `snoozed` \| `resolved` (an inbound message reopens resolved/snoozed) |
 | `assignee`, `team_id` | two-level assignment; `team_id` → `crm_team` (`SetNull` on delete) |
 | `labels` | JSON list of conversation-tag slugs |
 | `contact_id` | the CRM link. **AI auto-replies only fire on linked threads** |
-| `account_id` | current sending account |
-| `entity_id` | denormalized attribution, re-synced by `ScopingService.SyncThreadEntity` |
+| `account_id` | current sending account — always a number of the thread's company (or an organization-wide one) |
+| `entity_id` | denormalized attribution, re-synced by `ScopingService.SyncThreadEntity` — always inside `company_entity_id` |
 | `ai_enabled` | the account-less fallback tick (legacy column, kept in step by `AiEligibility.Set`) — every reader goes through `AiEligibility.Decide`, never this column |
 | `ai_overrides` | JSON `{account_pk: bool}` — the per-sending-account Chatbot tick; key `"thread"` marks an operator's decision on an account-less thread |
 | `opted_out` | blocks AI, templates and calls |
@@ -540,9 +541,16 @@ Written ONLY by the embedding worker (`EmbeddingIndexer`); a row whose hash or
 model no longer matches is re-embedded.
 
 ### `crm_conversationsummary`
-`contact_id` · `source` (`chat`\|`call`) · `channel` · `ref` (thread key / call
-id) · `summary` · `facts` (JSON) · `sentiment` · `created_at`. On-demand case
-summaries.
+`contact_id` · `source` (`chat`\|`call`\|`timeline`…) · `channel` · `ref`
+(`thread:{id}` for a conversation's case summary — a customer has one
+conversation per company, so the older `channel:key` refs were moved to their
+one thread on boot by `ThreadCompanies.AttributeSummaries`; a call id; the
+timeline's phone / email) · `summary` · `facts` (JSON; a timeline summary
+records the `thread_ids` / `call_ids` it was written from and is served only to
+a caller who sees all of them) · `sentiment` · `created_at`. On-demand case
+summaries. The AI's CONTACT MEMORY reads a conversation's summary only for that
+conversation's company, and contact-level rows only when every company the
+contact's data came from is the answering one.
 
 ### `crm_llmusage` — metering ledger
 `feature` (`chat_reply` \| `summary` \| `timeline` \| `playground` \|
@@ -558,7 +566,10 @@ it reports one — OpenRouter; null = estimate at read time from Setting
 `created_at`.
 
 ### `crm_callrecord`
-`call_id` (**unique**) · `contact_id` · `phone` · `name` · `started_at` /
+`call_id` (**unique**) · `contact_id` · `entity_id` (nullable — the entity the
+call was placed for, from the dispatch metadata's `entity_id`; contact views
+list only the caller's entities' calls, `Endpoints/CallScope.cs`; null = an
+older call, shown only to unbound viewers) · `phone` · `name` · `started_at` /
 `ended_at` (strings from the agent) · `transcript` · `summary` · `outcome` ·
 `followup_date` · `needs_human`. Folded in from the voice agent's `calls.json`
 by `VoiceCallSync`.

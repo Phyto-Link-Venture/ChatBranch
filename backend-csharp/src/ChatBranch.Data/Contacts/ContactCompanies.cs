@@ -25,14 +25,79 @@ namespace ChatBranch.Data.Contacts;
 public static class ContactCompanies
 {
     /// <summary>The top-level entity (company) an entity belongs to.</summary>
-    public static int CompanyOf(ScopingService sc, int entityId)
-    {
-        var chain = sc.EntityChain(entityId);
-        return chain.Count > 0 ? chain[^1] : entityId;
-    }
+    public static int CompanyOf(ScopingService sc, int entityId) => sc.CompanyOf(entityId) ?? entityId;
 
     public static HashSet<int> CompaniesOf(ScopingService sc, IEnumerable<int> entityIds) =>
         entityIds.Distinct().Select(e => CompanyOf(sc, e)).ToHashSet();
+
+    /// <summary>The companies a contact is LINKED to (its entity links' top-level entities).</summary>
+    public static HashSet<int> LinkCompanies(AppDbContext db, ScopingService sc, int contactId) =>
+        CompaniesOf(sc, db.ContactEntities.AsNoTracking().Where(l => l.ContactId == contactId)
+            .Select(l => l.EntityId).ToList());
+
+    /// <summary>
+    /// May a conversation of <paramref name="company"/> be linked to this contact: a
+    /// contact of that company (a link inside it), or an organization-wide contact (no
+    /// links). An unattributed conversation (null) may take any contact — it then
+    /// becomes that contact's company's. A contact of ANOTHER company never.
+    /// </summary>
+    public static bool MayLink(AppDbContext db, ScopingService sc, int contactId, int? company)
+    {
+        if (company is not int c) return true;
+        var mine = LinkCompanies(db, sc, contactId);
+        return mine.Count == 0 || mine.Contains(c);
+    }
+
+    /// <summary>
+    /// Every company a contact's data may have come from: its entity links' companies
+    /// plus the companies of the conversations linked to it.
+    /// </summary>
+    public static HashSet<int> DataCompanies(AppDbContext db, ScopingService sc, int contactId)
+    {
+        var set = LinkCompanies(db, sc, contactId);
+        foreach (var t in db.Threads.AsNoTracking().Where(t => t.ContactId == contactId)
+                     .Select(t => new { t.CompanyEntityId, t.EntityId }).ToList())
+            if ((t.CompanyEntityId ?? sc.CompanyOf(t.EntityId)) is int c) set.Add(c);
+        return set;
+    }
+
+    /// <summary>
+    /// May contact-LEVEL memory (the profile summary, preferences, timeline / flow
+    /// notes — anything not tied to one conversation) be used when <paramref name="company"/>
+    /// answers this contact: only when every company the contact's data may have come
+    /// from IS that company. A contact shared by several companies keeps it out, and an
+    /// unattributed conversation (null) only uses memory no company wrote.
+    /// </summary>
+    public static bool MemoryAllowed(AppDbContext db, ScopingService sc, int contactId, int? company)
+    {
+        try
+        {
+            var from = DataCompanies(db, sc, contactId);
+            return company is int c ? from.All(x => x == c) : from.Count == 0;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// The contact's tag names <paramref name="company"/> may see: every tag when the
+    /// contact's data is all that company's (<paramref name="allOwn"/>), else only the
+    /// organization-wide tags and the company's own — another company's tags never
+    /// reach its AI.
+    /// </summary>
+    public static List<string> VisibleTags(AppDbContext db, ScopingService sc, Contact c, int? company, bool allOwn)
+    {
+        if (allOwn || c.Tags.Count == 0) return c.Tags;
+        try
+        {
+            var names = c.Tags.Select(t => t.Trim().ToLowerInvariant()).ToHashSet();
+            var ok = db.Tags.AsNoTracking().Where(t => t.AppliesTo == "contact").ToList()
+                .Where(t => names.Contains(t.Name.Trim().ToLowerInvariant()))
+                .Where(t => t.EntityId == null || (company != null && sc.CompanyOf(t.EntityId) == company))
+                .Select(t => t.Name.Trim().ToLowerInvariant()).ToHashSet();
+            return c.Tags.Where(t => ok.Contains(t.Trim().ToLowerInvariant())).ToList();
+        }
+        catch { return new List<string>(); }
+    }
 
     /// <summary>A duplicate found by <see cref="FindClash"/>.</summary>
     public sealed record Clash(int ContactId, string Name, string Field);

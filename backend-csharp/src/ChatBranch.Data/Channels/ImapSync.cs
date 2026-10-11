@@ -493,10 +493,10 @@ public sealed class EmailSyncService
 
         // a sender who is not a contact still gets a conversation (unlinked, AI off) —
         // the same rule as every other channel; there is no known-sender gate
-        var existing = _db.Threads.FirstOrDefault(t => t.Channel == ChannelIds.Email && t.Key.ToLower() == key);
+        // THIS mailbox's company's conversation with the sender (one per company)
+        var (existing, threadKey) = ExistingFor(key, mailbox.AccountId);
         if (mail.MessageId.Length > 0 && KnownMessageId(mail.MessageId)) return IngestOutcome.Duplicate;
 
-        var threadKey = existing?.Key ?? key;
         var name = mail.FromName.Length > 0 ? mail.FromName : null;
         if (existing == null)
         {
@@ -551,14 +551,26 @@ public sealed class EmailSyncService
         return IngestOutcome.Kept;
     }
 
+    /// <summary>
+    /// The mailbox's company's conversation with an address (any casing of it), and the key
+    /// to file under — a customer has one conversation per company, never another's.
+    /// </summary>
+    private (Thread? Existing, string Key) ExistingFor(string address, int? accountId)
+    {
+        var keys = _db.Threads.AsNoTracking().Where(t => t.Channel == ChannelIds.Email && t.Key.ToLower() == address)
+            .Select(t => t.Key).Distinct().ToList();
+        foreach (var k in keys)
+            if (_threads.FindForAccount(ChannelIds.Email, k, accountId) is { } mine) return (mine, k);
+        return (null, keys.FirstOrDefault() ?? address);
+    }
+
     /// <summary>The conversation a sent mail is filed under — the one for that address, else a new one.</summary>
     private Thread SentThread(string address, string name, EmailServerSettings mailbox)
     {
-        var existingKey = _db.Threads.Where(t => t.Channel == ChannelIds.Email && t.Key.ToLower() == address)
-            .Select(t => t.Key).FirstOrDefault();
+        var (existing, threadKey) = ExistingFor(address, mailbox.AccountId);
         var display = name.Length > 0 && !string.Equals(name, address, StringComparison.OrdinalIgnoreCase) ? name : null;
-        var thread = _threads.GetOrCreateThread(ChannelIds.Email, existingKey ?? address, display, mailbox.AccountId);
-        if (existingKey == null)
+        var thread = _threads.GetOrCreateThread(ChannelIds.Email, threadKey, display, mailbox.AccountId);
+        if (existing == null)
         {
             thread.AiEnabled = false; // email has no auto-reply; a person started this one
             _db.SaveChanges();
@@ -570,7 +582,8 @@ public sealed class EmailSyncService
                 ? _db.ChannelAccounts.AsNoTracking().Where(a => a.Id == aid).Select(a => a.EntityId).FirstOrDefault()
                   ?? thread.EntityId
                 : thread.EntityId;
-            if (ContactCompanies.MatchEmail(_db, _scoping, address, entity) is { } contact)
+            if (ContactCompanies.MatchEmail(_db, _scoping, address, entity) is { } contact
+                && ContactCompanies.MayLink(_db, _scoping, contact.Id, _scoping.ThreadCompany(thread)))
             {
                 thread.ContactId = contact.Id;
                 _db.SaveChanges();

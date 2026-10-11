@@ -176,6 +176,8 @@ export interface LessonFeedbackRef {
   user: string
   created_at: string
   thread: ThreadRef
+  /** which company's conversation (a customer has one per company) */
+  thread_id?: number | null
 }
 
 export interface Lesson {
@@ -265,6 +267,7 @@ export interface KnowledgeGap {
   count: number
   example: string
   thread: ThreadRef
+  thread_id?: number | null
   last_at: string | null
 }
 
@@ -327,10 +330,14 @@ export function embeddingProviderLabel(p: string, t: TFunction): string {
  *  object carrying channel + key (optionally a name). */
 export type ThreadRef = string | { channel?: string; key?: string; name?: string; id?: number } | null | undefined
 
-export function threadHref(t: ThreadRef): string | null {
+/** The /chats link to a conversation; `threadId` (or the object's `id`) says WHICH company's —
+ *  a customer has one conversation per company under the same channel:key. */
+export function threadHref(t: ThreadRef, threadId?: number | null): string | null {
   if (!t) return null
-  if (typeof t === 'string') return t.includes(':') ? `/chats?thread=${encodeURIComponent(t)}` : null
-  if (t.channel && t.key) return `/chats?thread=${encodeURIComponent(`${t.channel}:${t.key}`)}`
+  if (typeof t === 'string')
+    return t.includes(':') ? `/chats?thread=${encodeURIComponent(t)}${threadId ? `&thread_id=${threadId}` : ''}` : null
+  const id = threadId ?? t.id
+  if (t.channel && t.key) return `/chats?thread=${encodeURIComponent(`${t.channel}:${t.key}`)}${id ? `&thread_id=${id}` : ''}`
   return null
 }
 
