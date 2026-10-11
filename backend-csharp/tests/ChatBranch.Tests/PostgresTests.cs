@@ -24,8 +24,16 @@ public class PostgresTests
 
         Assert.Equal(DatabaseSetup.DefaultSqlite, DatabaseSetup.ConnectionString(DatabaseSetup.Sqlite, null, null));
         Assert.Equal("Data Source=/data/x.sqlite3",
-            DatabaseSetup.ConnectionString(DatabaseSetup.Sqlite, "Data Source=/data/x.sqlite3", "postgres://ignored"));
+            DatabaseSetup.ConnectionString(DatabaseSetup.Sqlite, "Data Source=/data/x.sqlite3", "postgres://u:p@ignored/d"));
         Assert.Throws<InvalidOperationException>(() => DatabaseSetup.ConnectionString(DatabaseSetup.Postgres, null, null));
+        // the image bakes in the SQLite string: Postgres never takes it
+        Assert.Throws<InvalidOperationException>(() =>
+            DatabaseSetup.ConnectionString(DatabaseSetup.Postgres, "Data Source=/data/chatbranch.sqlite3", null));
+        Assert.Equal("h", new NpgsqlConnectionStringBuilder(DatabaseSetup.ConnectionString(DatabaseSetup.Postgres,
+            "Data Source=/data/chatbranch.sqlite3", "postgres://u:p@h/d")).Host);
+        Assert.Equal("Host=db;Database=cb", DatabaseSetup.ConnectionString(DatabaseSetup.Postgres, "Host=db;Database=cb", null));
+        Assert.Equal("url", new NpgsqlConnectionStringBuilder(DatabaseSetup.ConnectionString(DatabaseSetup.Postgres,
+            "Host=db;Database=cb", "postgres://u:p@url/d")).Host); // DATABASE_URL wins
 
         var b = new NpgsqlConnectionStringBuilder(DatabaseSetup.ConnectionString(DatabaseSetup.Postgres, null,
             "postgres://chat%40branch:p%3Ass@db.internal:6543/chatbranch?sslmode=require"));

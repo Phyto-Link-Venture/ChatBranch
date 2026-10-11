@@ -29,20 +29,26 @@ public static class DatabaseSetup
             _ => Sqlite,
         };
 
-    /// <summary>The connection string: the configured one, else DATABASE_URL for Postgres, else the SQLite file.</summary>
+    /// <summary>
+    /// The connection string. SQLite: the configured one, else the file. Postgres:
+    /// DATABASE_URL first (compose passes it), else a configured Npgsql string — never
+    /// the image's baked-in SQLite one (<c>Data Source=/data/chatbranch.sqlite3</c>).
+    /// </summary>
     public static string ConnectionString(string provider, string? configured, string? databaseUrl)
     {
-        if (!string.IsNullOrWhiteSpace(configured)) return configured!;
-        if (provider == Postgres)
-        {
-            if (string.IsNullOrWhiteSpace(databaseUrl))
-                throw new InvalidOperationException(
-                    "DATABASE_PROVIDER=postgres needs ConnectionStrings__Default or DATABASE_URL "
-                    + "(postgres://user:password@host:5432/database).");
-            return FromUrl(databaseUrl!);
-        }
-        return DefaultSqlite;
+        if (provider != Postgres) return string.IsNullOrWhiteSpace(configured) ? DefaultSqlite : configured!;
+        if (!string.IsNullOrWhiteSpace(databaseUrl)) return FromUrl(databaseUrl!);
+        if (!string.IsNullOrWhiteSpace(configured) && !LooksLikeSqlite(configured!)) return configured!;
+        throw new InvalidOperationException(
+            "DATABASE_PROVIDER=postgres needs DATABASE_URL (postgres://user:password@host:5432/database) "
+            + "or an Npgsql ConnectionStrings__Default (Host=…;Database=…;Username=…;Password=…).");
     }
+
+    /// <summary>A SQLite connection string (Data Source=… / a .sqlite3 file), not an Npgsql one.</summary>
+    public static bool LooksLikeSqlite(string connection) =>
+        connection.Contains("Data Source", StringComparison.OrdinalIgnoreCase)
+        || connection.Contains("DataSource", StringComparison.OrdinalIgnoreCase)
+        || connection.Contains(".sqlite", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>postgres://user:password@host:port/database?sslmode=require → an Npgsql connection string.</summary>
     public static string FromUrl(string url)
