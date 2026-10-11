@@ -11,6 +11,9 @@
  *                             can carry the real quoted message
  *   buildQuoted(...)       -> the `quoted` option for sock.sendMessage
  *   buildReact(...)        -> the `{ react }` content for sock.sendMessage
+ *   mediaKind(message)     -> which attachment an (unwrapped) message carries:
+ *                             { key, type, ext, node } — image | video | audio | document
+ *   postWithRetry(...)     -> POST to the API, checking res.ok, retrying with backoff
  *
  * Synchronous and dependency-free, so `node messages.js --selftest` (also run by
  * `node calls.js --selftest`) checks it offline.
@@ -18,18 +21,74 @@
 import path from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 
-/** Wrappers WhatsApp puts around the real content (disappearing / view-once / edits). */
+/** Wrappers WhatsApp puts around the real content (disappearing / view-once /
+ *  edits / album children / status mentions / animated stickers) — the same set
+ *  Baileys' normalizeMessageContent walks, kept here so the selftest runs offline. */
 const WRAPPERS = ['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV2Extension',
-  'documentWithCaptionMessage']
+  'documentWithCaptionMessage', 'editedMessage', 'associatedChildMessage', 'groupStatusMessage',
+  'groupStatusMessageV2', 'botInvokeMessage', 'lottieStickerMessage']
+
+/** Baileys' own normalizer, when index.js hands it over (setNormalizer). */
+let normalizer = null
+export function setNormalizer(fn) {
+  normalizer = typeof fn === 'function' ? fn : null
+}
 
 export function unwrap(msg) {
   let m = msg
-  for (let i = 0; i < 4 && m && typeof m === 'object'; i++) {
+  if (normalizer && m) {
+    try { m = normalizer(m) || m } catch { /* fall back to our own walk */ }
+  }
+  for (let i = 0; i < 6 && m && typeof m === 'object'; i++) {
     const key = WRAPPERS.find((k) => m[k]?.message)
     if (!key) break
     m = m[key].message
   }
   return m || null
+}
+
+/** Downloadable envelope kinds -> our media_type + a fallback extension.
+ *  Stickers are webp images (animated webp still renders in <img>); a round
+ *  video note (ptvMessage) is a video. */
+export const MEDIA_KINDS = [
+  ['imageMessage', 'image', 'jpg'],
+  ['videoMessage', 'video', 'mp4'],
+  ['ptvMessage', 'video', 'mp4'],
+  ['audioMessage', 'audio', 'ogg'],
+  ['documentMessage', 'document', 'bin'],
+  ['stickerMessage', 'image', 'webp'],
+]
+
+export function mediaKind(msg) {
+  for (const [key, type, ext] of MEDIA_KINDS) {
+    if (msg?.[key]) return { key, type, ext, node: msg[key] }
+  }
+  return null
+}
+
+/**
+ * POST to the API and check the answer: a non-2xx (or a network error) is retried
+ * up to `attempts` times with a growing pause — the /media push can race the
+ * /inbound one — and a 4xx other than 404/409/429 is final (the request itself
+ * is wrong; repeating it changes nothing). Resolves { ok, status, attempts, error }.
+ */
+export async function postWithRetry(send, { attempts = 3, baseDelayMs = 500, sleep } = {}) {
+  const wait = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)))
+  let last = { ok: false, status: 0, attempts: 0, error: '' }
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      const res = await send()
+      if (res.ok) return { ok: true, status: res.status, attempts: i, error: '' }
+      let detail = ''
+      try { detail = String((await res.text()) || '').slice(0, 200) } catch { /* no body */ }
+      last = { ok: false, status: res.status, attempts: i, error: detail }
+      if (res.status >= 400 && res.status < 500 && ![404, 408, 409, 429].includes(res.status)) return last
+    } catch (e) {
+      last = { ok: false, status: 0, attempts: i, error: String(e?.message || e) }
+    }
+    if (i < attempts) await wait(baseDelayMs * 2 ** (i - 1))
+  }
+  return last
 }
 
 /** The first TEL (and FN) of a vCard. */
@@ -84,6 +143,7 @@ export function extractText(msg) {
     msg.documentMessage?.caption ||
     (msg.imageMessage && '[image]') ||
     (msg.videoMessage && '[video]') ||
+    (msg.ptvMessage && '[video]') ||
     (msg.audioMessage && '[audio]') ||
     (msg.documentMessage && '[document]') ||
     (msg.stickerMessage && '[sticker]') ||
@@ -177,6 +237,22 @@ export function selftest() {
   check(parseInbound({ contactMessage: { displayName: 'Ana', vcard } }).text === '[contact] Ana · +60 12-345 6789',
     'contact card text')
   check(parseInbound({ stickerMessage: {} }).text === '[sticker]', 'sticker placeholder')
+  // new kinds + wrappers: round video notes, animated stickers, edits, album children, status mentions
+  check(parseInbound({ ptvMessage: { mimetype: 'video/mp4' } }).text === '[video]', 'video note placeholder')
+  check(mediaKind(unwrap({ ptvMessage: { mimetype: 'video/mp4' } }))?.type === 'video', 'video note downloads as video')
+  const lottie = unwrap({ lottieStickerMessage: { message: { stickerMessage: { mimetype: 'application/was' } } } })
+  check(mediaKind(lottie)?.key === 'stickerMessage' && parseInbound({ lottieStickerMessage: { message: { stickerMessage: {} } } }).text === '[sticker]',
+    'animated (lottie) sticker unwrapped')
+  for (const w of ['editedMessage', 'associatedChildMessage', 'groupStatusMessage']) {
+    const inner = unwrap({ [w]: { message: { imageMessage: { caption: 'x' } } } })
+    check(mediaKind(inner)?.type === 'image', `${w} unwrapped`)
+  }
+  check(mediaKind(unwrap({ ephemeralMessage: { message: { audioMessage: { ptt: true } } } }))?.type === 'audio',
+    'voice note in a disappearing chat')
+  check(mediaKind({ conversation: 'hi' }) === null, 'text carries no media')
+  setNormalizer((m) => m.wrapped?.message || m)
+  check(mediaKind(unwrap({ wrapped: { message: { documentMessage: {} } } }))?.type === 'document', 'Baileys normalizer used first')
+  setNormalizer(null)
   // the quote + react builders
   const store = new KeyStore(2)
   const real = { key: { id: 'R1', remoteJid: 'j', fromMe: false }, message: { conversation: 'real' } }
@@ -198,8 +274,28 @@ export function selftest() {
   return true
 }
 
+/** postWithRetry against a scripted fake fetch (async — calls.js awaits it). */
+export async function selftestRetry() {
+  const reply = (status) => ({ ok: status >= 200 && status < 300, status, text: async () => `s${status}` })
+  const noSleep = async () => {}
+  let calls = 0
+  let r = await postWithRetry(async () => reply(++calls < 3 ? 404 : 200), { sleep: noSleep })
+  check(r.ok && r.attempts === 3, 'retried until the row exists')
+  calls = 0
+  r = await postWithRetry(async () => { calls++; return reply(413) }, { sleep: noSleep })
+  check(!r.ok && r.status === 413 && calls === 1 && r.error === 's413', 'a 413 is final, not retried')
+  calls = 0
+  r = await postWithRetry(async () => { calls++; return reply(500) }, { sleep: noSleep })
+  check(!r.ok && r.status === 500 && calls === 3, 'a 500 is retried up to 3 times')
+  calls = 0
+  r = await postWithRetry(async () => { calls++; throw new Error('ECONNREFUSED') }, { sleep: noSleep })
+  check(!r.ok && r.status === 0 && calls === 3 && r.error.includes('ECONNREFUSED'), 'network errors retried')
+  return true
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
     && process.argv.includes('--selftest')) {
   selftest()
+  await selftestRetry()
   console.log(`messages selftest OK (${path.basename(fileURLToPath(import.meta.url))})`)
 }

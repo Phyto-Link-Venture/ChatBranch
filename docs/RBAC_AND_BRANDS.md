@@ -99,6 +99,43 @@ bounded by those entities' subtrees. An admin with none stays organization-wide
   "Company admin" badge and lets an org-wide admin or superadmin pick companies
   for an Admin. Tests: `CompanyAdminTests`.
 
+### Bound users never act at the organization level
+
+The rule above holds for EVERY entity-bound person — company admins, agents and
+custom roles with assigned entities (`ScopeRoots` non-empty) — whatever
+capabilities their role holds: they read and act inside their assigned subtrees
+(plus what those inherit) and never write at the organization level (entity
+null). Organization-wide AI writes need an UNBOUND caller:
+
+- `PUT/DELETE /api/ai/behaviour`, `PUT /api/ai/controls`, `PUT /api/aicore/persona`
+  (persona / house rules) at the organization level → 403 (`AiControlsEndpoints.MayEdit`);
+  `PUT /api/aicore/persona {hard_rules}` needs `settings.ai_hard_rules.manage`
+  AND an unbound caller; `POST /api/ai/learning/reindex` and
+  `POST /api/ai/monitor/tick` (organization-wide passes) → 403 for a bound caller;
+  `DELETE /api/ai/lessons/{id}` refuses an org-wide or inherited ancestor's
+  lesson to a company admin.
+- `GET /api/ai/behaviour`, `GET /api/aicore/persona` and `GET /api/ai/learning/status`
+  answer 404 for an entity outside a bound caller's subtrees (like
+  `GET /api/ai/controls`); the organization level stays readable, with
+  `can_manage: false` (behaviour) / `can_edit_hard_rules: false` (persona).
+  Lesson payloads carry the caller's `can_edit` / `can_delete` per row.
+- **Learning side effects.** `LearningActor.Bound` (the actor's subtree, from the
+  same assignment rule) — feedback (`POST /api/ai/feedback`) and AI-monitor
+  decisions by a bound person on a conversation outside their subtree (above all
+  an UNASSIGNED one, whose lessons are org-wide) keep the feedback row but never
+  create, merge into, edit or demote a lesson there. In learning mode `auto`,
+  feedback goes live only from an admin allowed to act at the lesson's level
+  (`LearningActor.AutoApproves`: an org-wide lesson needs an org-wide admin); the
+  playground's `teach_status` uses the same rule.
+- `GET /api/v1/whoami` carries `bound`. The dashboard (`EntityContext`: `bound`,
+  `levelEntity`) never puts a bound person on "All entities" (a stored "All" in
+  this browser is ignored, the last ticked entity can't be unticked, the
+  switcher hides the choice), `useEntityLevelQuery()` gives them their entity
+  instead of the organization, and every level picker (AI behaviour, the AI
+  switch + quick toggle, add lesson, AI review "apply at", the playground's
+  outlet + "Save as persona") hides "Organization" for them. Tests:
+  `EntityBoundAiScopeTests`.
+
 Role hygiene: `Message.source = "agent"` is a message origin, not a role, and
 `lib/auth.ts` maps a cached legacy `'collector'` session to `'agent'`.
 

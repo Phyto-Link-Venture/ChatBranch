@@ -52,6 +52,9 @@ public static class AiEndpoints
         {
             var (entityId, err) = await AiControlsEndpoints.EntityArg(db, entity);
             if (err != null) return err;
+            // an entity-bound caller reads only its own outlets' levels (like /api/ai/controls)
+            if (AiMonitorEndpoints.OutOfBoundScope(db, sc, me, entityId))
+                return Results.Json(new { detail = "That outlet is outside your scope." }, statusCode: 404);
             return Results.Ok(await PersonaPayload(db, persona, sc, me, entityId));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
@@ -66,6 +69,12 @@ public static class AiEndpoints
                 if (!await AdminEndpoints.HasCapabilityAsync(db, ShellScope.RoleOf(me), HardRulesCap))
                     return Results.Json(new { detail = "Only someone allowed to edit the AI's safety rules can change them." },
                         statusCode: 403);
+                // organization-wide by design: never a caller bound to assigned entities
+                if (ShellScope.ScopeRoots(db, me).Count > 0)
+                    return Results.Json(new
+                    {
+                        detail = "The AI's safety rules are organization-wide — your account is limited to its assigned entities.",
+                    }, statusCode: 403);
                 if (body.HardRules.Length > PersonaService.MaxHardRuleChars)
                     return Results.BadRequest(new { detail = $"The safety rules are too long ({PersonaService.MaxHardRuleChars} characters at most)." });
                 var hr = body.HardRules.Trim();
@@ -481,7 +490,8 @@ public static class AiEndpoints
             hard_rules_default = PersonaService.HardRules,
             hard_rules_custom = persona.HardRulesText() != PersonaService.HardRules,
             hard_rules_max_chars = PersonaService.MaxHardRuleChars,
-            can_edit_hard_rules = await AdminEndpoints.HasCapabilityAsync(db, ShellScope.RoleOf(me), HardRulesCap),
+            can_edit_hard_rules = await AdminEndpoints.HasCapabilityAsync(db, ShellScope.RoleOf(me), HardRulesCap)
+                                  && ShellScope.ScopeRoots(db, me).Count == 0,
             house_rules = new
             {
                 own = rules.Where(r => r.At == entityId).Select(r => r.Rule).ToList(),

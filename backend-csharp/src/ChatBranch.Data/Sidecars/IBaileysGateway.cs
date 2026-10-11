@@ -65,6 +65,14 @@ public interface IBaileysGateway
     Task<BaileysResult> SendMediaAsync(string accountExternalId, string toWaId, string mediaType, byte[] content,
         string mime, string fileName, string? caption, CancellationToken ct = default) =>
         Task.FromResult(new BaileysResult(false, "this Baileys gateway does not support sending media"));
+    /// <summary>
+    /// An Ogg/Opus file as a VOICE NOTE (the gateway's <c>send-media</c> with <c>ptt: true</c> →
+    /// Baileys <c>audioMessage</c>, <c>ptt</c>, mimetype <c>audio/ogg; codecs=opus</c>) — the AI's
+    /// voice replies. The default answers "not supported" so the reply falls back to text.
+    /// </summary>
+    Task<BaileysResult> SendVoiceNoteAsync(string accountExternalId, string toWaId, byte[] oggOpus,
+        CancellationToken ct = default) =>
+        Task.FromResult(new BaileysResult(false, "this Baileys gateway does not support voice notes"));
     /// <summary>Place a WhatsApp voice call bridged into a LiveKit room; ExternalId = the gateway's call id.</summary>
     Task<BaileysResult> StartCallAsync(string accountExternalId, string toWaId,
         Dictionary<string, object?> dispatch, CancellationToken ct = default);
@@ -266,6 +274,19 @@ public class HttpBaileysGateway : IBaileysGateway
         return new BaileysResult(true, "sent", id);
     }
 
+    public async Task<BaileysResult> SendVoiceNoteAsync(string a, string toWaId, byte[] oggOpus,
+        CancellationToken ct = default)
+    {
+        var refused = BaileysMedia.Refusal("audio", oggOpus);
+        if (refused != null) return new BaileysResult(false, refused);
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/send-media",
+            BaileysMedia.Payload(toWaId, "audio", oggOpus, "audio/ogg", "voice.ogg", null, ptt: true), ct,
+            timeoutSeconds: 120);
+        if (!ok) return new BaileysResult(false, err);
+        var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
+        return new BaileysResult(true, "sent", id);
+    }
+
     public async Task<BaileysResult> StartCallAsync(string a, string toWaId, Dictionary<string, object?> dispatch,
         CancellationToken ct = default)
     {
@@ -330,7 +351,7 @@ public static class BaileysMedia
 
     /// <summary>The JSON body of POST /accounts/{id}/send-media.</summary>
     public static Dictionary<string, object?> Payload(string toWaId, string mediaType, byte[] content, string mime,
-        string fileName, string? caption)
+        string fileName, string? caption, bool ptt = false)
     {
         var body = new Dictionary<string, object?>
         {
@@ -341,6 +362,8 @@ public static class BaileysMedia
             ["filename"] = Path.GetFileName(fileName ?? ""),
         };
         if (!string.IsNullOrWhiteSpace(caption) && mediaType != "audio") body["caption"] = caption.Trim();
+        // a voice note (push-to-talk): the gateway sends audio/ogg; codecs=opus with ptt=true
+        if (ptt && mediaType == "audio") body["ptt"] = true;
         return body;
     }
 }

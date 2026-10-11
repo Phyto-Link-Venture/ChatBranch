@@ -232,23 +232,31 @@ public static class WebhooksEndpoints
         // text placeholder to /inbound — multipart wa_id, msg_id, media_type, file.
         // The file lands in data/whatsapp/media/{wa_id}/ and attaches to the
         // message with that msg_id (20 MB cap). If the text push never landed, the
-        // row is created through the normal inbound path first.
+        // row is created through the normal inbound path first. A file that could
+        // NOT be stored answers non-2xx (400 bad request, 413 too large, 500 save
+        // failure) so the gateway knows to retry or to log the loss — never a 200.
         app.MapPost("/api/whatsapp/baileys/media", async (HttpContext ctx, AppDbContext db,
             ScopingService sc, InboundProcessor processor, MediaStore media) =>
         {
             if (!BaileysSecretOk(ctx, sc)) return Results.StatusCode(401);
-            if (!ctx.Request.HasFormContentType) return Results.Ok(new { ok = true, stored = false });
+            static IResult NotStored(int status, string detail) =>
+                Results.Json(new { ok = false, stored = false, detail }, statusCode: status);
+            if (!ctx.Request.HasFormContentType) return NotStored(400, "multipart form expected");
             IFormCollection form;
             try { form = await ctx.Request.ReadFormAsync(); }
-            catch { return Results.Ok(new { ok = true, stored = false }); }
+            catch (Exception e) when (e is InvalidDataException or BadHttpRequestException)
+            {
+                return e.Message.Contains("limit", StringComparison.OrdinalIgnoreCase)
+                    ? NotStored(413, "file too large")
+                    : NotStored(400, "unreadable form");
+            }
             var waId = new string(form["wa_id"].ToString().Where(char.IsDigit).ToArray());
             var msgId = form["msg_id"].ToString().Trim();
             var declared = form["media_type"].ToString().Trim().ToLowerInvariant();
             var file = form.Files["file"];
             if (waId.Length == 0 || file == null || file.Length == 0)
-                return Results.Ok(new { ok = true, stored = false });
-            if (file.Length > MediaStore.MaxBytes)
-                return Results.Ok(new { ok = true, stored = false, detail = "file too large" });
+                return NotStored(400, "wa_id and a non-empty file are required");
+            if (file.Length > MediaStore.MaxBytes) return NotStored(413, "file too large");
 
             var type = declared is "image" or "video" or "audio" or "document"
                 ? declared : MediaStore.TypeForMime(file.ContentType);
@@ -263,14 +271,24 @@ public static class WebhooksEndpoints
             }
             if (msg.MediaPath.Length > 0) return Results.Ok(new { ok = true, stored = true }); // redelivery
 
-            await using var stream = file.OpenReadStream();
-            var rel = await media.SaveAsync("whatsapp", waId, stream,
-                MediaStore.ExtFor(file.ContentType, file.FileName));
-            if (rel == null) return Results.Ok(new { ok = true, stored = false, detail = "file too large" });
-            msg.MediaType = type;
-            msg.MediaPath = rel;
-            thread!.UpdatedAt = DateTime.UtcNow; // the inbox stream re-renders the bubble
-            await db.SaveChangesAsync();
+            // the gateway names the file only when the customer did (a document);
+            // a voice note / photo arrives as "media.<ext>" or the like — not a real name
+            var givenName = form["file_name"].ToString();
+            if (givenName.Length == 0 && type == "document") givenName = file.FileName;
+            try
+            {
+                await using var stream = file.OpenReadStream();
+                var rel = await media.SaveAsync("whatsapp", waId, stream,
+                    MediaStore.ExtFor(file.ContentType, file.FileName));
+                if (rel == null) return NotStored(413, "file too large");
+                MediaStore.Stamp(msg, type, rel, file.ContentType, givenName, file.Length);
+                thread!.UpdatedAt = DateTime.UtcNow; // the inbox stream re-renders the bubble
+                await db.SaveChangesAsync();
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or DbUpdateException)
+            {
+                return NotStored(500, "could not store the file");
+            }
             return Results.Ok(new { ok = true, stored = true });
         }).AllowAnonymous().DisableAntiforgery();
 

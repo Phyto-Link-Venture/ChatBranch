@@ -256,13 +256,14 @@ export function DraftTouches({
   d,
   compact = false,
 }: {
-  d: Pick<Draft, 'reactions' | 'quote' | 'content'>
+  d: Pick<Draft, 'reactions' | 'quote' | 'content'> & Partial<Pick<Draft, 'voice' | 'voice_error'>>
   /** No box — for the chat's review banner. */
   compact?: boolean
 }) {
   const t = useT()
   const reactions = Array.isArray(d.reactions) ? d.reactions : []
-  if (!reactions.length && !d.quote) return null
+  const voice = d.voice === 'planned' || d.voice === 'sent' || d.voice === 'text' ? d.voice : null
+  if (!reactions.length && !d.quote && !voice) return null
   const clip = (s: string) => (s.length > 80 ? `${s.slice(0, 80)}…` : s)
   return (
     <div
@@ -294,6 +295,24 @@ export function DraftTouches({
       ))}
       {reactions.length > 0 && !d.content.trim() && (
         <span className="text-[11.5px] text-text-muted">{t('ai.draft.touch.reactionOnly')}</span>
+      )}
+      {voice && (
+        <span
+          className={`inline-flex w-fit items-center rounded-full border px-2 py-px font-semibold ${
+            voice === 'sent'
+              ? 'border-green/30 text-[color:var(--green-ink)]'
+              : voice === 'text'
+                ? 'border-amber/30 text-[color:var(--amber-ink)]'
+                : 'border-line-strong text-text-high'
+          }`}
+          title={voice === 'text' ? d.voice_error || undefined : undefined}
+        >
+          {voice === 'sent'
+            ? t('ai.draft.touch.voiceSent')
+            : voice === 'text'
+              ? t('ai.draft.touch.voiceText')
+              : t('ai.draft.touch.voicePlanned')}
+        </span>
       )}
       {d.quote && (
         <span className="min-w-0 break-words border-l-2 border-line-strong pl-2 text-text-mid">

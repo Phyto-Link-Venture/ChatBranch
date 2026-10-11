@@ -61,7 +61,7 @@ const fieldCls =
 export function PersonaRules() {
   const t = useT()
   const entityQ = useEntityLevelQuery()
-  const { activeEntity } = useEntity()
+  const { levelEntity } = useEntity()
   const [data, setData] = useState<PersonaPayload | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [own, setOwn] = useState(false)
@@ -128,7 +128,7 @@ export function PersonaRules() {
   }
 
   const isOrg = data.entity == null
-  const levelName = isOrg ? t('ai.persona.theOrganization') : data.entity_name || activeEntity?.name || ''
+  const levelName = isOrg ? t('ai.persona.theOrganization') : data.entity_name || levelEntity?.name || ''
   const sourceName = (l: Level) =>
     l.scope === 'default'
       ? t('ai.persona.builtInDefault')

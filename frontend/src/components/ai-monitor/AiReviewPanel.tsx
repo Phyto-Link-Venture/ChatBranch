@@ -93,7 +93,7 @@ export function AiReviewPanel({ entityQuery }: { entityQuery: string }) {
   const [applying, setApplying] = useState<number | null>(null)
   const [applyMsg, setApplyMsg] = useState<Record<number, { ok: boolean; text: string }>>({})
   // the confirm dialog: what is added, as what, at which level of the tree
-  const { entities } = useEntity()
+  const { entities, bound, levelEntity } = useEntity()
   const [confirm, setConfirm] = useState<{ finding: ReviewFinding; as: ApplyAs; text: string; level: string | null } | null>(
     null,
   )
@@ -255,7 +255,9 @@ export function AiReviewPanel({ entityQuery }: { entityQuery: string }) {
   // Opens the confirm dialog — nothing is added until the person checks the
   // wording and the level. Default level: the conversation's own entity.
   function apply(finding: ReviewFinding, as: ApplyAs) {
-    const own = finding.entity_id != null ? entities.find((e) => e.id === finding.entity_id)?.slug ?? null : null
+    const conv = finding.entity_id != null ? entities.find((e) => e.id === finding.entity_id)?.slug ?? null : null
+    // a person bound to their entities never adds at the organization level
+    const own = conv ?? (bound ? levelEntity?.slug ?? null : null)
     setConfirmError(null)
     setConfirm({ finding, as, text: finding.fix.text, level: own })
   }
@@ -747,6 +749,7 @@ export function AiReviewPanel({ entityQuery }: { entityQuery: string }) {
               <EntityPicker
                 value={confirm.level}
                 onChange={(slug) => setConfirm({ ...confirm, level: slug })}
+                allowGlobal={!bound}
                 ariaLabel={t('ai.reviewer.confirm.level')}
               />
               <span className="text-[11.5px] text-text-muted">{t('ai.reviewer.confirm.levelHint')}</span>

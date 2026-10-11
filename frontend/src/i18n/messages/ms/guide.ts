@@ -666,20 +666,20 @@ export const guide: Dict<typeof source> = {
           body: 'Hijau bermaksud balasan AI sudah sedia. Kelabu bermaksud belum ada kunci, jadi AI tidak dapat menulis balasan sebenar.',
         },
         s3: {
-          title: 'Kunci, penyedia dan model',
-          body: 'Tampal kunci daripada syarikat AI anda, pilih penyedia (atau Automatik untuk mencubanya mengikut urutan) dan pilih model.',
+          title: 'Penyedia AI anda',
+          body: 'Setiap jubin ialah satu syarikat AI — OpenRouter, OpenAI, Anthropic, Gemini, Qwen, DeepSeek dan lain-lain. Klik satu, tampal kuncinya dan tekan Uji sambungan. Sambungkan seberapa banyak yang anda mahu.',
         },
         s4: {
-          title: 'Dari mana nilai datang',
-          body: 'Setiap medan menyatakan “daripada Tetapan” (disimpan di sini), “daripada .env” (ditetapkan pada pelayan) atau “belum ditetapkan”.',
+          title: 'Siapa yang menjawab',
+          body: 'Automatik mencuba penyedia yang disambung mengikut susunan; pilih satu untuk menggunakannya sahaja. Cip menunjukkan sama ada pilihan disimpan di sini (“daripada Tetapan”), ditetapkan pada pelayan (“daripada .env”) atau “belum ditetapkan”.',
         },
         s5: {
           title: 'Tetapan lanjutan',
-          body: 'Penyedia tambahan, embedding (untuk carian pengetahuan yang lebih bijak) dan pemasaan. Tetapan lalai sesuai untuk kebanyakan perniagaan.',
+          body: 'Model penyemak AI, suara ElevenLabs, embedding (carian pengetahuan yang lebih bijak) dan masa. Nilai lalai sesuai untuk kebanyakan perniagaan.',
         },
         s6: {
           title: 'Simpan',
-          body: 'Selepas mengubah apa-apa, klik Simpan perubahan di bahagian atas halaman. Buang perubahan membatalkan suntingan anda.',
+          body: 'Panel penyedia menyimpan dirinya sendiri. Perubahan pada “Siapa yang menjawab” atau Tetapan lanjutan perlu Simpan perubahan di bahagian atas halaman; Buang perubahan membatalkannya.',
         },
       },
     },

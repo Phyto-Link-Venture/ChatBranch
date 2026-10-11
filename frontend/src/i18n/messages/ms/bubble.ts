@@ -46,6 +46,7 @@ export const bubble: Dict<typeof source> = {
     open: 'Buka kenalan',
   },
   sticker: 'Pelekat',
+  transcript: 'Transkrip',
   emoji: {
     open: 'Emoji',
     search: 'Cari emoji',

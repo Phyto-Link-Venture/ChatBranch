@@ -206,8 +206,8 @@ public sealed class EmailChannel
     private Message WithMedia(Message msg, OutboundMedia? media)
     {
         if (media == null) return msg;
-        msg.MediaType = media.MediaType;
-        msg.MediaPath = media.RelPath;
+        MediaStore.Stamp(msg, media.MediaType, media.RelPath, MessagingMedia.ContentTypeFor(media.FileName),
+            media.FileName, MediaStore.SizeOf(media.AbsolutePath));
         _db.SaveChanges();
         return msg;
     }

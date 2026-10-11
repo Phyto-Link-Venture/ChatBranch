@@ -198,6 +198,10 @@ export interface Lesson {
   created_at: string
   updated_at: string
   feedback: LessonFeedbackRef[]
+  /** What the CALLER may do with this row (a person bound to entities never edits
+   * or deletes an organization-wide or an inherited ancestor's lesson). */
+  can_edit?: boolean
+  can_delete?: boolean
 }
 
 export interface LessonList {

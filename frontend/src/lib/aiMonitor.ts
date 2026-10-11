@@ -119,6 +119,9 @@ export interface Draft {
   reactions?: DraftReaction[]
   /** The customer message the reply's first bubble quotes (WhatsApp / Telegram). */
   quote?: { message_id: number; text: string } | null
+  /** AI voice replies: '' | planned (would go as a voice note) | sent | text (fell back — voice_error says why). */
+  voice?: '' | 'planned' | 'sent' | 'text'
+  voice_error?: string
 }
 
 export interface DraftReaction {

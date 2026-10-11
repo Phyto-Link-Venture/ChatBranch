@@ -29,6 +29,7 @@
  * ToS and numbers can get banned. Use a dedicated/spare number.
  */
 import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } from '@whiskeysockets/baileys'
+import * as Baileys from '@whiskeysockets/baileys'
 import { toDataURL } from 'qrcode'
 import http from 'http'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
@@ -36,9 +37,14 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import pino from 'pino'
 import { buildMediaMessage, MediaRequestError, MAX_SEND_MEDIA_BODY, readJsonBodyCapped } from './media.js'
-import { buildQuoted, buildReact, KeyStore, parseInbound, unwrap } from './messages.js'
+import { buildQuoted, buildReact, KeyStore, mediaKind, parseInbound, postWithRetry, setNormalizer, unwrap } from './messages.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
+
+// Baileys' own wrapper walk (ephemeral / view-once / edited / album children /
+// status mentions / lottie stickers), when this version exports it; messages.js
+// walks the same set itself afterwards either way.
+setNormalizer(Baileys.normalizeMessageContent)
 
 // backend/.env is the shared config file — Django, the voice agent and the
 // bridge all load it via python-dotenv, but node gets only shell env. Load it
@@ -159,28 +165,16 @@ const hasContent = (msg) => !!msg && Object.keys(msg).some((k) => !PROTOCOL_KEYS
 // message; an id we no longer hold is rebuilt from the API's text (messages.js).
 const recentMessages = new KeyStore(2000)
 
-// Downloadable envelope kinds -> our media_type + a fallback extension.
-// Stickers are webp images (animated webp still renders in <img>).
-const MEDIA_KINDS = [
-  ['imageMessage', 'image', 'jpg'],
-  ['videoMessage', 'video', 'mp4'],
-  ['audioMessage', 'audio', 'ogg'],
-  ['documentMessage', 'document', 'bin'],
-  ['stickerMessage', 'image', 'webp'],
-]
+// Downloadable envelope kinds (image / video / video note / audio / document /
+// sticker) live in messages.js (MEDIA_KINDS, mediaKind) so the selftest covers them.
 const MAX_MEDIA_BYTES = 20 * 1024 * 1024
 
-function mediaKind(msg) {
-  for (const [key, type, ext] of MEDIA_KINDS) {
-    if (msg?.[key]) return { key, type, ext, node: msg[key] }
-  }
-  return null
-}
-
 /** Decrypt+download an inbound attachment (only this process holds the Signal
- *  session keys) and hand the bytes to Django, which stores them next to the
- *  Cloud downloads and attaches them to the just-pushed message. Best-effort:
- *  a failure leaves the "[image]"-style text placeholder in the chat. */
+ *  session keys) and hand the bytes to the API, which stores them next to the
+ *  Cloud downloads and attaches them to the just-pushed message. The API's answer
+ *  is checked: a non-2xx is retried (up to 3 tries with backoff — the push can
+ *  race the /inbound one) and a final failure is logged as mediaPushFailed with
+ *  its status; the chat then shows "not available" for the attachment. */
 async function pushInboundMedia(id, m, waId, media) {
   try {
     const declared = Number(media.node?.fileLength || 0)
@@ -189,24 +183,40 @@ async function pushInboundMedia(id, m, waId, media) {
       return
     }
     const sock = acct(id).sock
-    const buffer = await downloadMediaMessage(m, 'buffer', {},
+    // download from the UNWRAPPED content: Baileys' own walk skips some wrappers
+    // (a lottie sticker's inner stickerMessage) that messages.js opens
+    const inner = unwrap(m.message)
+    const buffer = await downloadMediaMessage(inner ? { ...m, message: inner } : m, 'buffer', {},
       { logger, reuploadRequest: sock ? sock.updateMediaMessage : undefined })
     if (!buffer || buffer.length > MAX_MEDIA_BYTES) return
     const mime = String(media.node?.mimetype || '').split(';')[0].trim()
     const mimeExt = mime.includes('/') ? mime.split('/')[1].replace(/[^a-z0-9]/gi, '').slice(0, 8) : ''
     const filename = media.node?.fileName || `${m.key?.id || 'media'}.${mimeExt || media.ext}`
-    const form = new FormData()
-    form.append('wa_id', waId)
-    form.append('msg_id', m.key?.id || '')
-    form.append('media_type', media.type)
-    form.append('file', new Blob([buffer], { type: mime || 'application/octet-stream' }), filename)
-    // no explicit Content-Type header — fetch sets the multipart boundary
-    await fetch(`${API_URL}/api/whatsapp/baileys/media`, {
-      method: 'POST', headers: { 'X-Baileys-Secret': SECRET }, body: form,
-    })
-    logEvent('mediaPush', { acct: id, id: m.key?.id, kind: media.key, bytes: buffer.length })
+    const send = () => {
+      // a fresh form per try (a body stream is consumed once)
+      const form = new FormData()
+      form.append('wa_id', waId)
+      form.append('msg_id', m.key?.id || '')
+      form.append('media_type', media.type)
+      // the customer's own file name (documents) — a photo or voice note has none
+      form.append('file_name', String(media.node?.fileName || ''))
+      form.append('file', new Blob([buffer], { type: mime || 'application/octet-stream' }), filename)
+      // no explicit Content-Type header — fetch sets the multipart boundary
+      return fetch(`${API_URL}/api/whatsapp/baileys/media`, {
+        method: 'POST', headers: { 'X-Baileys-Secret': SECRET }, body: form,
+      })
+    }
+    const r = await postWithRetry(send, { attempts: 3, baseDelayMs: 1000 })
+    if (r.ok) {
+      logEvent('mediaPush', { acct: id, id: m.key?.id, kind: media.key, bytes: buffer.length, attempts: r.attempts })
+    } else {
+      logEvent('mediaPushFailed', { acct: id, id: m.key?.id, kind: media.key, bytes: buffer.length,
+        status: r.status, attempts: r.attempts, error: r.error })
+      console.error(`[${id}] media push failed (HTTP ${r.status || 'network'}): ${r.error}`)
+    }
   } catch (e) {
-    console.error(`[${id}] media push failed:`, e.message)
+    logEvent('mediaPushFailed', { acct: id, id: m.key?.id, kind: media.key, status: 0, error: String(e?.message || e) })
+    console.error(`[${id}] media download/push failed:`, e.message)
   }
 }
 
@@ -243,14 +253,17 @@ async function pushInbound(id, m) {
         reply_to: parsed.replyTo,
       }
   if (!parsed.reaction) recentMessages.remember(m)
-  try {
-    await fetch(`${API_URL}/api/whatsapp/baileys/inbound`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
-      body: JSON.stringify(body),
-    })
-  } catch (e) {
-    console.error(`[${id}] inbound push failed:`, e.message)
+  // the API answers non-2xx when it could not take the message (a restart, a
+  // wrong secret): retried twice, then logged — the media push still follows,
+  // and creates the row itself when the text never landed
+  const r = await postWithRetry(() => fetch(`${API_URL}/api/whatsapp/baileys/inbound`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+    body: JSON.stringify(body),
+  }), { attempts: 3, baseDelayMs: 500 })
+  if (!r.ok) {
+    logEvent('inboundPushFailed', { acct: id, id: m.key?.id, status: r.status, attempts: r.attempts, error: r.error })
+    console.error(`[${id}] inbound push failed (HTTP ${r.status || 'network'}): ${r.error}`)
   }
   if (parsed.reaction) return
   // attachment (image/pdf/sticker/…): download + attach AFTER the text push

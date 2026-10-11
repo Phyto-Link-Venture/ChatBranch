@@ -122,8 +122,9 @@ public static class AiPlaygroundEndpoints
                 },
                 ai = new { enabled = ai.Enabled, rule = ai.Rule, reason = ai.Reason, forced = ai.Forced },
                 learning_mode = mode,
-                // what a lesson taught here becomes: live at once only in auto mode from an admin
-                teach_status = mode == "auto" && actor.IsAdmin ? AiLessonStatus.Active : AiLessonStatus.Suggested,
+                // what a lesson taught here becomes: live at once only in auto mode from an
+                // admin allowed to act at this level (the organization level: an org-wide admin)
+                teach_status = mode == "auto" && actor.AutoApproves(entityId) ? AiLessonStatus.Active : AiLessonStatus.Suggested,
                 custom_fields = CustomFieldsEndpoints.CustomerFields(sc).Select(f => new
                 {
                     key = f.Key, label = f.Label, kind = f.Kind, options = f.Options,
@@ -307,6 +308,13 @@ public static class AiPlaygroundEndpoints
                     text = turns[reaction.MessageId - 1].Text,
                 },
                 quote = r.ReplyToId is int q ? Turn(q) : null,
+                // ai_voice_replies: would production send this reply as a voice note? (no audio is made here)
+                voice_note = r.ShouldSend
+                             && ChatBranch.Data.Ai.Voice.VoiceReplyService.Supports(channel, inbox)
+                             && ChatBranch.Data.Ai.Voice.VoiceReplyService.Speakable(said) != null
+                             && (policy.VoiceReplies == "always"
+                                 || policy.VoiceReplies == "mirror"
+                                 && ChatBranch.Data.Ai.Voice.VoiceReplyService.IsAudio(new Message { Text = turns[^1].Text })),
                 touches = new { emoji_style = opts.EmojiStyle, reactions = opts.Reactions, quotes = opts.Quotes },
                 production = new
                 {
@@ -508,7 +516,7 @@ public static class AiPlaygroundEndpoints
     internal static (double Usd, bool Priced) EstimateCost(ScopingService sc, string? model, int prompt, int completion)
     {
         var prices = AnalyticsEndpoints.PriceTable(sc);
-        if (string.IsNullOrEmpty(model) || !prices.TryGetValue(model, out var p)) return (0, false);
+        if (!ChatBranch.Data.Ai.LlmPricing.TryPrice(prices, model, out var p)) return (0, false);
         return (Math.Round((prompt * p.In + completion * p.Out) / 1_000_000d, 6), true);
     }
 

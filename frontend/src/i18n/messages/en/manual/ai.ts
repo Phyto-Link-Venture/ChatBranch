@@ -582,28 +582,28 @@ export const ai = {
 
   aiKeys: {
     title: 'Connect an AI model (AI keys & models)',
-    summary: 'Paste a key from an AI provider so the AI writes real replies, choose the model, and turn on meaning-based search.',
-    before: 'Only a superadmin can do this (the AI keys permission). Create an API key first on the provider’s website — OpenRouter, OpenAI or Google AI Studio (Gemini) — and keep it ready to paste.',
+    summary: 'Connect one or more AI providers so the AI writes real replies, choose the model, and turn on meaning-based search.',
+    before: 'Only a superadmin can do this (the AI keys permission). Create an API key first on the provider’s website — for example OpenRouter, OpenAI, Anthropic, Google AI Studio (Gemini), Qwen or DeepSeek — and keep it ready to paste.',
     steps: {
       s1: {
         title: 'Open AI keys & models',
         body: 'Click “Settings” at the bottom of the sidebar. In the AI section, open “AI keys & models”.',
       },
       s2: {
-        title: 'Paste your key',
-        body: 'In “Provider keys, chat provider & model”, paste your key into “OpenRouter API key”, “OpenAI API key” or “Google Gemini API key”. One key is enough.',
+        title: 'Choose your provider',
+        body: 'Under “AI providers”, click the tile of your AI company — for example “OpenRouter”, “Anthropic (Claude)”, “Google Gemini” or “Qwen (Alibaba Cloud)”. Type in “Search providers” or use the “Connected” filter to find one quickly.',
       },
       s3: {
-        title: 'Leave the provider on Automatic',
-        body: 'In “Chat AI provider”, keep “Automatic (priority order)” — the AI uses the first provider that has a key. Pin one provider only if you want that one alone.',
+        title: 'Paste the key and test it',
+        body: 'In the panel, paste your key into “API key” and click “Test connection”. “It works” means the key is good. Click “Save” — the tile now says “Connected”. One provider is enough.',
       },
       s4: {
         title: 'Pick the model (optional)',
-        body: 'In “Chat model”, keep “Provider default”, choose a model from the list, or choose “Custom…” and type a model id such as openai/gpt-4o-mini.',
+        body: 'In the same panel, keep “Default model” on its default, choose another model from the list, or choose “Custom…” and type any model id. For Qwen, Kimi and Zhipu, also pick the “Region”.',
       },
       s5: {
-        title: 'Save',
-        body: 'Click “Save changes” at the top of the page. The status changes from “AI replies off — no provider key” to “AI replies ready”.',
+        title: 'Choose who answers',
+        body: 'In “Who answers”, keep “Automatic (priority order)” to try your connected providers in turn, or pick one provider to use only that one. If you change it, click “Save changes” at the top of the page.',
       },
       s6: {
         title: 'Know what “sandbox” means',
@@ -611,21 +611,21 @@ export const ai = {
       },
       s7: {
         title: 'Turn on meaning-based search (optional)',
-        body: 'In “Embeddings (semantic search)”, keep the “Provider” on “Automatic” (it uses your OpenAI or Gemini key) so “can I get my money back?” still finds your refund policy. “Off (keyword search)” matches by words only.',
+        body: 'Open “Advanced settings”. In “Embeddings (semantic search)”, keep the “Provider” on “Automatic” (it uses your OpenAI or Gemini key) so “can I get my money back?” still finds your refund policy. “Off” matches by words only (keyword search).',
       },
       s8: {
         title: 'Test it',
         body: 'Open Automate → “AI playground” and send a message. A real reply with no “Sandbox” badge means the model is connected.',
       },
     },
-    done: 'The page says “AI replies ready” and the AI playground answers without a “Sandbox” badge.',
+    done: 'The page says “AI replies ready”, your provider’s tile says “Connected”, and the AI playground answers without a “Sandbox” badge.',
     tips: {
       t1: 'Saved keys are masked and never shown again — keep a copy in your password manager.',
-      t2: 'OpenRouter gives you many models with one key; Gemini has a free tier that is handy for testing.',
+      t2: 'OpenRouter gives you many models with one key; Gemini has a free tier for testing; Qwen and DeepSeek are low-cost options in Asia.',
       t3: 'What the AI costs shows on the AI bill page (Review → AI bill).',
       t4: 'Live voice calls read their keys from the voice agent’s own settings file, not from this page.',
     },
-    trouble: 'Still in sandbox after saving: the key may be wrong or out of credit, or a pinned provider is failing — a pinned provider never falls back to another. Set “Chat AI provider” to Automatic and check the key on the provider’s website.',
+    trouble: 'Still in sandbox after saving: open the provider’s tile and click “Test connection” — the message says why (a wrong key, no credit, a model the account cannot use). A pinned provider never falls back to another; set “Who answers” to Automatic to let the next provider step in.',
   },
 
   aiVoice: {

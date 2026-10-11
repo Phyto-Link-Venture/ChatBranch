@@ -304,7 +304,7 @@ public class OutboundSender
                     .GetAwaiter().GetResult());
             if (withCaption && msg.Status == "sent")
             {
-                AttachMedia(msg, mediaType, relPath);
+                AttachMedia(msg, mediaType, relPath, mime, name, full);
                 var said = caption!.Trim();
                 return SocialSend(thread, account!, source, said, humanAgent,
                     tag => _meta!.SendTextAsync(account!, thread.Key, said, tag).GetAwaiter().GetResult());
@@ -315,8 +315,102 @@ public class OutboundSender
             msg = _threads.AppendMessage(thread, MessageDirection.Out, source, text,
                 status: "sandbox", accountId: acctId);
         }
-        AttachMedia(msg, mediaType, relPath);
+        AttachMedia(msg, mediaType, relPath, mime, name, full);
         return msg;
+    }
+
+    /// <summary>
+    /// The AI's voice reply: ONE voice note (a stored Ogg/Opus or MP3 file, <paramref name="relPath"/>)
+    /// whose message row keeps the reply's words (<paramref name="text"/>) with the audio attached.
+    /// WhatsApp Baileys = the gateway's <c>send-media</c> with <c>ptt</c>; Cloud API / YCloud = upload
+    /// then <c>type: audio</c> (Ogg/Opus shows as a voice note); Telegram = <c>sendVoice</c>;
+    /// Messenger / Instagram = an audio attachment inside the messaging window. A conversation
+    /// with no live account stores the voice note as sandbox. Returns (null, why) when it could
+    /// not go out as a voice note — no failed row is left behind, the caller sends the TEXT.
+    /// </summary>
+    public (Message? Sent, string Error) SendVoiceNote(Thread thread, string relPath, string mime, string text,
+        string source, int? accountId = null)
+    {
+        var acctId = accountId ?? thread.AccountId;
+        var full = _media?.Resolve(thread.Channel, relPath);
+        if (full == null) return (null, "the voice note file is missing");
+        var name = thread.Channel is ChatBranch.Domain.Channels.WhatsApp or ChatBranch.Domain.Channels.Telegram
+            ? "voice.ogg" : Path.GetFileName(full);
+        try
+        {
+            if (thread.Channel == ChatBranch.Domain.Channels.Telegram)
+            {
+                if (_telegram == null) return (Sandbox(), "");
+                var tg = _telegram.Send(thread, text, source, acctId, new OutboundMedia(full, relPath, "audio", name),
+                    voiceNote: true);
+                return Kept(tg);
+            }
+            var account = Account(acctId);
+            if (thread.Channel == ChatBranch.Domain.Channels.WhatsApp)
+            {
+                if (BaileysLive(thread, account))
+                {
+                    var r = _baileys.SendVoiceNoteAsync(account!.ExternalId, thread.Key, File.ReadAllBytes(full))
+                        .GetAwaiter().GetResult();
+                    if (!r.Ok) return (null, r.Detail);
+                    var m = _threads.AppendMessage(thread, MessageDirection.Out, source, text,
+                        status: "sent", externalId: r.ExternalId, accountId: account.Id);
+                    AttachMedia(m, "audio", relPath, mime, name, full);
+                    return (m, "");
+                }
+                if (CloudLive(thread, account))
+                {
+                    if (WhatsAppProviders.Of(account!) is not (Providers.Cloud or Providers.YCloud))
+                        return (null, $"{WhatsAppProviders.Label(account!.Provider)} can't send voice notes");
+                    var up = _whatsapp.UploadMediaAsync(account!, File.ReadAllBytes(full), mime, name)
+                        .GetAwaiter().GetResult();
+                    var outcome = up.Ok
+                        ? _whatsapp.SendMediaAsync(account!, thread.Key, "audio", up.ExternalId, null, null)
+                            .GetAwaiter().GetResult()
+                        : up;
+                    if (!outcome.Ok) return (null, outcome.Detail);
+                    var m = Record(thread, account!, source, text, outcome);
+                    AttachMedia(m, "audio", relPath, mime, name, full);
+                    return (m, "");
+                }
+                return (Sandbox(), "");
+            }
+            if (IsSocial(thread))
+            {
+                if (!SocialLive(thread, account)) return (Sandbox(), "");
+                var bytes = File.ReadAllBytes(full);
+                var m = SocialSend(thread, account!, source, text, humanAgent: false,
+                    tag => _meta!.SendFileAsync(account!, thread.Key, "audio", bytes, mime, name, tag)
+                        .GetAwaiter().GetResult());
+                return Kept(m);
+            }
+            return (null, $"voice notes aren't sent on {thread.Channel}");
+        }
+        catch (Exception ex)
+        {
+            return (null, $"voice note send failed ({ex.GetType().Name})");
+        }
+
+        Message Sandbox()
+        {
+            var m = _threads.AppendMessage(thread, MessageDirection.Out, source, text, status: "sandbox", accountId: acctId);
+            AttachMedia(m, "audio", relPath, mime, name, full);
+            return m;
+        }
+
+        // a refused send left a failed row: drop it (the caller sends the words as text instead)
+        (Message?, string) Kept(Message m)
+        {
+            if (m.Status != "failed")
+            {
+                if (m.MediaPath.Length == 0) AttachMedia(m, "audio", relPath, mime, name, full);
+                return (m, "");
+            }
+            var why = m.Error.Length > 0 ? m.Error : m.Text;
+            _db.Messages.Remove(m);
+            _db.SaveChanges();
+            return (null, why);
+        }
     }
 
     /// <summary>
@@ -351,10 +445,10 @@ public class OutboundSender
         return up;
     }
 
-    private void AttachMedia(Message msg, string mediaType, string relPath)
+    private void AttachMedia(Message msg, string mediaType, string relPath, string? mime, string? name,
+        string? full)
     {
-        msg.MediaType = mediaType;
-        msg.MediaPath = relPath;
+        MediaStore.Stamp(msg, mediaType, relPath, mime, name, MediaStore.SizeOf(full));
         _db.SaveChanges();
     }
 

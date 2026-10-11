@@ -371,10 +371,14 @@ public class QueueService
             var text = ResolveText(job);
             // Real send when the account is configured, sandbox otherwise.
             var subject = AiGate.Str(job.Payload, "subject", ""); // email: the flow step's subject
-            var msg = _sender.Send(thread, text, messageSource, job.AccountId,
-                subject: subject.Length > 0 ? subject : null,
-                // an AI reply's first bubble may quote the message it answers (WhatsApp / Telegram)
-                replyTo: _gate.QuotedMessage(thread, HumanTouch.ReplyTo(job.Payload)));
+            // an AI voice reply (ai_voice_replies): one voice note, or the words as text when it can't be made
+            var msg = AiGate.Bool(job.Payload, "voice") == true
+                ? _gate.SendVoiceOrText(thread, text, messageSource, job.AccountId, draftId,
+                    HumanTouch.ReplyTo(job.Payload))
+                : _sender.Send(thread, text, messageSource, job.AccountId,
+                    subject: subject.Length > 0 ? subject : null,
+                    // an AI reply's first bubble may quote the message it answers (WhatsApp / Telegram)
+                    replyTo: _gate.QuotedMessage(thread, HumanTouch.ReplyTo(job.Payload)));
             if (draftId is int sentDraft) _gate.MarkDraftSent(sentDraft, msg.Id);
             Sent(job, msg.Id);
             if (job.Payload.ContainsKey("rest")) _gate.ContinueHumanSend(job, thread);

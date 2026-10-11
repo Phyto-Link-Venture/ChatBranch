@@ -86,7 +86,19 @@ export const roleLabel = (t: TFunction, r: string): string =>
 
 export interface UiMedia {
   type: 'image' | 'document' | 'audio' | 'video'
+  /** Auth-gated (bearer) route — the fallback when no signed link was minted. */
   url: string
+  mime?: string
+  /** The original file name (or "{type}-{pk}.{ext}"). */
+  name?: string
+  /** Bytes; null when unknown. */
+  size?: number | null
+  /** Short-lived signed link (plain src, Range) — sessions only. */
+  stream_url?: string
+  /** The same link served as an attachment with the original name. */
+  download_url?: string
+  /** An AAC/M4A rendering of Ogg/Opus/AMR audio (servers with ffmpeg). */
+  alt_url?: string
 }
 
 export interface UiMessage {
@@ -107,6 +119,8 @@ export interface UiMessage {
   reply_to?: UiQuote | null
   /** Emoji reactions on this message — the customer's and ours. */
   reactions?: UiReaction[]
+  /** What a voice note says (speech-to-text), when it was transcribed. */
+  transcript?: string | null
 }
 
 /** A quoted message as the payload carries it; `missing` = older than our history. */

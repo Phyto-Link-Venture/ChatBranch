@@ -298,6 +298,10 @@ public static class Seed
         // quoted replies + emoji reactions (WhatsApp / Telegram / Messenger)
         AddColumnIfMissing(db, "crm_message", "reply_to_id", "INTEGER NULL");
         AddColumnIfMissing(db, "crm_message", "reply_to_external_id", "TEXT NOT NULL DEFAULT ''");
+        // the attachment's original name / MIME / size (media players + file cards)
+        AddColumnIfMissing(db, "crm_message", "media_name", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_message", "media_mime", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_message", "media_size", "INTEGER NOT NULL DEFAULT 0");
         AddTableIfMissing(db, "crm_messagereaction",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_messagereaction\" PRIMARY KEY AUTOINCREMENT, "
             + "\"message_id\" INTEGER NOT NULL, \"thread_id\" INTEGER NOT NULL, \"actor\" TEXT NOT NULL, "
@@ -340,6 +344,8 @@ public static class Seed
             + "CONSTRAINT \"uniq_aitaskrun_task_message\" UNIQUE (\"task_id\", \"message_id\")");
         AddIndexIfMissing(db, "ix_aitaskrun_status_due", "crm_aitaskrun", "\"status\", \"due_at\"");
         AddIndexIfMissing(db, "ix_aitaskrun_thread", "crm_aitaskrun", "\"thread_id\"");
+        // AI voice replies: what a customer's voice note said (Ai/Voice/VoiceTranscriber.cs)
+        AddColumnIfMissing(db, "crm_message", "transcript", "TEXT NOT NULL DEFAULT ''");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

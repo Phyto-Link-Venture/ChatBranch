@@ -587,8 +587,8 @@ export function LearningPanel({
               <LessonCard
                 key={`${l.id}:${l.updated_at}`}
                 lesson={l}
-                canManage={canManage}
-                canDelete={canDelete}
+                canManage={canManage && l.can_edit !== false}
+                canDelete={canDelete && l.can_delete !== false}
                 busy={busy === l.id}
                 highlight={focusId === l.id}
                 onAction={(x, a) => void act(x, a)}

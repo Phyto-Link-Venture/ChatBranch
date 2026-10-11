@@ -47,6 +47,7 @@ export const bubble = {
     open: 'Open contact',
   },
   sticker: 'Sticker',
+  transcript: 'Transcript',
   emoji: {
     open: 'Emoji',
     search: 'Search emoji',

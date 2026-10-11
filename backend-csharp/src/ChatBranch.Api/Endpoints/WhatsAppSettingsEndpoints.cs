@@ -56,7 +56,7 @@ public static class WhatsAppSettingsEndpoints
         ["quiet_end"] = "WHATSAPP_QUIET_END",
     };
 
-    private static readonly string[] ChatProviders = { "ilmu", "openrouter", "openai", "google", "local" };
+    private static readonly string[] ChatProviders = ChatBranch.Data.Ai.LlmProviderCatalog.Ids;
 
     /// <summary>
     /// The value shipped in the repo/docs — anyone can read it, so it must never
@@ -2186,8 +2186,7 @@ public static class WhatsAppSettingsEndpoints
     }
 
     internal static bool AiAvailable(ScopingService sc) =>
-        Global(sc, "openrouter_api_key") != "" || Global(sc, "openai_api_key") != ""
-        || Global(sc, "ilmu_api_key") != "" || Global(sc, "google_api_key") != "";
+        ChatBranch.Data.Ai.LlmProviderCatalog.All.Any(p => !p.KeyOptional && Global(sc, p.KeySetting) != "");
 
     private static int IntSetting(ScopingService sc, string key, int fallback, int? entityId = null)
     {

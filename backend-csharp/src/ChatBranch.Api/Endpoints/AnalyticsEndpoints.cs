@@ -603,7 +603,7 @@ public static class AnalyticsEndpoints
         {
             var name = model ?? "";
             var cost = 0d;
-            if (prices.TryGetValue(name, out var text))
+            if (ChatBranch.Data.Ai.LlmPricing.TryPrice(prices, name, out var text))
                 cost += (t.Prompt * text.In + t.Completion * text.Out) / 1_000_000d;
             if (prices.TryGetValue(name + ":audio", out var audio))
                 cost += (t.AudioPrompt * audio.In + t.AudioCompletion * audio.Out) / 1_000_000d;
@@ -631,7 +631,7 @@ public static class AnalyticsEndpoints
                 audio_completion_tokens = t.AudioCompletion,
                 requests = t.Requests,
                 est_cost_usd = CostOf(g),
-                priced = g.All(r => r.CostUsd != null) || prices.ContainsKey(g.Key.Model ?? ""),
+                priced = g.All(r => r.CostUsd != null) || ChatBranch.Data.Ai.LlmPricing.TryPrice(prices, g.Key.Model, out _),
             };
         }).OrderByDescending(r => r.est_cost_usd).ToList();
 

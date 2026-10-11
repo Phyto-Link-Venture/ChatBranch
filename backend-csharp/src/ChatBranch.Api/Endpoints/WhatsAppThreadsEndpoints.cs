@@ -933,6 +933,8 @@ public static class WhatsAppThreadsEndpoints
         if (m.Private) payload["private"] = true;
         // Meta's reason for a failed delivery (status webhook / send error)
         if (!string.IsNullOrEmpty(m.Error)) payload["error"] = m.Error;
+        // what a voice note said (speech-to-text, Ai/Voice/VoiceTranscriber.cs)
+        if (!string.IsNullOrEmpty(m.Transcript)) payload["transcript"] = m.Transcript;
         if (m.AccountId is int acct)
         {
             // lets the chat UI show "via <number>" and flag mid-thread switches
@@ -940,11 +942,7 @@ public static class WhatsAppThreadsEndpoints
             if (!string.IsNullOrEmpty(accountName)) payload["account_name"] = accountName;
         }
         if (m.MediaPath.Length > 0)
-            payload["media"] = new
-            {
-                type = m.MediaType.Length > 0 ? m.MediaType : "document",
-                url = $"/api/whatsapp/media/{m.Id}",
-            };
+            payload["media"] = MediaStreamLinks.Payload(m, ChatBranch.Domain.Channels.WhatsApp);
         return payload;
     }
 

@@ -111,6 +111,13 @@ public class Message
     public string Status { get; set; } = "sent";
     public string MediaType { get; set; } = "";
     public string MediaPath { get; set; } = "";
+    /// <summary>The attachment's original file name as the sender gave it ("" = unknown —
+    /// the payload then derives one from the type + extension).</summary>
+    public string MediaName { get; set; } = "";
+    /// <summary>The provider's MIME type for the attachment ("" = derive from the extension).</summary>
+    public string MediaMime { get; set; } = "";
+    /// <summary>Stored size in bytes (0 = unknown — older rows; the payload reads the file).</summary>
+    public long MediaSize { get; set; }
     /// <summary>Provider failure detail for a failed delivery ("131047: Re-engagement
     /// message"), written by the WhatsApp Cloud status webhook. "" = none.</summary>
     public string Error { get; set; } = "";
@@ -122,6 +129,9 @@ public class Message
     /// Baileys <c>contextInfo.stanzaId</c>, Telegram <c>reply_to_message.message_id</c>,
     /// Messenger <c>reply_to.mid</c>). "" = not a reply.</summary>
     public string ReplyToExternalId { get; set; } = "";
+    /// <summary>What a voice note / audio message SAYS — written once by the speech-to-text
+    /// step (<c>Ai/Voice/VoiceTranscriber.cs</c>) so the AI reads words, not "[audio]". "" = none.</summary>
+    public string Transcript { get; set; } = "";
     public DateTime CreatedAt { get; set; }
 }
 
