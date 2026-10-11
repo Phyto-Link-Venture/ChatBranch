@@ -28,6 +28,7 @@ import { expireSessionOn401 } from '@/lib/auth'
 import { useSettingsDirty } from './SettingsDirtyContext'
 import { EMBEDDING_KEYS, EmbeddingsSection } from '@/components/ai-learning/EmbeddingsSection'
 import { Advanced } from '@/components/ui/Advanced'
+import { AiProviderLogo } from '@/components/ui/AiProviderLogo'
 import { useT, type MessageKey, type TFunction } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -318,24 +319,15 @@ function OrderList({
   )
 }
 
-/** A provider's initials in a rounded square — no brand marks needed. */
-function Monogram({ p }: { p: ProviderInfo }) {
-  const letters = p.label
-    .replace(/\(.*\)/, '')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join('')
-    .toUpperCase()
+/** The provider's logo on a neutral tile (a hairline keeps dark marks visible). */
+function ProviderMark({ p }: { p: ProviderInfo }) {
   return (
     <span
-      aria-hidden
-      className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[12px] font-bold ${
-        p.configured ? 'bg-brand-400/15 text-[var(--brand-ink)]' : 'bg-fill text-text-muted'
+      className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg border bg-card ${
+        p.configured ? 'border-line-strong' : 'border-line opacity-80'
       }`}
     >
-      {letters}
+      <AiProviderLogo id={p.id} label={p.label} />
     </span>
   )
 }
@@ -352,7 +344,7 @@ function ProviderTile({ p, inUse, onOpen }: { p: ProviderInfo; inUse: boolean; o
       }`}
     >
       <span className="flex items-start gap-2.5">
-        <Monogram p={p} />
+        <ProviderMark p={p} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-bold text-text-high">{p.label}</span>
           <span className="line-clamp-2 block text-[11px] leading-snug text-text-muted">
@@ -488,7 +480,12 @@ function ProviderPanel({
     <Modal
       open
       onClose={onClose}
-      title={p.label}
+      title={
+        <span className="flex items-center gap-2.5">
+          <ProviderMark p={p} />
+          {p.label}
+        </span>
+      }
       subtitle={PROVIDER_BLURB[p.id] ? t(PROVIDER_BLURB[p.id]) : undefined}
       footer={
         <div className="flex w-full flex-wrap items-center gap-2">

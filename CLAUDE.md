@@ -1700,8 +1700,9 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   `Select` / `MultiSelect` (search, keyboard, groups, tree indent, portalled
   list), `EntityPicker` / `EntityMultiPicker` + `entityTree` /
   `entityOptions`, `BindingGrid` + `SaveBar`, `ChannelLogo` (+ `channelLabel`,
-  `channelColor` — real brand marks for channels and integrations; the only
-  place brand hexes like WhatsApp green are allowed), `PageHeader`, `Toggle`,
+  `channelColor` — real brand marks for channels and integrations; with
+  `AiProviderLogo` (the AI providers' marks, LobeHub Icons, MIT) the only
+  places brand hexes like WhatsApp green are allowed), `PageHeader`, `Toggle`,
   `Modal`, `DataTable` (keeps wide tables from scrolling the page sideways on a
   phone), `Button` (variants `primary | secondary | accent | danger | success |
   ghost`, sizes `sm | md`), `Card`/`SectionLabel`, `Badges` (status, health,
