@@ -177,7 +177,7 @@ export const guide: Dict<typeof source> = {
         },
         s4: {
           title: 'Senarai perbualan',
-          body: 'Aktiviti terbaru dahulu. Masa berwarna oren bermaksud pelanggan sedang menunggu anda. Klik sembang untuk membukanya — atau tekan Pilih di atas untuk menanda beberapa sembang dan menghidupkan atau mematikan AI, menyelesaikan atau menugaskan semuanya sekali gus.',
+          body: 'Aktiviti terbaru dahulu — tukar kepada “Mesej pelanggan terkini” di atas senarai untuk menyusun mengikut masa pelanggan kali terakhir menulis, dan gunakan Semua / Kenalan / Bukan kenalan untuk melihat sembang daripada kenalan anda atau daripada orang baharu. Masa berwarna oren bermaksud pelanggan sedang menunggu anda. Klik sembang untuk membukanya — atau tekan Pilih di atas untuk menanda beberapa sembang dan menghidupkan atau mematikan AI, menyelesaikan atau menugaskan semuanya sekali gus.',
         },
         s5: {
           title: 'AI hidup atau mati untuk sembang ini',

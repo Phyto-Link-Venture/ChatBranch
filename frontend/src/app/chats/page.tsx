@@ -82,11 +82,16 @@ import {
   EMPTY_FILTERS,
   activeChips,
   filtersToParams,
+  isHeaderSort,
   normalizeFilters,
   sameFilters,
+  withSortPref,
   type FilterChip,
+  type HeaderSort,
   type InboxFilters,
+  type TriState,
 } from '@/components/chats/inboxFilters'
+import { localChatSort, saveChatSort, serverChatSort, storeLocalChatSort } from '@/components/chats/chatSortPref'
 import { createView, deleteView, listViews, reorderViews, updateView, type SavedView } from '@/lib/savedViews'
 import { getRole } from '@/lib/role'
 import { useApp } from '@/lib/AppContext'
@@ -187,6 +192,11 @@ function ChatsPage() {
   const [status, setStatus] = useState<InboxStatus | null>(null)
   // ── list state (server-filtered) ──
   const [filters, setFilters] = useState<InboxFilters>(EMPTY_FILTERS)
+  // the person's list order (the header's switch), remembered on their account;
+  // a view on the default order follows it (withSortPref)
+  const [sortPref, setSortPref] = useState<HeaderSort>('newest')
+  const sortPrefRef = useRef<HeaderSort>('newest')
+  const sortTouched = useRef(false)
   const [search, setSearch] = useState('')
   const [q, setQ] = useState('') // debounced search
   const [threads, setThreads] = useState<UiThreadSummary[]>([])
@@ -606,10 +616,10 @@ function ChatsPage() {
       const builtin = BUILTIN_VIEWS.find((b) => b.id === last)
       const saved = list.find((v) => `v:${v.id}` === last)
       if (builtin) {
-        setFilters(builtin.filters)
+        setFilters(withSortPref(builtin.filters, sortPrefRef.current))
         setActiveView(builtin.id)
       } else if (saved) {
-        setFilters(normalizeFilters(saved.filters))
+        setFilters(withSortPref(normalizeFilters(saved.filters), sortPrefRef.current))
         setActiveView(last)
       }
     })
@@ -619,6 +629,28 @@ function ChatsPage() {
     // run once per visit — spQ only decides whether a deep link wins
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadViews])
+
+  // the person's list order: this browser's copy at once, then the account's
+  useEffect(() => {
+    let cancelled = false
+    const adopt = (s: HeaderSort | null) => {
+      if (cancelled || !s || sortTouched.current || s === sortPrefRef.current) return
+      const prev = sortPrefRef.current
+      sortPrefRef.current = s
+      setSortPref(s)
+      // only a list still on the old default order follows (a view saved with its own order keeps it)
+      setFilters((cur) => (cur.sort === prev ? { ...cur, sort: s } : cur))
+    }
+    adopt(localChatSort())
+    serverChatSort().then((s) => {
+      if (cancelled || !s || sortTouched.current) return
+      storeLocalChatSort(s) // the account wins: refresh this browser's copy
+      adopt(s)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     api<{ teams: UiTeam[] }>(`teams${topEntity ? `?entity=${encodeURIComponent(topEntity)}` : ''}`)
@@ -1077,24 +1109,41 @@ function ChatsPage() {
       }
     }
   }
+  // the header's order switch (and the pop-up's Sort, for the same two orders) is
+  // the person's own choice: remembered on their account for every view
+  const rememberSort = (s: HeaderSort) => {
+    if (s === sortPrefRef.current) return
+    sortTouched.current = true // a later answer from the account must not undo this
+    sortPrefRef.current = s
+    setSortPref(s)
+    saveChatSort(s)
+  }
+  const changeSort = (s: HeaderSort) => {
+    rememberSort(s)
+    setFilters((cur) => ({ ...cur, sort: s }))
+  }
+  // the quick "All / Contacts / Not in contacts" toggle IS the `linked` filter
+  const changeLinked = (v: TriState) => setFilters((cur) => ({ ...cur, linked: v }))
+  // a view on the default order shows the person's own order (the header switch)
+  const viewFilters = (f: InboxFilters) => withSortPref(f, sortPref)
   const selectTab = (id: string) => {
     const builtin = BUILTIN_VIEWS.find((b) => b.id === id)
-    if (builtin) return applyFilters(builtin.filters, id)
+    if (builtin) return applyFilters(viewFilters(builtin.filters), id)
     const saved = views.find((v) => `v:${v.id}` === id)
-    if (saved) applyFilters(normalizeFilters(saved.filters), id)
+    if (saved) applyFilters(viewFilters(normalizeFilters(saved.filters)), id)
   }
   const activeSaved = views.find((v) => `v:${v.id}` === activeView)
   const tabs: ViewTab[] = [
     ...BUILTIN_VIEWS.map((b) => ({
       id: b.id,
       name: t(b.name),
-      active: sameFilters(filters, b.filters),
+      active: sameFilters(filters, viewFilters(b.filters)),
       count: b.id === 'needs_human' ? needsHumanCount : undefined,
     })),
     ...views.map((v) => {
       const id = `v:${v.id}`
       const on = activeView === id
-      return { id, name: v.name, active: on, modified: on && !sameFilters(filters, normalizeFilters(v.filters)) }
+      return { id, name: v.name, active: on, modified: on && !sameFilters(filters, viewFilters(normalizeFilters(v.filters))) }
     }),
   ]
   // a built-in tab wins the highlight only when nothing saved is selected;
@@ -1102,7 +1151,7 @@ function ChatsPage() {
   if (tabs.some((tab) => tab.id.startsWith('v:') && tab.active))
     tabs.forEach((tab) => !tab.id.startsWith('v:') && (tab.active = false))
   else if (!tabs.some((tab) => tab.active)) {
-    const match = views.find((v) => sameFilters(filters, normalizeFilters(v.filters)))
+    const match = views.find((v) => sameFilters(filters, viewFilters(normalizeFilters(v.filters))))
     const tab = match && tabs.find((x) => x.id === `v:${match.id}`)
     if (tab) tab.active = true
   }
@@ -1254,20 +1303,37 @@ function ChatsPage() {
         }
       } else order.push(row)
     }
-    return order.map((o) => {
+    const inboundMs = (r: UiThreadSummary) => (r.last_inbound_ts ? Date.parse(r.last_inbound_ts) : NaN)
+    const entries = order.map((o) => {
       if (typeof o !== 'number') return o
       const rows = groups.get(o)!
       if (rows.length === 1) return rows[0]
+      // the newest customer message across ALL of the contact's channels
+      const newestIn = rows.reduce<UiThreadSummary | null>(
+        (best, r) => (!isNaN(inboundMs(r)) && (!best || inboundMs(r) > inboundMs(best)) ? r : best),
+        null,
+      )
       // the server's order already put the representative first
       return {
         ...rows[0],
+        last_inbound_ts: newestIn?.last_inbound_ts ?? null,
         labels: Array.from(new Set(rows.flatMap((r) => r.labels ?? []))),
         waiting: rows.some((r) => r.waiting),
         handover: rows.find((r) => r.handover?.open)?.handover ?? rows[0].handover,
         _mergedChannels: Array.from(new Set(rows.map((r) => r.channel))),
       }
     })
-  }, [threads, pendingRows, filters.channels.length])
+    if (filters.sort !== 'customer_newest') return entries
+    // "Newest from customer": a contact on several channels is ONE entry, placed by its
+    // newest customer message on any of them (the server's order already does this —
+    // a stable re-sort keeps it true whatever was merged); never-wrote entries last
+    return entries
+      .map((row, i) => ({ row, i, at: inboundMs(row) }))
+      .sort((a, b) =>
+        isNaN(a.at) || isNaN(b.at) ? Number(isNaN(a.at)) - Number(isNaN(b.at)) || a.i - b.i : b.at - a.at || a.i - b.i,
+      )
+      .map((x) => x.row)
+  }, [threads, pendingRows, filters.channels.length, filters.sort])
 
   // canned-response picker: type "/" (Chatwoot's shortcut) in reply mode
   const cannedQuery = composerMode === 'reply' && draft.startsWith('/') ? draft.slice(1).toLowerCase() : null
@@ -1435,6 +1501,10 @@ function ChatsPage() {
           onOpen={openRow}
           search={search}
           onSearch={setSearch}
+          linked={filters.linked}
+          onLinked={changeLinked}
+          sort={filters.sort}
+          onSort={changeSort}
           activeFilterCount={activeFilterCount}
           chips={chips}
           onRemoveChip={(c) => setFilters((cur) => c.clear(cur))}
@@ -2363,7 +2433,11 @@ function ChatsPage() {
         teams={teams}
         accounts={allAccounts}
         contactTags={contactTags}
-        onApply={(f) => setFilters(f)}
+        onApply={(f) => {
+          // the pop-up's Sort and the header switch are one setting for these two orders
+          if (isHeaderSort(f.sort)) rememberSort(f.sort)
+          setFilters(f)
+        }}
         onSaveView={saveView}
       />
 
@@ -2377,7 +2451,7 @@ function ChatsPage() {
         }}
         onDelete={async (id) => {
           await deleteView(id)
-          if (activeView === `v:${id}`) applyFilters(EMPTY_FILTERS, 'all')
+          if (activeView === `v:${id}`) applyFilters(viewFilters(EMPTY_FILTERS), 'all')
           await reloadViews()
         }}
         onReorder={async (ids) => {

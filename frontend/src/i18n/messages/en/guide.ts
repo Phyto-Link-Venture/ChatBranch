@@ -174,7 +174,7 @@ export const guide = {
         },
         s4: {
           title: 'The conversation list',
-          body: 'Newest activity first. An orange time means the customer is waiting for you. Click a chat to open it — or press Select at the top to tick several chats and turn the AI on or off, resolve or assign them all at once.',
+          body: 'Newest activity first — switch to “Newest from customer” above the list to order by when the customer last wrote, and use All / Contacts / Not in contacts to see chats from your contacts or from new people. An orange time means the customer is waiting for you. Click a chat to open it — or press Select at the top to tick several chats and turn the AI on or off, resolve or assign them all at once.',
         },
         s5: {
           title: 'AI on or off for this chat',

@@ -15,8 +15,23 @@ export interface DateRange {
   to?: string
 }
 
-export type Sort = 'newest' | 'oldest_waiting' | 'unread'
+/** newest = last activity · customer_newest = the customer's last message (chats they
+ *  never wrote in last) · oldest_waiting · unread — GET /api/inbox/threads `sort`. */
+export type Sort = 'newest' | 'customer_newest' | 'oldest_waiting' | 'unread'
 export type TriState = '' | 'yes' | 'no'
+
+/** The two orders the list header's switch offers — remembered per person
+ *  (`chats.sort` in /api/auth/preferences; SettingsEndpoints.ChatListSorts). */
+export type HeaderSort = 'newest' | 'customer_newest'
+export const isHeaderSort = (s: unknown): s is HeaderSort => s === 'newest' || s === 'customer_newest'
+
+/**
+ * A view (built-in tab or saved view) whose sort is the default `newest` follows
+ * the person's chosen list order instead — the header switch is their order, a
+ * view only overrides it when it was saved with a different one.
+ */
+export const withSortPref = (f: InboxFilters, pref: HeaderSort): InboxFilters =>
+  f.sort === 'newest' && pref !== 'newest' ? { ...f, sort: pref } : f
 
 export interface InboxFilters {
   status: ThreadStatus[]
@@ -94,7 +109,7 @@ export function normalizeFilters(raw: unknown): InboxFilters {
     waiting: r.waiting === true,
     active: range(r.active),
     created: range(r.created),
-    sort: r.sort === 'oldest_waiting' || r.sort === 'unread' ? r.sort : 'newest',
+    sort: r.sort === 'customer_newest' || r.sort === 'oldest_waiting' || r.sort === 'unread' ? r.sort : 'newest',
   }
 }
 
@@ -124,6 +139,7 @@ export const DATE_PRESETS: { value: DatePreset; label: MessageKey }[] = [
 
 export const SORTS: { value: Sort; label: MessageKey }[] = [
   { value: 'newest', label: 'chats.sorts.newest' },
+  { value: 'customer_newest', label: 'chats.sorts.customerNewest' },
   { value: 'oldest_waiting', label: 'chats.sorts.oldestWaiting' },
   { value: 'unread', label: 'chats.sorts.unread' },
 ]

@@ -525,6 +525,46 @@ public class SettingsCapabilityTests : IClassFixture<ApiFactory>
             (await other.PutAsJsonAsync("/api/auth/preferences", new { guides = new { auto = "no" } })).StatusCode);
     }
 
+    /// <summary>The chat list's order switch (newest message / newest from the customer)
+    /// is the person's own, kept on their account like the guides and the language.</summary>
+    [Fact]
+    public async Task Chat_list_order_is_remembered_per_person()
+    {
+        var admin = await SettingsTestKit.Client(_f, "admin", "admin123");
+        (await admin.PutAsJsonAsync("/api/auth/preferences", new { chats = (object?)null })).EnsureSuccessStatusCode();
+        Assert.Equal("newest", (await admin.GetFromJsonAsync<JsonElement>("/api/auth/preferences"))
+            .GetProperty("chats").GetProperty("sort").GetString());
+
+        var saved = await admin.PutAsJsonAsync("/api/auth/preferences", new { chats = new { sort = "customer_newest" } });
+        saved.EnsureSuccessStatusCode();
+        Assert.Equal("customer_newest", (await saved.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("chats").GetProperty("sort").GetString());
+
+        // another session of the same person reads it; nobody else's order changes
+        var other = await SettingsTestKit.Client(_f, "admin", "admin123");
+        Assert.Equal("customer_newest", (await other.GetFromJsonAsync<JsonElement>("/api/auth/preferences"))
+            .GetProperty("chats").GetProperty("sort").GetString());
+        var agent = await SettingsTestKit.Client(_f, "agent", "agent123");
+        Assert.Equal("newest", (await agent.GetFromJsonAsync<JsonElement>("/api/auth/preferences"))
+            .GetProperty("chats").GetProperty("sort").GetString());
+
+        // only the two list orders, only the one key
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PutAsJsonAsync("/api/auth/preferences", new { chats = new { sort = "oldest_waiting" } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PutAsJsonAsync("/api/auth/preferences", new { chats = new { order = "newest" } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PutAsJsonAsync("/api/auth/preferences", new { chats = "newest" })).StatusCode);
+        Assert.Equal("customer_newest", (await admin.GetFromJsonAsync<JsonElement>("/api/auth/preferences"))
+            .GetProperty("chats").GetProperty("sort").GetString());
+
+        // other preferences are untouched by it, and it survives their saves
+        (await admin.PutAsJsonAsync("/api/auth/preferences", new { guides = new { auto = true } })).EnsureSuccessStatusCode();
+        Assert.Equal("customer_newest", (await admin.GetFromJsonAsync<JsonElement>("/api/auth/preferences"))
+            .GetProperty("chats").GetProperty("sort").GetString());
+        (await admin.PutAsJsonAsync("/api/auth/preferences", new { chats = new { sort = "newest" } })).EnsureSuccessStatusCode();
+    }
+
     [Fact]
     public async Task Appearance_preferences_round_trip_validate_and_fall_back_to_the_org_default()
     {

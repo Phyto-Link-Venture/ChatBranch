@@ -191,6 +191,9 @@ export interface UiThreadSummary {
   last_dir?: string
   last_status?: string
   last_ts: string
+  /** The customer's newest message (null = they never wrote) — the
+   *  "Newest from customer" order and its time stamp. */
+  last_inbound_ts?: string | null
   /** Synthetic row for a contact with NO conversation yet — opening one
    *  creates the thread on demand. */
   pending?: boolean
@@ -237,6 +240,8 @@ export interface InboxRow {
   /** the newest message is a private note (no delivery ticks) */
   last_private?: boolean
   last_ts: string
+  /** the customer's newest inbound message, null when they never wrote */
+  last_inbound_ts?: string | null
 }
 
 export const rowToSummary = (t: InboxRow): UiThreadSummary => ({
@@ -272,6 +277,7 @@ export const rowToSummary = (t: InboxRow): UiThreadSummary => ({
   last_dir: t.last_dir,
   last_status: t.last_private ? '' : t.last_status,
   last_ts: t.last_ts,
+  last_inbound_ts: t.last_inbound_ts ?? null,
 })
 
 export interface UiAgent {

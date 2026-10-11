@@ -18,13 +18,18 @@ namespace ChatBranch.Api.Endpoints;
 /// default (global Setting <c>appearance_default</c>) for users who never chose.
 ///
 /// <code>
-/// GET /api/auth/preferences    → {appearance|null, org_default|null, locale|null, org_locale|null, can_set_org_default}
+/// GET /api/auth/preferences    → {appearance|null, org_default|null, locale|null, org_locale|null, can_set_org_default,
+///                                 guides: {auto, seen}, chats: {sort}}
 /// PUT /api/auth/preferences    {appearance?: {…}|null, locale?: "en"|"ms"|"zh"|null}   (null = back to the org default)
+///                              {guides?: {auto?, seen?, reset?}} · {chats?: {sort: "newest"|"customer_newest"}|null}
 /// GET /api/settings/appearance → {appearance|null, locale|null, can_manage}
 /// PUT /api/settings/appearance {appearance?: {…}|null, locale?: …|null}   (capability settings.appearance.org)
 /// </code>
 /// The dashboard language rides along: the user's own <c>locale</c> in the same
 /// preferences JSON, the organization default in Setting <c>default_locale</c>.
+/// So do two per-person conveniences: the page-guide memory (<c>guides</c>) and
+/// the chat list's order (<c>chats.sort</c>: newest message, or newest from the
+/// customer — the switch above the /chats list).
 /// Values are validated server-side against the same closed vocabularies the
 /// client uses, so a hand-crafted PUT can never store a look the app can't draw.
 /// </summary>
@@ -110,8 +115,9 @@ public static partial class SettingsEndpoints
             var hasAppearance = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("appearance", out _);
             var hasLocale = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("locale", out _);
             var hasGuides = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("guides", out _);
-            if (!hasAppearance && !hasLocale && !hasGuides)
-                return AppearanceBad("Send {appearance: {…}}, {locale: \"en\"|\"ms\"|\"zh\"} (null = the organization default) and/or {guides: {auto?, seen?}}.");
+            var hasChats = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("chats", out _);
+            if (!hasAppearance && !hasLocale && !hasGuides && !hasChats)
+                return AppearanceBad("Send {appearance: {…}}, {locale: \"en\"|\"ms\"|\"zh\"} (null = the organization default), {guides: {auto?, seen?}} and/or {chats: {sort}}.");
             string? locale = null;
             if (hasLocale && !TryLocale(body.GetProperty("locale"), out locale))
                 return AppearanceBad($"locale must be one of: {string.Join(", ", SupportedLocales)} (or null).");
@@ -145,6 +151,8 @@ public static partial class SettingsEndpoints
             }
             if (hasGuides && MergeGuides(doc, body.GetProperty("guides")) is string guidesError)
                 return AppearanceBad(guidesError);
+            if (hasChats && MergeChats(doc, body.GetProperty("chats")) is string chatsError)
+                return AppearanceBad(chatsError);
             profile.Preferences = ProfilePreferences.Save(doc);
             await db.SaveChangesAsync();
             return Results.Ok(await PreferencesPayload(db, sc, me));
@@ -283,7 +291,40 @@ public static partial class SettingsEndpoints
             org_locale = OrgLocale(sc),
             can_set_org_default = await AdminEndpoints.HasCapabilityAsync(db, role, AppearanceOrgCapability),
             guides = GuidesOf(doc),
+            chats = ChatsOf(doc),
         };
+    }
+
+    /// <summary>The chat-list orders a person can keep (frontend inboxFilters.ts HEADER_SORTS — keep in step).</summary>
+    private static readonly string[] ChatListSorts = { "newest", "customer_newest" };
+
+    /// <summary>The person's chat-list order, <c>{sort}</c> — "newest" until they pick another.</summary>
+    private static object ChatsOf(JsonObject doc)
+    {
+        var sort = (doc["chats"] as JsonObject)?["sort"] is JsonValue v && v.TryGetValue<string>(out var x)
+                   && ChatListSorts.Contains(x) ? x : "newest";
+        return new { sort };
+    }
+
+    /// <summary>Store <c>{sort}</c> (null forgets it). Unknown keys or orders are refused.</summary>
+    private static string? MergeChats(JsonObject doc, JsonElement raw)
+    {
+        if (raw.ValueKind == JsonValueKind.Null)
+        {
+            doc.Remove("chats");
+            return null;
+        }
+        if (raw.ValueKind != JsonValueKind.Object) return "chats must be an object {sort} (or null).";
+        var c = doc["chats"] as JsonObject ?? new JsonObject();
+        foreach (var prop in raw.EnumerateObject())
+        {
+            if (prop.Name != "sort") return $"Unknown chats key '{prop.Name}'.";
+            var v = prop.Value.ValueKind == JsonValueKind.String ? (prop.Value.GetString() ?? "").Trim() : "";
+            if (!ChatListSorts.Contains(v)) return $"chats.sort must be one of: {string.Join(", ", ChatListSorts)}.";
+            c["sort"] = v;
+        }
+        doc["chats"] = c;
+        return null;
     }
 
     private static readonly Regex GuideId = new("^[a-z0-9][a-z0-9_-]{0,63}$", RegexOptions.Compiled);

@@ -28,10 +28,12 @@ import {
   EMPTY_FILTERS,
   SORTS,
   filtersToParams,
+  isHeaderSort,
   type DatePreset,
   type DateRange,
   type InboxFilters,
 } from './inboxFilters'
+import { Segmented } from './Segmented'
 
 /** Eyebrow-labelled field cell of the filter grid. */
 function Field({ label, children, wide, aside }: { label: string; children: ReactNode; wide?: boolean; aside?: ReactNode }) {
@@ -60,44 +62,6 @@ function Pill({ on, onClick, children, label }: { on: boolean; onClick: () => vo
     >
       {children}
     </button>
-  )
-}
-
-/** Small segmented control for tri-state filters ("Any · On · Off"). */
-function Segmented<T extends string>({
-  value,
-  onChange,
-  options,
-  label,
-}: {
-  value: T
-  onChange: (v: T) => void
-  options: { value: T; label: string }[]
-  label: string
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <span className="text-[12px] font-semibold text-text-mid">{label}</span>
-      <div role="radiogroup" aria-label={label} className="flex w-full rounded-lg border border-line-strong bg-card p-0.5">
-        {options.map((o) => {
-          const on = o.value === value
-          return (
-            <button
-              key={o.value || 'any'}
-              type="button"
-              role="radio"
-              aria-checked={on}
-              onClick={() => onChange(o.value)}
-              className={`min-w-0 flex-1 truncate rounded-md px-2 py-1 text-[12px] font-medium transition-colors ${
-                on ? 'bg-primary text-on-primary' : 'text-text-mid hover:bg-fill-hover hover:text-text-high'
-              }`}
-            >
-              {o.label}
-            </button>
-          )
-        })}
-      </div>
-    </div>
   )
 }
 
@@ -229,7 +193,8 @@ export default function ChatFilterModal({
     draft.created.preset !== '',
     draft.call !== '',
     draft.linked !== '',
-    draft.sort !== 'newest',
+    // the two orders the list header's switch shows are not hidden — only the others count
+    !isHeaderSort(draft.sort),
     draft.handover !== '',
     draft.handoverKinds.length > 0,
   ].filter(Boolean).length

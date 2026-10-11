@@ -197,6 +197,83 @@ public class InboxThreadsTests : IClassFixture<ApiFactory>
         Assert.Equal(1, await Count(c, "thread=telegram:page-3"));
     }
 
+    /// <summary>
+    /// sort=customer_newest orders by the customer's last inbound message (our own
+    /// later replies don't lift a chat), chats they never wrote in go last, ties
+    /// break by activity then id — and the offset cursor walks it page by page.
+    /// </summary>
+    [Fact]
+    public async Task Customer_newest_sorts_by_the_last_inbound_message_and_pages_with_the_cursor()
+    {
+        var c = await Authed();
+        var now = DateTime.UtcNow;
+        WithDb(db =>
+        {
+            void Chat(string key, params (string Dir, int MinutesAgo)[] msgs)
+            {
+                var t = new Domain.Thread
+                {
+                    Channel = "telegram", Key = key, Name = key, AiEnabled = false,
+                    CreatedAt = now.AddHours(-2), UpdatedAt = now.AddHours(-2),
+                };
+                db.Threads.Add(t);
+                db.SaveChanges();
+                foreach (var (dir, ago) in msgs)
+                    db.Messages.Add(new Message
+                    {
+                        ThreadId = t.Id, Direction = dir, Source = dir == "in" ? "customer" : "agent",
+                        Text = $"custsort {key}", Status = dir == "in" ? "received" : "sent",
+                        CreatedAt = now.AddMinutes(-ago),
+                    });
+                db.SaveChanges();
+            }
+            Chat("cs-replied", ("in", 60), ("out", 1));   // newest ACTIVITY, an old customer message
+            Chat("cs-fresh", ("in", 10));                 // the customer wrote most recently
+            Chat("cs-ours", ("out", 0));                  // we started it, they never wrote
+            Chat("cs-tie-old", ("in", 30));               // same customer time as cs-tie-new …
+            Chat("cs-tie-new", ("in", 30), ("out", 2));   // … but newer activity
+            return 0;
+        });
+
+        static List<string> Keys(List<JsonElement> rows) =>
+            rows.Select(r => r.GetProperty("key").GetString()!).ToList();
+        Assert.Equal(new[] { "cs-ours", "cs-replied", "cs-tie-new", "cs-fresh", "cs-tie-old" },
+            Keys(await List(c, "q=custsort")));
+        var expected = new[] { "cs-fresh", "cs-tie-new", "cs-tie-old", "cs-replied", "cs-ours" };
+        Assert.Equal(expected, Keys(await List(c, "q=custsort&sort=customer_newest")));
+        Assert.Equal(expected, Keys(await List(c, "q=custsort&sort=CUSTOMER_NEWEST"))); // case-insensitive
+
+        // the offset cursor pages this order: no gaps, no repeats
+        var walked = new List<string>();
+        string? cursor = "";
+        while (cursor != null)
+        {
+            var page = await c.GetFromJsonAsync<JsonElement>(
+                $"/api/inbox/threads?q=custsort&sort=customer_newest&limit=2{(cursor.Length > 0 ? $"&cursor={cursor}" : "")}");
+            Assert.Equal(5, page.GetProperty("count").GetInt32());
+            walked.AddRange(page.GetProperty("threads").EnumerateArray().Select(t => t.GetProperty("key").GetString()!));
+            cursor = page.GetProperty("next_cursor").ValueKind == JsonValueKind.Null
+                ? null : page.GetProperty("next_cursor").GetString();
+        }
+        Assert.Equal(expected, walked);
+
+        // `before` is the newest sort's keyset cursor — ignored by this order
+        var before = Uri.EscapeDataString(now.AddMinutes(-5).ToString("o"));
+        Assert.Equal(expected, Keys(await List(c, $"q=custsort&sort=customer_newest&before={before}")));
+        Assert.Equal(new[] { "cs-fresh", "cs-tie-old" }, Keys(await List(c, $"q=custsort&before={before}")));
+
+        // filters still apply: the quick "Not in contacts" toggle + a channel
+        Assert.Equal(expected, Keys(await List(c, "q=custsort&sort=customer_newest&linked=0&channel=telegram")));
+        Assert.Empty(await List(c, "q=custsort&sort=customer_newest&linked=1"));
+
+        // the bulk "everything this filter matches" path takes the same sort
+        var bulk = await c.PostAsJsonAsync("/api/inbox/threads/bulk",
+            new { filter = new { q = "custsort", sort = "customer_newest", linked = "0" }, action = "assign", value = "admin" });
+        bulk.EnsureSuccessStatusCode();
+        Assert.Equal(5, (await bulk.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("matched").GetInt32());
+        Assert.Equal(expected, Keys(await List(c, "q=custsort&sort=customer_newest&assignee=me")));
+    }
+
     [Fact]
     public async Task Entity_scoping_and_agent_narrowing()
     {

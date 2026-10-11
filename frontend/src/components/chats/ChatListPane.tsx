@@ -7,7 +7,8 @@ import { tagMeta } from '@/lib/tags'
 import { handoverKindLabel } from '@/lib/aiControls'
 import { Avatar, StatusTick } from './MessageParts'
 import { channelName, listStamp, logoKey, statusLabel, type Channel, type UiThreadSummary } from './inboxTypes'
-import type { FilterChip } from './inboxFilters'
+import { isHeaderSort, type FilterChip, type HeaderSort, type Sort, type TriState } from './inboxFilters'
+import { Segmented } from './Segmented'
 import { useFormat, useT } from '@/i18n'
 
 export type ViewTab = { id: string; name: string; active: boolean; modified?: boolean; count?: number | null }
@@ -15,8 +16,9 @@ export type ViewTab = { id: string; name: string; active: boolean; modified?: bo
 /** Row identity for multi-select: `channel:key`. */
 export const rowRef = (t: { channel: string; key: string }) => `${t.channel}:${t.key}`
 
-/** Conversation list pane: header, search, filter button + chips, saved-view
- *  tabs and the rows themselves. Pure presentation — the page owns the data. */
+/** Conversation list pane: header, search, filter button, the quick contact
+ *  toggle + order switch, chips, saved-view tabs and the rows themselves. Pure
+ *  presentation — the page owns the data. */
 export default function ChatListPane({
   rows,
   total,
@@ -28,6 +30,10 @@ export default function ChatListPane({
   onOpen,
   search,
   onSearch,
+  linked,
+  onLinked,
+  sort,
+  onSort,
   activeFilterCount,
   chips,
   onRemoveChip,
@@ -54,6 +60,12 @@ export default function ChatListPane({
   onOpen: (row: UiThreadSummary) => void
   search: string
   onSearch: (s: string) => void
+  /** the `linked` filter (the same one as the filter pop-up's "Contact"): '' all · yes · no */
+  linked: TriState
+  onLinked: (v: TriState) => void
+  /** the list's order; the header switch offers newest / customer_newest */
+  sort: Sort
+  onSort: (s: HeaderSort) => void
   activeFilterCount: number
   chips: FilterChip[]
   onRemoveChip: (chip: FilterChip) => void
@@ -135,6 +147,33 @@ export default function ChatListPane({
               </span>
             )}
           </button>
+        </div>
+
+        {/* quick picks: the same `linked` filter and `sort` the filter pop-up edits */}
+        <div data-tour="chats-quick" className="flex flex-col gap-1.5">
+          <Segmented<TriState>
+            label={t('chats.filterModal.quickContacts')}
+            showLabel={false}
+            fit
+            value={linked}
+            onChange={onLinked}
+            options={[
+              { value: '', label: t('chats.filterModal.quickAll') },
+              { value: 'yes', label: t('chats.filterModal.quickContactsOnly') },
+              { value: 'no', label: t('chats.filterModal.quickNotInContacts') },
+            ]}
+          />
+          <Segmented<Sort>
+            label={t('chats.filterModal.quickSort')}
+            showLabel={false}
+            fit
+            value={sort}
+            onChange={(s) => isHeaderSort(s) && onSort(s)}
+            options={[
+              { value: 'newest', label: t('chats.filterModal.sortNewestMessage') },
+              { value: 'customer_newest', label: t('chats.filterModal.sortNewestFromCustomer') },
+            ]}
+          />
         </div>
 
         {chips.length > 0 && (
@@ -243,6 +282,9 @@ export default function ChatListPane({
           const picked = picking && !!pickedRefs?.has(rowRef(row))
           const handedOver = row.handover?.open ? row.handover : null
           const callStatus = row.call?.status
+          // "Newest from customer" orders by when THEY last wrote — the stamp says that time
+          const byCustomer = sort === 'customer_newest' && !!row.last_inbound_ts
+          const stamp = byCustomer ? row.last_inbound_ts! : row.last_ts
           return (
             <button
               key={`${row.channel}-${row.key}${row.pending ? '-pending' : ''}`}
@@ -265,8 +307,11 @@ export default function ChatListPane({
                   <span className={`truncate text-[13.5px] text-text-heading ${row.waiting || selected ? 'font-bold' : 'font-semibold'}`}>
                     {row.name}
                   </span>
-                  <span className={`shrink-0 text-[11.5px] ${row.waiting ? 'font-semibold text-[color:var(--brand-ink)]' : 'text-text-muted'}`}>
-                    {listStamp(row.last_ts, f)}
+                  <span
+                    className={`shrink-0 text-[11.5px] ${row.waiting ? 'font-semibold text-[color:var(--brand-ink)]' : 'text-text-muted'}`}
+                    title={byCustomer ? t('chats.list.customerTime') : undefined}
+                  >
+                    {listStamp(stamp, f)}
                   </span>
                 </span>
                 <span className="mt-0.5 flex items-center gap-1 text-[12.5px] text-text-mid">

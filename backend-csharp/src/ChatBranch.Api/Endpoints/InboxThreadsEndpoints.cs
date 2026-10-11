@@ -37,9 +37,12 @@ namespace ChatBranch.Api.Endpoints;
 ///   any = ever handed over; none = never) · handover_kind (any of)
 ///   active_from / active_to   last-activity range (ISO; to is exclusive)
 ///   created_from / created_to conversation-created range
-///   sort             newest (default) | oldest_waiting | unread
-///   limit (50, max 200) · cursor (opaque, from next_cursor) · before (ISO,
-///   newest sort: strictly older activity) · count_only=1 · thread=channel:key
+///   sort             newest (default, last activity) | customer_newest (the
+///                    customer's last inbound message on the conversation —
+///                    chats they never wrote in last) | oldest_waiting | unread
+///   limit (50, max 200) · cursor (opaque offset from next_cursor — pages every
+///   sort) · before (ISO; sort=newest only, ignored otherwise: strictly older
+///   activity) · count_only=1 · thread=channel:key
 ///
 /// Entity scoping is the inbox rule: ScopeOwned semantics INCLUDING the
 /// unassigned bucket, and agents/custom roles bounded by their assigned
@@ -68,7 +71,9 @@ public static class InboxThreadsEndpoints
 
             if (f.CountOnly) return Results.Ok(new { count = sorted.Count });
 
-            if (f.Before is DateTime before)
+            // `before` is a keyset cursor over last activity, so it only means something
+            // in that order; every sort pages with the offset `cursor`
+            if (f.Before is DateTime before && f.Sort == "newest")
                 sorted = sorted.Where(c => c.LastActivity < before).ToList();
             var offset = Math.Max(0, f.Offset);
             var page = sorted.Skip(offset).Take(f.Limit).ToList();
@@ -187,8 +192,8 @@ public static class InboxThreadsEndpoints
             f.ActiveTo = Date(One(qs, "active_to"));
             f.CreatedFrom = Date(One(qs, "created_from"));
             f.CreatedTo = Date(One(qs, "created_to"));
-            f.Sort = One(qs, "sort").ToLowerInvariant() is "oldest_waiting" or "unread"
-                ? One(qs, "sort").ToLowerInvariant() : "newest";
+            var sort = One(qs, "sort").Trim().ToLowerInvariant();
+            f.Sort = sort is "customer_newest" or "oldest_waiting" or "unread" ? sort : "newest";
             f.Limit = int.TryParse(One(qs, "limit"), out var lim) && lim > 0 ? Math.Min(lim, MaxLimit) : DefaultLimit;
             f.Offset = int.TryParse(One(qs, "cursor"), out var off) && off > 0 ? off : 0;
             f.Before = Date(One(qs, "before"));
@@ -467,13 +472,23 @@ public static class InboxThreadsEndpoints
     }
 
     /// <summary>
-    /// newest = most recent activity first. oldest_waiting = conversations
-    /// waiting on our reply first, the longest wait at the top. unread = the
-    /// same waiting set first but newest first — the inbox keeps no per-operator
-    /// read receipts, so an unanswered customer message IS the unread signal.
+    /// newest = most recent activity first. customer_newest = the customer's
+    /// newest inbound message first (on any channel — each row is one
+    /// conversation; the page folds one contact's channels into one entry);
+    /// conversations nobody ever wrote in go last; ties by activity, then id.
+    /// oldest_waiting = conversations waiting on our reply first, the longest
+    /// wait at the top. unread = the same waiting set first but newest first —
+    /// the inbox keeps no per-operator read receipts, so an unanswered customer
+    /// message IS the unread signal. Runs in memory over the candidate rows (no
+    /// provider-specific NULL ordering), and the order is total (id last), so
+    /// the offset cursor pages every sort without gaps or repeats.
     /// </summary>
     private static List<Candidate> Sort(List<Candidate> rows, string sort) => sort switch
     {
+        "customer_newest" => rows
+            .OrderBy(c => c.LastInTs == null ? 1 : 0)
+            .ThenByDescending(c => c.LastInTs)
+            .ThenByDescending(c => c.LastActivity).ThenByDescending(c => c.Id).ToList(),
         "oldest_waiting" => rows
             .OrderBy(c => c.Waiting ? 0 : 1)
             .ThenBy(c => c.Waiting ? (c.LastInTs ?? c.LastActivity) : DateTime.MaxValue)
