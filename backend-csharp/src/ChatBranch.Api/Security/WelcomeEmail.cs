@@ -154,9 +154,9 @@ public static class WelcomeEmail
         var time = local.ToString("HH':'mm", CultureInfo.InvariantCulture);
         return Normalize(locale) switch
         {
-            "zh" => $"{local.Year}年{local.Month}月{local.Day}日 {time}（{utcLabel}）",
-            "ms" => $"{local.Day} {MalayMonths[local.Month - 1]} {local.Year}, {time} ({utcLabel})",
-            _ => $"{local.Day} {local.ToString("MMMM", CultureInfo.InvariantCulture)} {local.Year}, {time} ({utcLabel})",
+            "zh" => $"{local.Year}年{local.Month}月{local.Day}日 {time} {utcLabel}",
+            "ms" => $"{local.Day} {MalayMonths[local.Month - 1]} {local.Year}, {time} {utcLabel}",
+            _ => $"{local.Day} {local.ToString("MMMM", CultureInfo.InvariantCulture)} {local.Year}, {time} {utcLabel}",
         };
     }
 

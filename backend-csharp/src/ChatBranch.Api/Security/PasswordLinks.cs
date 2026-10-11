@@ -264,7 +264,9 @@ public static class InviteMailer
 
     /// <summary>
     /// "Which organization" in the email: the top-level company of the person's first entity
-    /// (a bound login), else the business name setting, else the tenant's name.
+    /// (a bound login), else the business name setting, else — when the person's tenant (or
+    /// the only tenant there is) has exactly ONE top-level entity — that company's name.
+    /// "" = the email says "your organization".
     /// </summary>
     public static async Task<string> OrganizationNameAsync(AppDbContext db, ScopingService sc, Profile? profile)
     {
@@ -278,10 +280,18 @@ public static class InviteMailer
             }
             var business = sc.SettingValue("business_name").Trim();
             if (business.Length > 0) return business;
-            if (profile?.TenantId is int tid
-                && await db.Tenants.AsNoTracking().Where(t => t.Id == tid).Select(t => t.Name).FirstOrDefaultAsync()
-                    is { Length: > 0 } tenant)
-                return tenant;
+            var tenantId = profile?.TenantId;
+            if (tenantId == null)
+            {
+                var tenants = await db.Tenants.AsNoTracking().Select(t => t.Id).Take(2).ToListAsync();
+                if (tenants.Count == 1) tenantId = tenants[0];
+            }
+            if (tenantId is int tid)
+            {
+                var tops = await db.Entities.AsNoTracking().Where(e => e.TenantId == tid && e.ParentId == null)
+                    .Select(e => e.Name).Take(2).ToListAsync();
+                if (tops.Count == 1 && !string.IsNullOrWhiteSpace(tops[0])) return tops[0];
+            }
         }
         catch { /* the name is cosmetic */ }
         return "";   // WelcomeEmail says "your organization" in the reader's language

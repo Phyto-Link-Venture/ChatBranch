@@ -270,7 +270,7 @@ export function UsersSettings() {
   // the welcome email: on by default whenever one can go out (seeded when the form opens)
   const [sendInvite, setSendInvite] = useState(false)
   // after "Add user": who was created and what happened to the welcome email (shown in the modal)
-  const [created, setCreated] = useState<{ username: string; invite: InviteOutcome } | null>(null)
+  const [created, setCreated] = useState<{ username: string; email: string; invite: InviteOutcome } | null>(null)
   // can a welcome email go out right now (GET /api/v1/users `invites`)
   const [invites, setInvites] = useState<InviteReadiness | null>(null)
   // email modal (add / change a user's address)
@@ -501,7 +501,7 @@ export function UsersSettings() {
           entity_ids: takesEntities(newRole) ? newEntityIds : [],
         }),
       })
-      setCreated({ username: r.username, invite: r.invite ?? { requested: false, sent: false } })
+      setCreated({ username: r.username, email, invite: r.invite ?? { requested: false, sent: false } })
       setNewPassword('')
     })
   }
@@ -969,7 +969,7 @@ export function UsersSettings() {
                 <Send size={15} className="mt-0.5 shrink-0" aria-hidden />
                 <span>
                   {t('admin.users.invite.sent', {
-                    email: created.invite.to ?? '',
+                    email: created.email,
                     date: created.invite.expires_at ? f.dateTime(created.invite.expires_at) : '',
                   })}
                 </span>
