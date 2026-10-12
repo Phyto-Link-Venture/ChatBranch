@@ -83,7 +83,7 @@ public class DefaultCredentialsTests : IClassFixture<RealInstallFactory>
             var b = await r.Content.ReadFromJsonAsync<JsonElement>();
             return (r.StatusCode, b.TryGetProperty("error", out var e) && e.TryGetProperty("reason", out var why) ? why.GetString() : null);
         }
-        Assert.Equal((HttpStatusCode.BadRequest, "password_too_short"), await Create("nine-char"));
+        Assert.Equal((HttpStatusCode.BadRequest, "password_too_short"), await Create("seven-c"));
         Assert.Equal((HttpStatusCode.BadRequest, "password_common"), await Create("qwerty12345"));
         Assert.Equal(HttpStatusCode.Created, (await Create("roti-canai-banjir")).Item1);
     }
@@ -93,8 +93,9 @@ public class DefaultCredentialsTests : IClassFixture<RealInstallFactory>
     {
         var real = new SecurityOptions { IsDemo = false };
         var demo = new SecurityOptions { IsDemo = true };
-        Assert.Equal("password_too_short", PasswordPolicy.Check("abcdefgh1", "amy", real)?.Code);
-        Assert.Null(PasswordPolicy.Check("abcdefgh1", "amy", demo));               // a demo keeps the 8 floor
+        Assert.Equal("password_too_short", PasswordPolicy.Check("kopi-ai", "amy", real)?.Code);  // 7 characters
+        Assert.Null(PasswordPolicy.Check("kopi-ais", "amy", real));                 // 8 is enough
+        Assert.Null(PasswordPolicy.Check("abcdefgh1", "amy", demo));               // a demo checks only the length
         Assert.Equal("password_too_short", PasswordPolicy.Check("abc1234", "amy", demo)?.Code);
         Assert.Equal("password_is_username", PasswordPolicy.Check("Amy.Tan.2026", "amy.tan.2026", real)?.Code);
         Assert.Equal("password_common", PasswordPolicy.Check("Password123!", "amy", real)?.Code);

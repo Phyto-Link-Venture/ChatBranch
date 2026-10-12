@@ -69,7 +69,7 @@ export default function SetPasswordPage() {
   }, [t])
 
   const info = state.kind === 'ready' ? state.info : null
-  const min = info?.password_min_length ?? 10
+  const min = info?.password_min_length ?? 8
   const rules = info
     ? [
         { ok: password.length >= min, text: t('auth.setPassword.rules.length', { min }) },

@@ -7,7 +7,7 @@ export const admin: Dict<typeof source> = {
     summary:
       'Cipta log masuk untuk rakan sekerja baharu, pilih apa yang dibenarkan untuknya, dan tentukan cawangan mana yang boleh dilihatnya. Mengambil masa kira-kira dua minit.',
     before:
-      'Anda perlu menjadi pentadbir atau pentadbir super. Pentadbir boleh menambah ejen dalam organisasinya sendiri; hanya pentadbir super boleh menambah pentadbir lain. Sediakan alamat e-mel orang baharu itu: apabila e-mel log masuk disediakan (Tetapan → E-mel sistem), mereka menerima e-mel alu-aluan dengan nama pengguna, alamat log masuk dan pautan untuk memilih kata laluan sendiri. Tanpanya, tentukan kata laluan sementara (sekurang-kurangnya 10 aksara) untuk diberikan sendiri.',
+      'Anda perlu menjadi pentadbir atau pentadbir super. Pentadbir boleh menambah ejen dalam organisasinya sendiri; hanya pentadbir super boleh menambah pentadbir lain. Sediakan alamat e-mel orang baharu itu: apabila e-mel log masuk disediakan (Tetapan → E-mel sistem), mereka menerima e-mel alu-aluan dengan nama pengguna, alamat log masuk dan pautan untuk memilih kata laluan sendiri. Tanpanya, tentukan kata laluan sementara (sekurang-kurangnya 8 aksara) untuk diberikan sendiri.',
     steps: {
       s1: {
         title: 'Buka Pengguna & peranan',
@@ -23,7 +23,7 @@ export const admin: Dict<typeof source> = {
       },
       s4: {
         title: 'Taip butiran log masuk',
-        body: 'Isi “Nama pengguna” (contohnya aina — mesti unik), “Nama paparan” jika mahu (contohnya Aina Rahman) dan “E-mel” mereka. Biarkan “Hantar e-mel alu-aluan dengan pautan untuk menetapkan kata laluan mereka” bertanda: tiada kata laluan perlu dipilih atau diserahkan. Nyahtanda (atau jika ia tidak boleh ditanda) dan medan “Kata laluan” muncul — sekurang-kurangnya 10 aksara, bukan kata laluan biasa. Taip nama pengguna sendiri — teks yang diisi secara automatik oleh pelayar tidak dikira.',
+        body: 'Isi “Nama pengguna” (contohnya aina — mesti unik), “Nama paparan” jika mahu (contohnya Aina Rahman) dan “E-mel” mereka. Biarkan “Hantar e-mel alu-aluan dengan pautan untuk menetapkan kata laluan mereka” bertanda: tiada kata laluan perlu dipilih atau diserahkan. Nyahtanda (atau jika ia tidak boleh ditanda) dan medan “Kata laluan” muncul — sekurang-kurangnya 8 aksara, bukan kata laluan biasa. Taip nama pengguna sendiri — teks yang diisi secara automatik oleh pelayar tidak dikira.',
       },
       s5: {
         title: 'Pilih peranan',
@@ -49,7 +49,7 @@ export const admin: Dict<typeof source> = {
       t3: 'Minta orang baharu membuka lawatan aplikasi dari butang ? di bar atas sebelum mula mengubah apa-apa.',
     },
     trouble:
-      'Jika simpanan gagal dengan “Nama pengguna diperlukan”, taip semula nama pengguna dengan tangan. Jika e-mel alu-aluan tidak boleh ditanda, e-mel log masuk belum disediakan — pentadbir super mengisi Tetapan → E-mel sistem (dan pengendali pelayan menetapkan FRONTEND_URL). Jika e-mel tidak dihantar, tetingkap memberitahu sebabnya; betulkannya dan gunakan “Hantar semula jemputan”. Pautan berfungsi sekali sahaja, selama 72 jam — selepas itu, hantar semula. Jika kata laluan ditolak, jadikannya sekurang-kurangnya 10 aksara dan kurang mudah diteka (bukan nama pengguna, bukan kata laluan yang terkenal). Jika anda tidak boleh memilih Pentadbir, hanya pentadbir super boleh mencipta pentadbir. Jika butang tiada, peranan anda tidak memegang “Cipta & urus pengguna” — minta pentadbir super.',
+      'Jika simpanan gagal dengan “Nama pengguna diperlukan”, taip semula nama pengguna dengan tangan. Jika e-mel alu-aluan tidak boleh ditanda, e-mel log masuk belum disediakan — pentadbir super mengisi Tetapan → E-mel sistem (dan pengendali pelayan menetapkan FRONTEND_URL). Jika e-mel tidak dihantar, tetingkap memberitahu sebabnya; betulkannya dan gunakan “Hantar semula jemputan”. Pautan berfungsi sekali sahaja, selama 72 jam — selepas itu, hantar semula. Jika kata laluan ditolak, jadikannya sekurang-kurangnya 8 aksara dan kurang mudah diteka (bukan nama pengguna, bukan kata laluan yang terkenal). Jika anda tidak boleh memilih Pentadbir, hanya pentadbir super boleh mencipta pentadbir. Jika butang tiada, peranan anda tidak memegang “Cipta & urus pengguna” — minta pentadbir super.',
   },
   rolesPermissions: {
     title: 'Tetapkan apa yang boleh dilakukan oleh setiap peranan',

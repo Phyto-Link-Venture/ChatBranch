@@ -316,7 +316,7 @@ export const start = {
       },
       s4: {
         title: 'Choose a new password',
-        body: 'Type the new password in “New password” and again in “Confirm new password”. It needs at least 10 characters (8 on a demo), and can’t be your username or a well-known password; the strength hint under it says how strong it is. Click the eye icon to check what you typed.',
+        body: 'Type the new password in “New password” and again in “Confirm new password”. It needs at least 8 characters, and can’t be your username or a well-known password; the strength hint under it says how strong it is. Click the eye icon to check what you typed.',
       },
       s5: {
         title: 'Click “Change password”',

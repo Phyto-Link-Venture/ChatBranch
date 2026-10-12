@@ -318,7 +318,7 @@ export const start: Dict<typeof source> = {
       },
       s4: {
         title: 'Pilih kata laluan baharu',
-        body: 'Taip kata laluan baharu dalam “Kata laluan baharu” dan sekali lagi dalam “Sahkan kata laluan baharu”. Ia memerlukan sekurang-kurangnya 10 aksara (8 pada demo), dan tidak boleh nama pengguna anda atau kata laluan yang terkenal; petunjuk kekuatan di bawahnya menunjukkan kekuatannya. Klik ikon mata untuk menyemak apa yang ditaip.',
+        body: 'Taip kata laluan baharu dalam “Kata laluan baharu” dan sekali lagi dalam “Sahkan kata laluan baharu”. Ia memerlukan sekurang-kurangnya 8 aksara, dan tidak boleh nama pengguna anda atau kata laluan yang terkenal; petunjuk kekuatan di bawahnya menunjukkan kekuatannya. Klik ikon mata untuk menyemak apa yang ditaip.',
       },
       s5: {
         title: 'Klik “Tukar kata laluan”',

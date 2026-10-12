@@ -103,7 +103,7 @@ Any authenticator app works (Google Authenticator, Microsoft Authenticator,
   `SUPERADMIN_PASSWORD` is never forced to change. A demo (`SEED_DEMO=1`) is
   unchanged.
 - **New passwords** (creating a user, an admin's reset, My account, the forced
-  change, the welcome email's link) on a real install: at least `PASSWORD_MIN_LENGTH` (10) characters, not
+  change, the welcome email's link) on a real install: at least `PASSWORD_MIN_LENGTH` (8) characters, not
   the username, not a well-known password (a built-in list of the passwords
   guessing tools try first — and the seeded ones — also with digits or `!` bolted
   on), not one character repeated. A demo keeps the old 8-character floor.
@@ -307,7 +307,7 @@ CI) runs on pushes to master, pull requests and every Monday:
 |---|---|---|
 | `SUPERADMIN_PASSWORD` | — | the seeded superadmin's first password (never forced to change) |
 | `SEED_DEMO` | unset | `1` = a demo: demo logins, no forced change, 8-character passwords |
-| `PASSWORD_MIN_LENGTH` | 10 | new passwords on a real install (never below 8) |
+| `PASSWORD_MIN_LENGTH` | 8 | new passwords on a real install (raise it for longer passwords; never below 8) |
 | `LOGIN_MAX_FAILURES` | 5 | wrong passwords / codes per username before a lock |
 | `LOGIN_MAX_FAILURES_PER_IP` | 30 | failures per client IP before a lock |
 | `LOGIN_LOCKOUT_MINUTES` | 15 | the counting window and the lock's length |

@@ -414,7 +414,7 @@ When you fix one of these, update this table, `README.md` and
   except its allowlist (whoami, logout, own account / password / 2FA setup, the
   shell's appearance reads); whoami + the login answer carry `restriction`; the
   dashboard's `/account-setup` (rendered bare by the Shell) handles both. New
-  passwords go through `PasswordPolicy.Check` (≥ 10 on a real install, not the
+  passwords go through `PasswordPolicy.Check` (≥ 8 — `PASSWORD_MIN_LENGTH` — on a real install, not the
   username, not common; 8 on a demo). AI: `PromptGuard.Rules` ends every
   customer-facing prompt (not editable), customer text in a system prompt goes
   through `PromptGuard.Inline`, side-effect tools are capped per conversation by

@@ -54,7 +54,7 @@ Two kinds of credential are accepted on every authenticated route:
   `PATCH /api/auth/me/account {first_name?, last_name?, email?}` (email
   validated and unique across users → 409; the username never changes),
   `POST /api/auth/me/password {current_password, new_password}` (the password
-  policy — ≥ 10 characters on a real install, not the username, not a common
+  policy — ≥ 8 characters on a real install, not the username, not a common
   password; ≥ 8 on a demo; ≠ the current one; a refusal carries `code`; signs out
   every OTHER session and answers `{signed_out}`; wrong current passwords count
   toward the sign-in lock → 429; lifts a `change_password` restriction; audit

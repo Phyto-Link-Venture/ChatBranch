@@ -55,7 +55,7 @@ public sealed record SecurityOptions
     /// <summary><c>SUPERADMIN_PASSWORD</c> — the password the operator chose for the seeded superadmin.</summary>
     public string SuperadminPassword { get; init; } = "";
     /// <summary><c>PASSWORD_MIN_LENGTH</c> — the floor for new passwords on a real install (never below 8).</summary>
-    public int PasswordMinLength { get; init; } = 10;
+    public int PasswordMinLength { get; init; } = 8;
     /// <summary><c>TOTP_ISSUER</c> — the name authenticator apps show next to the account.</summary>
     public string TotpIssuer { get; init; } = "ChatBranch";
 

@@ -5,9 +5,9 @@ namespace ChatBranch.Api.Security;
 /// <summary>
 /// The rule every NEW password meets — creating a user, an admin's reset, My
 /// account's change and the forced change of a seeded password. On a real install
-/// (no <c>SEED_DEMO</c>): at least <c>PASSWORD_MIN_LENGTH</c> (10) characters, not the
-/// username, not one of the common passwords below (nor a seeded POC password). A
-/// demo keeps the old 8-character floor so its scripted logins stay as they are.
+/// (no <c>SEED_DEMO</c>): at least <c>PASSWORD_MIN_LENGTH</c> (8; a server may raise it)
+/// characters, not the username, not one of the common passwords below (nor a seeded POC
+/// password). A demo checks only the 8-character floor so its scripted logins stay as they are.
 /// Existing passwords are never re-checked — the rule applies when one is set.
 /// </summary>
 public static class PasswordPolicy

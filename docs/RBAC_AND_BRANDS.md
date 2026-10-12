@@ -558,7 +558,7 @@ superadmin or an organization-wide admin, nobody changes their own entity access
 users only (and never their own cap).
 
 Other rules: new passwords meet the password policy — on a real install (no
-`SEED_DEMO`) ≥ 10 characters (`PASSWORD_MIN_LENGTH`), not the username, not a
+`SEED_DEMO`) ≥ 8 characters (`PASSWORD_MIN_LENGTH`), not the username, not a
 common password; on a demo ≥ 8 (`Security/PasswordPolicy`, the refusal carries
 `error.reason`); a `users.manage` holder may reset someone's two-step sign-in
 (`POST /api/v1/users/{id}/2fa/reset`, same tiers, never their own); `entity_ids` (create and update) applies

@@ -599,7 +599,7 @@ export const admin: Dict<typeof source> = {
     displayName: 'Nama paparan',
     displayNamePlaceholder: 'cth. Aina Rahman',
     password: 'Kata laluan',
-    passwordPlaceholder: 'min. 10 aksara',
+    passwordPlaceholder: 'min. 8 aksara',
     passwordHint: 'Kongsikan dengan pengguna melalui saluran lain; anda boleh menetapkannya semula di sini bila-bila masa.',
     roleHint: 'Pentadbir super: semua · Pentadbir: seluruh organisasi, atau syarikat yang dipilih sahaja · Ejen & tersuai: entiti yang ditugaskan sahaja.',
     entityAccessHint:
@@ -608,7 +608,7 @@ export const admin: Dict<typeof source> = {
     resetSubtitle: 'Menetapkan kata laluan baharu akan melog keluar pengguna di semua tempat serta-merta.',
     setPassword: 'Tetapkan kata laluan',
     newPassword: 'Kata laluan baharu',
-    newPasswordPlaceholder: 'Sekurang-kurangnya 10 aksara',
+    newPasswordPlaceholder: 'Sekurang-kurangnya 8 aksara',
     newPasswordFor: 'Kata laluan baharu untuk {user}',
     entityAccessTitle: 'Akses entiti — {user}',
     entityModalSubtitle:

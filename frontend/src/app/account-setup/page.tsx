@@ -93,13 +93,13 @@ function ForcedPasswordChange({ username, onDone }: { username: string; onDone: 
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
-  const [min, setMin] = useState(10)
+  const [min, setMin] = useState(8)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     securityApi<{ password_min_length?: number }>('auth/me/account')
-      .then((a) => setMin(a.password_min_length ?? 10))
+      .then((a) => setMin(a.password_min_length ?? 8))
       .catch(() => undefined)
   }, [])
 

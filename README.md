@@ -186,7 +186,7 @@ A clean boot seeds only one login, `superadmin` (password from
 plus one sample contact. **These are POC credentials in a public template.
 Rotate them before any deployment.** On a real install (no `SEED_DEMO`), signing
 in with one of them only opens a "choose your own password" screen, and new
-passwords must be ≥ 10 characters and not a common one — see
+passwords must be ≥ 8 characters and not a common one — see
 [docs/security.md](docs/security.md) for sign-in lockouts, two-step sign-in,
 rate limits, trusted proxies and the rest.
 

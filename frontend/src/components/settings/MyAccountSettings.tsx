@@ -27,7 +27,7 @@ interface Account {
   auth_source: 'session' | 'api'
   /** The floor the next password must meet (the server's password policy). */
   password_min_length?: number
-  /** strict = a real install (≥ 10 characters, not the username, not a common password); demo = 8. */
+  /** strict = a real install (≥ 8 characters, not the username, not a common password); demo = 8 characters only. */
   password_policy?: 'strict' | 'demo'
 }
 

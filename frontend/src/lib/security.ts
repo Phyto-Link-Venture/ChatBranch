@@ -107,7 +107,7 @@ export const qrDataUrl = (svg: string) => `data:image/svg+xml;charset=utf-8,${en
 export function passwordProblem(t: TFunction, code: string | undefined, min: number | undefined): string | null {
   switch (code) {
     case 'password_too_short':
-      return t('account.password.tooShort', { min: min ?? 10 })
+      return t('account.password.tooShort', { min: min ?? 8 })
     case 'password_common':
       return t('account.password.common')
     case 'password_is_username':

@@ -5,7 +5,7 @@ export const admin = {
     summary:
       'Create a login for a new colleague, pick what they are allowed to do, and decide which branches they can see. Takes about two minutes.',
     before:
-      'You need to be an admin or a super admin. An admin can add agents in their own organization; only a super admin can add other admins. Have the new person’s email address ready: with sign-in emails set up (Settings → System email), they get a welcome email with their username, the login address and a link to choose their own password. Without it, decide on a temporary password (at least 10 characters) to give them yourself.',
+      'You need to be an admin or a super admin. An admin can add agents in their own organization; only a super admin can add other admins. Have the new person’s email address ready: with sign-in emails set up (Settings → System email), they get a welcome email with their username, the login address and a link to choose their own password. Without it, decide on a temporary password (at least 8 characters) to give them yourself.',
     steps: {
       s1: {
         title: 'Open Users & roles',
@@ -21,7 +21,7 @@ export const admin = {
       },
       s4: {
         title: 'Type the login details',
-        body: 'Fill in “Username” (for example aina — it must be unique), an optional “Display name” (for example Aina Rahman) and their “Email”. Leave “Send a welcome email with a link to set their password” ticked: no password to choose or hand over. Untick it (or if it can’t be ticked) and a “Password” field appears — at least 10 characters, not a common one. Type the username yourself — text your browser fills in automatically is not counted.',
+        body: 'Fill in “Username” (for example aina — it must be unique), an optional “Display name” (for example Aina Rahman) and their “Email”. Leave “Send a welcome email with a link to set their password” ticked: no password to choose or hand over. Untick it (or if it can’t be ticked) and a “Password” field appears — at least 8 characters, not a common one. Type the username yourself — text your browser fills in automatically is not counted.',
       },
       s5: {
         title: 'Pick the role',
@@ -47,7 +47,7 @@ export const admin = {
       t3: 'Ask the new person to change nothing until they have opened the app tour from the ? button in the top bar.',
     },
     trouble:
-      'If saving fails with “Username is required”, type the username again by hand. If the welcome email can’t be ticked, sign-in emails aren’t set up yet — a super admin fills in Settings → System email (and whoever runs the server sets FRONTEND_URL). If the email wasn’t sent, the window says why; fix it and use “Resend invite”. A link works once, for 72 hours — after that, resend it. If the password is refused, make it at least 10 characters and less predictable (not the username, not a well-known password). If you cannot pick Admin, only a super admin can create admins. If the button is missing, your role does not hold “Create & manage users” — ask a super admin.',
+      'If saving fails with “Username is required”, type the username again by hand. If the welcome email can’t be ticked, sign-in emails aren’t set up yet — a super admin fills in Settings → System email (and whoever runs the server sets FRONTEND_URL). If the email wasn’t sent, the window says why; fix it and use “Resend invite”. A link works once, for 72 hours — after that, resend it. If the password is refused, make it at least 8 characters and less predictable (not the username, not a well-known password). If you cannot pick Admin, only a super admin can create admins. If the button is missing, your role does not hold “Create & manage users” — ask a super admin.',
   },
   rolesPermissions: {
     title: 'Set what each role can do',

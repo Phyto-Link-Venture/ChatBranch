@@ -597,7 +597,7 @@ export const admin = {
     displayName: 'Display name',
     displayNamePlaceholder: 'e.g. Aina Rahman',
     password: 'Password',
-    passwordPlaceholder: 'min 10 characters',
+    passwordPlaceholder: 'min 8 characters',
     passwordHint: 'Share it with the user out-of-band; you can reset it here any time.',
     roleHint: 'Super admin: everything · Admin: whole organization, or only the companies picked · Agent & custom: assigned entities only.',
     entityAccessHint:
@@ -606,7 +606,7 @@ export const admin = {
     resetSubtitle: 'Setting a new password signs the user out everywhere immediately.',
     setPassword: 'Set password',
     newPassword: 'New password',
-    newPasswordPlaceholder: 'At least 10 characters',
+    newPasswordPlaceholder: 'At least 8 characters',
     newPasswordFor: 'New password for {user}',
     entityAccessTitle: 'Entity access — {user}',
     entityModalSubtitle:

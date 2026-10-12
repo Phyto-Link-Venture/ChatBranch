@@ -683,7 +683,7 @@ public class WelcomeEmailRealInstallTests : IClassFixture<RealInstallInviteFacto
         var same = await c.PostAsJsonAsync("/api/auth/set-password", new { token, password = "admin" });
         Assert.Equal("password_too_short", (await Invites.Body(same)).GetProperty("code").GetString());
         var info = await c.GetFromJsonAsync<JsonElement>($"/api/auth/set-password/{token}");
-        Assert.Equal(10, info.GetProperty("password_min_length").GetInt32());
+        Assert.Equal(8, info.GetProperty("password_min_length").GetInt32());
 
         Assert.Equal(HttpStatusCode.OK, (await c.PostAsJsonAsync("/api/auth/set-password",
             new { token, password = "teh-halia-panas-3" })).StatusCode);
