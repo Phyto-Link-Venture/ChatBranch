@@ -266,8 +266,8 @@ export const guide: Dict<typeof source> = {
           body: 'Janji temu yang ditempah dalam sembang — di Google Calendar atau disimpan dalam ChatBranch — bagi cawangan yang anda pilih.',
         },
         s2: {
-          title: 'Akan datang atau lepas',
-          body: 'Akan datang menunjukkan apa yang masih belum berlaku, yang terdekat dahulu. Lepas menunjukkan apa yang sudah berlaku.',
+          title: 'Akan datang, lepas atau kalendar',
+          body: 'Akan datang menunjukkan apa yang masih belum berlaku, yang terdekat dahulu. Lepas menunjukkan apa yang sudah berlaku. Kalendar menunjukkan Google Calendar yang disambungkan mengikut minggu — semua acaranya, dengan tempahan ChatBranch ditanda.',
         },
         s3: {
           title: 'Senarai',

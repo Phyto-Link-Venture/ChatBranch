@@ -609,7 +609,7 @@ export const work: Dict<typeof source> = {
       },
       s2: {
         title: 'Pilih Akan datang atau Lepas',
-        body: 'Tab “Akan datang” dibuka secara lalai. Klik “Lepas” untuk melihat temu janji yang sudah berlalu.',
+        body: 'Tab “Akan datang” dibuka secara lalai. Klik “Lepas” untuk melihat janji temu yang sudah berlaku, atau “Kalendar” untuk melihat Google Calendar yang disambungkan mengikut minggu — setiap acara di dalamnya, dengan yang ditempah oleh ChatBranch ditanda dan dipautkan ke sembangnya.',
       },
       s3: {
         title: 'Baca jadual',

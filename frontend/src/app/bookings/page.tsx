@@ -5,6 +5,8 @@
  * skill) or the team booked, on Google Calendar or kept in ChatBranch.
  * Upcoming (soonest first) and Past (newest first) tabs, filters for status,
  * calendar and contact, a link into each conversation, and an operator cancel.
+ * The Calendar tab shows the connected Google Calendar itself, week by week
+ * (GoogleCalendarView — read-only; ChatBranch's bookings marked).
  *
  * Reads GET /api/bookings (chats.view, scoped like conversations; the top
  * bar's entity narrows it via useEntityQuery). Refreshes live off the inbox
@@ -27,6 +29,7 @@ import {
   calendarName,
   useBookingLabel,
 } from '@/components/bookings/BookingBits'
+import { GoogleCalendarView } from '@/components/bookings/GoogleCalendarView'
 import { Trans, useFormat, useT, type MessageKey } from '@/i18n'
 import { useAccess } from '@/lib/useAccess'
 import { useEntityQuery } from '@/lib/EntityContext'
@@ -44,10 +47,11 @@ import {
   type BookingStatus,
 } from '@/lib/bookings'
 
-type Tab = 'upcoming' | 'past'
+type Tab = 'upcoming' | 'past' | 'calendar'
 const TABS: { id: Tab; label: MessageKey }[] = [
   { id: 'upcoming', label: 'bookings.page.upcoming' },
   { id: 'past', label: 'bookings.page.past' },
+  { id: 'calendar', label: 'bookings.page.calendarTab' },
 ]
 
 const STATUS_OPTIONS: { value: string; label: MessageKey }[] = [
@@ -120,16 +124,19 @@ export default function BookingsPage() {
     }
   }, [tab, contactId, entityQ, t])
 
+  // the Calendar tab reads Google, not the bookings list
+  const listTab = tab !== 'calendar'
+
   useEffect(() => {
-    if (!allowed) return
+    if (!allowed || !listTab) return
     setRows(null)
     void load()
-  }, [allowed, load])
+  }, [allowed, listTab, load])
 
   // live: the inbox stream bumps whenever a conversation moves (a reply that
   // books or cancels is a new message) — debounced refetch
   useEffect(() => {
-    if (!allowed) return
+    if (!allowed || !listTab) return
     let timer: number | undefined
     const unsub = subscribeChatStream(() => {
       window.clearTimeout(timer)
@@ -139,7 +146,7 @@ export default function BookingsPage() {
       unsub()
       window.clearTimeout(timer)
     }
-  }, [allowed, load])
+  }, [allowed, listTab, load])
 
   const calendars = useMemo(
     () => Array.from(new Set((rows ?? []).map((b) => calendarName(t, b)))).sort(),
@@ -335,100 +342,106 @@ export default function BookingsPage() {
             </div>
           </div>
 
-          {contactId != null && (
-            <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-text-mid">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-card py-0.5 pl-2.5 pr-1">
-                <Trans
-                  k="bookings.page.contactChip"
-                  values={{ name: <b className="font-semibold text-text-high">{contactName || `#${contactId}`}</b> }}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setContactId(null)
-                    syncUrl(tab, null)
-                  }}
-                  aria-label={t('bookings.page.showAll')}
-                  className="grid h-5 w-5 place-items-center rounded-full text-text-muted hover:bg-fill-hover hover:text-text-high"
-                >
-                  <X size={11} aria-hidden />
-                </button>
-              </span>
-            </div>
-          )}
-
-          {notice && (
-            <div role="status" className="rounded-lg border border-green/30 bg-green/10 px-3 py-2 text-[12.5px] text-[color:var(--green-ink)]">
-              {notice}
-            </div>
-          )}
-          {loadNote && <div className="rounded-lg border border-line bg-fill-subtle px-3 py-2 text-[12.5px] text-text-muted">{loadNote}</div>}
-
-          {rows === null ? (
-            <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
-              <Loader2 size={14} className="animate-spin" aria-hidden /> {t('bookings.page.loading')}
-            </div>
+          {tab === 'calendar' ? (
+            <GoogleCalendarView entityQuery={entityQ} />
           ) : (
-            <DataTable
-              data-tour="bookings-table"
-              key={tab}
-              columns={columns}
-              rows={visible}
-              rowKey={(b) => b.id}
-              searchKeys={['contact']}
-              searchPlaceholder={t('bookings.page.searchPlaceholder')}
-              pageSize={20}
-              initialSort={{ key: 'when', dir: tab === 'upcoming' ? 'asc' : 'desc' }}
-              toolbarRight={
-                <>
-                  <Select
-                    value={status}
-                    onChange={setStatus}
-                    options={STATUS_OPTIONS.map((o) => ({ value: o.value, label: t(o.label) }))}
-                    ariaLabel={t('common.fields.status')}
-                    className="w-[138px] sm:w-[160px]"
+            <>
+            {contactId != null && (
+              <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-text-mid">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-card py-0.5 pl-2.5 pr-1">
+                  <Trans
+                    k="bookings.page.contactChip"
+                    values={{ name: <b className="font-semibold text-text-high">{contactName || `#${contactId}`}</b> }}
                   />
-                  <Select
-                    value={calendar}
-                    onChange={setCalendar}
-                    options={[{ value: '', label: t('bookings.page.allCalendars') }, ...calendars.map((c) => ({ value: c, label: c }))]}
-                    ariaLabel={t('bookings.page.calendarAria')}
-                    className="w-[148px] sm:w-[170px]"
-                  />
-                  <Button data-tour="bookings-refresh" variant="ghost" size="sm" onClick={() => void load()} disabled={loading} aria-label={t('common.actions.refresh')}>
-                    <RefreshCw size={13} className={loading ? 'animate-spin' : ''} aria-hidden />
-                  </Button>
-                </>
-              }
-              empty={
-                <span className="inline-flex flex-col items-center gap-1.5">
-                  <CalendarCheck size={20} className="text-text-faint" aria-hidden />
-                  <span>
-                    {t(
-                      (rows ?? []).length > 0
-                        ? 'bookings.page.emptyFiltered'
-                        : tab === 'upcoming'
-                          ? 'bookings.page.emptyUpcoming'
-                          : 'bookings.page.emptyPast',
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setContactId(null)
+                      syncUrl(tab, null)
+                    }}
+                    aria-label={t('bookings.page.showAll')}
+                    className="grid h-5 w-5 place-items-center rounded-full text-text-muted hover:bg-fill-hover hover:text-text-high"
+                  >
+                    <X size={11} aria-hidden />
+                  </button>
+                </span>
+              </div>
+            )}
+
+            {notice && (
+              <div role="status" className="rounded-lg border border-green/30 bg-green/10 px-3 py-2 text-[12.5px] text-[color:var(--green-ink)]">
+                {notice}
+              </div>
+            )}
+            {loadNote && <div className="rounded-lg border border-line bg-fill-subtle px-3 py-2 text-[12.5px] text-text-muted">{loadNote}</div>}
+
+            {rows === null ? (
+              <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
+                <Loader2 size={14} className="animate-spin" aria-hidden /> {t('bookings.page.loading')}
+              </div>
+            ) : (
+              <DataTable
+                data-tour="bookings-table"
+                key={tab}
+                columns={columns}
+                rows={visible}
+                rowKey={(b) => b.id}
+                searchKeys={['contact']}
+                searchPlaceholder={t('bookings.page.searchPlaceholder')}
+                pageSize={20}
+                initialSort={{ key: 'when', dir: tab === 'upcoming' ? 'asc' : 'desc' }}
+                toolbarRight={
+                  <>
+                    <Select
+                      value={status}
+                      onChange={setStatus}
+                      options={STATUS_OPTIONS.map((o) => ({ value: o.value, label: t(o.label) }))}
+                      ariaLabel={t('common.fields.status')}
+                      className="w-[138px] sm:w-[160px]"
+                    />
+                    <Select
+                      value={calendar}
+                      onChange={setCalendar}
+                      options={[{ value: '', label: t('bookings.page.allCalendars') }, ...calendars.map((c) => ({ value: c, label: c }))]}
+                      ariaLabel={t('bookings.page.calendarAria')}
+                      className="w-[148px] sm:w-[170px]"
+                    />
+                    <Button data-tour="bookings-refresh" variant="ghost" size="sm" onClick={() => void load()} disabled={loading} aria-label={t('common.actions.refresh')}>
+                      <RefreshCw size={13} className={loading ? 'animate-spin' : ''} aria-hidden />
+                    </Button>
+                  </>
+                }
+                empty={
+                  <span className="inline-flex flex-col items-center gap-1.5">
+                    <CalendarCheck size={20} className="text-text-faint" aria-hidden />
+                    <span>
+                      {t(
+                        (rows ?? []).length > 0
+                          ? 'bookings.page.emptyFiltered'
+                          : tab === 'upcoming'
+                            ? 'bookings.page.emptyUpcoming'
+                            : 'bookings.page.emptyPast',
+                      )}
+                    </span>
+                    {(rows ?? []).length === 0 && (
+                      <span className="max-w-[440px] text-[12px] text-text-faint">
+                        <Trans
+                          k="bookings.page.emptyHint"
+                          values={{
+                            link: (
+                              <Link href="/skills" className="font-semibold text-text-muted underline-offset-2 hover:underline">
+                                {t('shell.nav.skills')}
+                              </Link>
+                            ),
+                          }}
+                        />
+                      </span>
                     )}
                   </span>
-                  {(rows ?? []).length === 0 && (
-                    <span className="max-w-[440px] text-[12px] text-text-faint">
-                      <Trans
-                        k="bookings.page.emptyHint"
-                        values={{
-                          link: (
-                            <Link href="/skills" className="font-semibold text-text-muted underline-offset-2 hover:underline">
-                              {t('shell.nav.skills')}
-                            </Link>
-                          ),
-                        }}
-                      />
-                    </span>
-                  )}
-                </span>
-              }
-            />
+                }
+              />
+            )}
+            </>
           )}
         </div>
       )}

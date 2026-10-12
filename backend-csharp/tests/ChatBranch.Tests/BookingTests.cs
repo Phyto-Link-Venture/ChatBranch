@@ -32,6 +32,13 @@ internal sealed class FakeGoogleCalendar : HttpMessageHandler, IHttpClientFactor
     public List<(DateTime Start, DateTime End)> Busy { get; } = new();
     public HttpStatusCode? FailInsert { get; set; }
     public HttpStatusCode? FailFreeBusy { get; set; }
+    /// <summary>What events.list answers (raw Google items) and its calendar's timezone.</summary>
+    public List<object> EventItems { get; } = new();
+    public string EventsTimeZone { get; set; } = "Asia/Kuala_Lumpur";
+    public HttpStatusCode? FailEvents { get; set; }
+    /// <summary>What calendarList answers (raw Google items).</summary>
+    public List<object> CalendarItems { get; } = new();
+    public IEnumerable<Call> EventReads => Calls.Where(c => c.Method == "GET" && c.Path.EndsWith("/events"));
     private int _events;
 
     public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
@@ -57,6 +64,12 @@ internal sealed class FakeGoogleCalendar : HttpMessageHandler, IHttpClientFactor
                 ["calendars"] = new Dictionary<string, object> { [id] = new { busy } },
             });
         }
+        if (request.Method == HttpMethod.Get && path.EndsWith("/events"))
+            return FailEvents is HttpStatusCode fe
+                ? Json(fe, new { error = new { message = "events refused" } })
+                : Json(HttpStatusCode.OK, new { timeZone = EventsTimeZone, items = EventItems.ToArray() });
+        if (request.Method == HttpMethod.Get && path.EndsWith("/users/me/calendarList"))
+            return Json(HttpStatusCode.OK, new { items = CalendarItems.ToArray() });
         if (request.Method == HttpMethod.Post && path.EndsWith("/events"))
         {
             if (FailInsert is HttpStatusCode fi) return Json(fi, new { error = new { message = "Calendar says no" } });

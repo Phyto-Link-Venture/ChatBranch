@@ -377,11 +377,13 @@ conversation route.
 | `skills_preview_document_layout` | Preview a custom document layout | read | `settings.ai.manage` |
 | `skills_assist_document_layout` | Edit a custom document layout from words | read · open-world | `settings.ai.manage` |
 
-#### bookings (6)
+#### bookings (8)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
 | `bookings_list` | List bookings | read | `chats.view` |
+| `bookings_list_calendars` | List Google Calendars | read | `chats.view` |
+| `bookings_list_calendar_events` | Read a Google Calendar | read | `chats.view` |
 | `bookings_cancel` | Cancel a booking | write · **destructive** · open-world | `chats.send` |
 | `bookings_check_availability` | Check calendar availability | read · open-world | `settings.ai.manage` |
 | `bookings_get_hours` | Read booking hours | read | `integrations.view` or `settings.ai.manage` |

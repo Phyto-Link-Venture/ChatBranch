@@ -955,7 +955,24 @@ When you fix one of these, update this table, `README.md` and
   book, then restate weekday/date/time/timezone; the voice SKILLS block omits app
   skills. Pages: `/bookings` (Work; `GET /api/bookings`, `chats.view`, scoped
   like conversations; `POST /api/bookings/{id}/cancel`, `chats.send`), the
-  `BookingsCard` on the contact and the chat info panel. The older "Booking
+  `BookingsCard` on the contact and the chat info panel. **The Bookings page's
+  Calendar tab** (`?tab=calendar`, `components/bookings/GoogleCalendarView.tsx`) shows
+  the connected Google Calendar ITSELF, read-only, week by week — every event on it
+  (made in Google or by ChatBranch), all-day and "free" ones marked, ChatBranch's
+  bookings linked to their chat — through `GET /api/bookings/calendars` +
+  `GET /api/bookings/calendar-events?connection=&calendar=&from=&to=` (`chats.view`,
+  ≤62 days; `GoogleCalendarClient.ListEventsAsync` = `events.list`, recurring events
+  expanded, only id / title / times / location / link / transparency — never a
+  description or attendees — and `ListCalendarsAsync` = the account's readable
+  calendars for the picker; a calendar id outside that list is a 404). Which
+  calendars (`BookingsEndpoints.VisibleCalendarsAsync`): the caller's OWN personal
+  grant + — with `integrations.view` / `integrations.manage` — the shared ones the
+  Integrations page shows them; another person's personal calendar never, admins
+  included. A ChatBranch booking among the events is linked only when in the caller's
+  conversation scope (else just "booked in ChatBranch"); Google failures answer
+  `{ok:false, error: not_connected | google}`, no calendar `no_calendar`. MCP
+  `bookings_list_calendars` / `bookings_list_calendar_events`. Tests:
+  `BookingCalendarViewTests`. The older "Booking
   hours" panel (`BookingHoursSettings.tsx` on the Google Calendar card at
   `/integrations`, `/api/aicore/booking-hours`, entity-scoped Setting
   `booking_hours`) is stored and edited but READ BY NOTHING in the C# port —
@@ -1599,9 +1616,9 @@ When you fix one of these, update this table, `README.md` and
   contact import) (`GoogleOAuth.cs`: one Google client, incremental per-product
   scopes, PKCE S256, HMAC-signed 600 s `state`, lazy refresh that marks a row
   disconnected and returns "" rather than throwing) and Shopify / Stripe (API
-  keys). Google Calendar HTTP (free/busy, insert / delete an event) is ONE
-  client, `Integrations/GoogleCalendarClient.cs`, shared by the flow actions and
-  the AI's booking tools. **Personal, entity or organization — every payload
+  keys). Google Calendar HTTP (free/busy, insert / delete an event, list events /
+  calendars) is ONE client, `Integrations/GoogleCalendarClient.cs`, shared by the flow
+  actions, the AI's booking tools and the Bookings page's Calendar tab. **Personal, entity or organization — every payload
   says which** (`scope` personal | entity | organization + `entity_name` /
   `entity_slug`; the page's "Used by" column): `Integration.OwnerUserId` set =
   personal (its owner only); ownerless with an `EntityId` = that entity AND its

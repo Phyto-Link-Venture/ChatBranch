@@ -6,7 +6,8 @@ namespace ChatBranch.Data.Integrations;
 
 /// <summary>
 /// The Google Calendar calls ChatBranch makes — free/busy, create an event,
-/// delete an event — shared by the flow actions ("Find free slot", "Create
+/// delete an event, and READ the events + calendar list for the Bookings page's
+/// Calendar view — shared by the flow actions ("Find free slot", "Create
 /// calendar event" in <see cref="IntegrationActions"/>) and the AI's calendar
 /// booking tools (<see cref="Bookings.BookingService"/>).
 ///
@@ -119,6 +120,140 @@ public class GoogleCalendarClient
         RecordResult(row, r.Ok || gone, r.Ok || gone ? "" : r.Body);
         if (!r.Ok && !gone) return new EventResult(false, false, $"Google Calendar: {r.Body}", eventId, "", r.Status);
         return new EventResult(true, false, "", eventId, "", r.Status);
+    }
+
+    // ---- reading the calendar (the Bookings page's Calendar view) ---------------------
+
+    /// <summary>One event as the Bookings page shows it — never its description or attendees.
+    /// Timed events carry UTC instants; an all-day event its local dates (end exclusive).</summary>
+    public sealed record CalendarEvent(string Id, string Title, DateTime? StartUtc, DateTime? EndUtc,
+        DateOnly? StartDate, DateOnly? EndDate, string Location, string HtmlLink, bool Free)
+    {
+        public bool AllDay => StartDate != null;
+    }
+
+    public sealed record EventsResult(bool Ok, bool NotConnected, string Error, IReadOnlyList<CalendarEvent> Events,
+        string TimeZone, bool Truncated);
+
+    /// <summary>One calendar of the connected account (calendarList).</summary>
+    public sealed record CalendarInfo(string Id, string Summary, bool Primary, string TimeZone);
+
+    public sealed record CalendarsResult(bool Ok, bool NotConnected, string Error, IReadOnlyList<CalendarInfo> Calendars);
+
+    /// <summary>The most events one read returns (two pages of Google's 250).</summary>
+    public const int MaxEvents = 500;
+
+    /// <summary>
+    /// The events of one calendar overlapping [fromUtc, toUtc), recurring ones expanded, soonest first
+    /// (<c>events.list</c>, the <c>calendar.readonly</c> scope). Cancelled events are left out; only
+    /// the fields the page shows are asked for. More than <see cref="MaxEvents"/> = <c>Truncated</c>.
+    /// </summary>
+    public async Task<EventsResult> ListEventsAsync(Integration row, string calendarId, DateTime fromUtc,
+        DateTime toUtc, CancellationToken ct = default)
+    {
+        var token = await TokenAsync(row, ct);
+        if (token.Length == 0)
+            return new EventsResult(false, true, "Google Calendar is not connected.", Array.Empty<CalendarEvent>(), "", false);
+        var events = new List<CalendarEvent>();
+        var zone = "";
+        var pageToken = "";
+        for (var page = 0; page < MaxEvents / 250; page++)
+        {
+            var url = $"{Base}/calendars/{Uri.EscapeDataString(calendarId)}/events"
+                      + $"?timeMin={Uri.EscapeDataString(Iso(fromUtc))}&timeMax={Uri.EscapeDataString(Iso(toUtc))}"
+                      + "&singleEvents=true&orderBy=startTime&maxResults=250"
+                      + "&fields=" + Uri.EscapeDataString(
+                          "timeZone,nextPageToken,items(id,status,summary,start,end,htmlLink,location,transparency)")
+                      + (pageToken.Length > 0 ? $"&pageToken={Uri.EscapeDataString(pageToken)}" : "");
+            var r = await ProviderHttp.SendAsync(_http, HttpMethod.Get, url, token, ct: ct);
+            RecordResult(row, r.Ok, r.Ok ? "" : r.Body);
+            if (!r.Ok)
+                return new EventsResult(false, false, $"Google Calendar: {r.Body}", Array.Empty<CalendarEvent>(), "", false);
+            var (items, tz, next) = ParseEvents(r.Body);
+            events.AddRange(items);
+            if (zone.Length == 0) zone = tz;
+            pageToken = next;
+            if (pageToken.Length == 0) return new EventsResult(true, false, "", events, zone, false);
+        }
+        return new EventsResult(true, false, "", events, zone, true);
+    }
+
+    /// <summary>The calendars of the connected account the page may list events of (owner, writer
+    /// or reader access — a free/busy-only calendar has no events to show), primary first.</summary>
+    public async Task<CalendarsResult> ListCalendarsAsync(Integration row, CancellationToken ct = default)
+    {
+        var token = await TokenAsync(row, ct);
+        if (token.Length == 0)
+            return new CalendarsResult(false, true, "Google Calendar is not connected.", Array.Empty<CalendarInfo>());
+        var url = $"{Base}/users/me/calendarList?maxResults=100&fields="
+                  + Uri.EscapeDataString("items(id,summary,summaryOverride,primary,accessRole,timeZone)");
+        var r = await ProviderHttp.SendAsync(_http, HttpMethod.Get, url, token, ct: ct);
+        RecordResult(row, r.Ok, r.Ok ? "" : r.Body);
+        return r.Ok
+            ? new CalendarsResult(true, false, "", ParseCalendars(r.Body))
+            : new CalendarsResult(false, false, $"Google Calendar: {r.Body}", Array.Empty<CalendarInfo>());
+    }
+
+    /// <summary>The events, the calendar's timezone and the next page token out of an events.list body.</summary>
+    public static (List<CalendarEvent> Events, string TimeZone, string NextPage) ParseEvents(string payload)
+    {
+        var list = new List<CalendarEvent>();
+        try
+        {
+            using var doc = JsonDocument.Parse(payload);
+            var root = doc.RootElement;
+            string Str(JsonElement e, string key) =>
+                e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+            if (root.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+                foreach (var it in items.EnumerateArray())
+                {
+                    if (Str(it, "status") == "cancelled" || Str(it, "id").Length == 0) continue;
+                    if (!it.TryGetProperty("start", out var start) || !it.TryGetProperty("end", out var end)) continue;
+                    var (sUtc, sDate) = When(start);
+                    var (eUtc, eDate) = When(end);
+                    if (sUtc == null && sDate == null) continue;
+                    list.Add(new CalendarEvent(Str(it, "id"), Str(it, "summary"), sUtc, eUtc, sDate, eDate,
+                        Str(it, "location"), Str(it, "htmlLink"), Str(it, "transparency") == "transparent"));
+                }
+            return (list, Str(root, "timeZone"), Str(root, "nextPageToken"));
+        }
+        catch { return (list, "", ""); }
+
+        static (DateTime? Utc, DateOnly? Date) When(JsonElement e)
+        {
+            if (e.TryGetProperty("dateTime", out var dt) && dt.ValueKind == JsonValueKind.String
+                && DateTimeOffset.TryParse(dt.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal,
+                    out var at))
+                return (DateTime.SpecifyKind(at.UtcDateTime, DateTimeKind.Utc), null);
+            if (e.TryGetProperty("date", out var d) && d.ValueKind == JsonValueKind.String
+                && DateOnly.TryParseExact(d.GetString(), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out var day))
+                return (null, day);
+            return (null, null);
+        }
+    }
+
+    /// <summary>The readable calendars out of a calendarList body, primary first.</summary>
+    public static List<CalendarInfo> ParseCalendars(string payload)
+    {
+        var list = new List<CalendarInfo>();
+        try
+        {
+            using var doc = JsonDocument.Parse(payload);
+            if (!doc.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+                return list;
+            foreach (var it in items.EnumerateArray())
+            {
+                string Str(string key) =>
+                    it.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+                if (Str("accessRole") is not ("owner" or "writer" or "reader") || Str("id").Length == 0) continue;
+                var primary = it.TryGetProperty("primary", out var p) && p.ValueKind == JsonValueKind.True;
+                var name = Str("summaryOverride").Length > 0 ? Str("summaryOverride") : Str("summary");
+                list.Add(new CalendarInfo(Str("id"), name.Length > 0 ? name : Str("id"), primary, Str("timeZone")));
+            }
+        }
+        catch { /* a malformed body lists nothing */ }
+        return list.OrderByDescending(c => c.Primary).ThenBy(c => c.Summary, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     /// <summary>Busy spans for the calendar out of a freeBusy response, plus the

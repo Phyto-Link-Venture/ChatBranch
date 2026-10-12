@@ -607,7 +607,7 @@ export const work = {
       },
       s2: {
         title: 'Choose Upcoming or Past',
-        body: 'The “Upcoming” tab is open by default. Click “Past” to see appointments that have already happened.',
+        body: 'The “Upcoming” tab is open by default. Click “Past” to see appointments that have already happened, or “Calendar” to see your connected Google Calendar week by week — every event on it, with the ones ChatBranch booked marked and linked to their chat.',
       },
       s3: {
         title: 'Read the table',

@@ -263,8 +263,8 @@ export const guide = {
           body: 'Appointments booked in chats — on Google Calendar or kept inside ChatBranch — for the outlet you picked.',
         },
         s2: {
-          title: 'Upcoming or past',
-          body: 'Upcoming shows what is still to come, soonest first. Past shows what has already happened.',
+          title: 'Upcoming, past or the calendar',
+          body: 'Upcoming shows what is still to come, soonest first. Past shows what has already happened. Calendar shows your connected Google Calendar week by week — everything on it, with ChatBranch’s bookings marked.',
         },
         s3: {
           title: 'The list',

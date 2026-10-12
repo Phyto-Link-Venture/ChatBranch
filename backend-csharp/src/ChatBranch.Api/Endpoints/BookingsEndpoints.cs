@@ -4,6 +4,7 @@ using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Ai.Skills;
 using ChatBranch.Data.Bookings;
+using ChatBranch.Data.Integrations;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -24,6 +25,13 @@ namespace ChatBranch.Api.Endpoints;
 /// * <c>POST /api/bookings/{id}/cancel</c> (<c>chats.send</c>, in scope) — an
 ///   operator cancels now (Google event deleted when it has one); note + audit +
 ///   notification through <see cref="BookingService"/>.
+/// * <c>GET /api/bookings/calendars</c> + <c>GET /api/bookings/calendar-events</c>
+///   (<c>chats.view</c>) — the page's Calendar tab: the connected Google Calendar's
+///   own events, READ-ONLY, ChatBranch's bookings among them linked to their
+///   conversation. Which calendars: the caller's own personal grant, plus the shared
+///   ones (an outlet's or the organization's, <see cref="ShellScope.ScopeLibrary"/>)
+///   for <c>integrations.view</c> / <c>integrations.manage</c> holders; another
+///   person's personal calendar never (<see cref="VisibleCalendarsAsync"/>).
 /// </summary>
 public static class BookingsEndpoints
 {
@@ -94,7 +102,154 @@ public static class BookingsEndpoints
             var fresh = await db.Bookings.AsNoTracking().FirstAsync(b => b.Id == id, ct);
             return Results.Ok(new { ok = true, detail = "Cancelled.", booking = (await PayloadsAsync(db, new() { fresh }))[0] });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.send");
+
+        MapCalendarView(app);
     }
+
+    // ---- the connected Google Calendar, read-only ----------------------------------------
+
+    /// <summary>The longest window one calendar read covers.</summary>
+    public const int MaxCalendarDays = 62;
+
+    private static void MapCalendarView(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/api/bookings/calendars", async (string? entity, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me, BookingService bookings) =>
+        {
+            var rows = await VisibleCalendarsAsync(db, sc, me, await InboxEndpoints.EntityId(db, entity));
+            return Results.Ok(new { calendars = rows.Select(r => ConnectionJson(r, bookings)).ToList() });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.view");
+
+        app.MapGet("/api/bookings/calendar-events", async (int? connection, string? calendar, string? from, string? to,
+            string? entity, AppDbContext db, ScopingService sc, ClaimsPrincipal me, BookingService bookings,
+            GoogleCalendarClient google, TimeProvider clock, CancellationToken ct) =>
+        {
+            var rows = await VisibleCalendarsAsync(db, sc, me, await InboxEndpoints.EntityId(db, entity));
+            var row = connection is int cid ? rows.FirstOrDefault(r => r.Id == cid) : rows.FirstOrDefault();
+            if (row == null)
+                return connection == null
+                    ? Results.Ok(new { ok = false, error = "no_calendar", detail = "No Google Calendar you can see is connected.",
+                        events = Array.Empty<object>() })
+                    : Results.NotFound(new { detail = "Calendar connection not found." });
+
+            var orgTz = BuiltinSkills.OrgTimeZone(sc);
+            var today = BookingAvailability.Today(clock.GetUtcNow().UtcDateTime, orgTz);
+            DateOnly? Day(string? raw) => DateOnly.TryParseExact((raw ?? "").Trim(), "yyyy-MM-dd",
+                CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
+            if ((!string.IsNullOrWhiteSpace(from) && Day(from) == null) || (!string.IsNullOrWhiteSpace(to) && Day(to) == null))
+                return Results.BadRequest(new { detail = "from and to are dates, YYYY-MM-DD." });
+            var first = Day(from) ?? today;
+            var last = Day(to) ?? first.AddDays(6);
+            if (last < first) return Results.BadRequest(new { detail = "to must not be before from." });
+            if (last.DayNumber - first.DayNumber >= MaxCalendarDays)
+                return Results.BadRequest(new { detail = $"At most {MaxCalendarDays} days at a time." });
+
+            // the account's calendars (for the picker); the one asked for must be among them
+            var list = await google.ListCalendarsAsync(row, ct);
+            var calendarId = string.IsNullOrWhiteSpace(calendar) ? GoogleCalendarClient.CalendarIdFor(row, null) : calendar.Trim();
+            var info = list.Calendars.FirstOrDefault(c => c.Id == calendarId || (calendarId == "primary" && c.Primary));
+            if (list.Ok && info == null && calendarId != "primary")
+                return Results.NotFound(new { detail = "That calendar isn't one this connection can read." });
+            var calendars = list.Calendars.Select(c => new { id = c.Id, name = c.Summary, primary = c.Primary }).ToList();
+
+            var tz = BuiltinSkills.ResolveTimeZone(info?.TimeZone) ?? orgTz;
+            var fromUtc = BookingAvailability.ToUtc(first.ToDateTime(TimeOnly.MinValue), tz);
+            var toUtc = BookingAvailability.ToUtc(last.AddDays(1).ToDateTime(TimeOnly.MinValue), tz);
+            var r = await google.ListEventsAsync(row, calendarId, fromUtc, toUtc, ct);
+            var head = new Dictionary<string, object?>
+            {
+                ["connection"] = ConnectionJson(row, bookings),
+                ["calendar_id"] = info?.Id ?? calendarId,
+                ["calendars"] = calendars,
+                ["from"] = first.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                ["to"] = last.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            };
+            if (!r.Ok)
+            {
+                head["ok"] = false;
+                head["error"] = r.NotConnected ? "not_connected" : "google";
+                head["detail"] = r.Error;
+                head["timezone"] = tz.Id;
+                head["events"] = Array.Empty<object>();
+                return Results.Ok(head);
+            }
+            tz = BuiltinSkills.ResolveTimeZone(r.TimeZone) ?? tz;
+
+            // ChatBranch's own bookings among the events: linked when the caller may see them
+            var eventIds = r.Events.Select(e => e.Id).Distinct().ToList();
+            var made = await db.Bookings.AsNoTracking()
+                .Where(b => b.IntegrationId == row.Id && eventIds.Contains(b.ExternalEventId))
+                .OrderByDescending(b => b.Id).ToListAsync(ct);
+            var madeIds = made.Select(b => b.Id).ToList();
+            var inScope = (await Scoped(db.Bookings.AsNoTracking(), ShellScope.ThreadEntityIds(db, sc, me, null))
+                .Where(b => madeIds.Contains(b.Id)).Select(b => b.Id).ToListAsync(ct)).ToHashSet();
+            var shown = made.Where(b => inScope.Contains(b.Id)).ToList();
+            var payloads = (await PayloadsAsync(db, shown)).Zip(shown, (p, b) => (b.ExternalEventId, p))
+                .GroupBy(x => x.ExternalEventId).ToDictionary(g => g.Key, g => g.First().p);
+            var ours = made.Select(b => b.ExternalEventId).ToHashSet();
+
+            head["ok"] = true;
+            head["timezone"] = tz.Id;
+            head["truncated"] = r.Truncated;
+            head["events"] = r.Events.Select(e =>
+            {
+                var day = e.StartDate ?? DateOnly.FromDateTime(BookingAvailability.ToLocal(e.StartUtc!.Value, tz));
+                return (object)new
+                {
+                    id = e.Id,
+                    title = e.Title,
+                    all_day = e.AllDay,
+                    start = e.AllDay ? e.StartDate!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+                        : BookingAvailability.OffsetIso(e.StartUtc!.Value, tz),
+                    end = e.AllDay ? (e.EndDate ?? e.StartDate!.Value.AddDays(1)).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+                        : e.EndUtc is DateTime end ? BookingAvailability.OffsetIso(end, tz) : null,
+                    // the local day it is listed under (one that began earlier shows on the first day)
+                    day = (day < first ? first : day).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    location = e.Location,
+                    link = e.HtmlLink.Length > 0 ? e.HtmlLink : null,
+                    free = e.Free,
+                    chatbranch = ours.Contains(e.Id),
+                    booking = payloads.TryGetValue(e.Id, out var p) ? p : null,
+                };
+            }).ToList();
+            return Results.Ok(head);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.view");
+    }
+
+    /// <summary>
+    /// The Google Calendar connections whose events the caller may read: their OWN personal grant,
+    /// plus — for <c>integrations.view</c> / <c>integrations.manage</c> holders — the shared ones
+    /// (an outlet's or the organization's) the Integrations page shows them
+    /// (<see cref="ShellScope.ScopeLibrary"/>: org-wide rows + their outlets' and those outlets'
+    /// ancestors'). Someone else's personal calendar is never listed, admins included. Shared
+    /// first (an outlet's, then the organization's), then the caller's own.
+    /// </summary>
+    internal static async Task<List<Integration>> VisibleCalendarsAsync(AppDbContext db, ScopingService sc,
+        ClaimsPrincipal me, int? entityId)
+    {
+        var uid = await db.Users.AsNoTracking().Where(u => u.Username == (me.Identity!.Name ?? ""))
+            .Select(u => (int?)u.Id).FirstOrDefaultAsync();
+        var rows = uid is int u
+            ? await db.Integrations.AsNoTracking().Include(i => i.Entity)
+                .Where(i => i.Provider == BookingService.GoogleProvider && i.OwnerUserId == u).ToListAsync()
+            : new List<Integration>();
+        if (await ShellScope.HasCapAsync(db, me, "integrations.view") || await ShellScope.HasCapAsync(db, me, "integrations.manage"))
+            rows.AddRange(await ShellScope.ScopeLibrary(db.Integrations.AsNoTracking(), db, sc, me, entityId)
+                .Include(i => i.Entity)
+                .Where(i => i.Provider == BookingService.GoogleProvider && i.OwnerUserId == null).ToListAsync());
+        return rows.Where(i => GoogleOAuth.Cred(i, "access_token").Length > 0)
+            .GroupBy(i => i.Id).Select(g => g.First())
+            .OrderBy(i => i.OwnerUserId != null ? 2 : i.EntityId == null ? 1 : 0).ThenBy(i => i.Id).ToList();
+    }
+
+    private static object ConnectionJson(Integration row, BookingService bookings) => new
+    {
+        id = row.Id,
+        label = bookings.CalendarLabel(row),
+        scope = row.OwnerUserId != null ? "personal" : row.EntityId != null ? "entity" : "organization",
+        entity_name = row.Entity?.Name,
+        status = row.Status,
+    };
 
     // ---- shapes ---------------------------------------------------------------------
 

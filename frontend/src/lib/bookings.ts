@@ -145,3 +145,85 @@ export function bookingLabel(b: Pick<Booking, 'label' | 'start' | 'timezone'>, i
     return b.label || new Intl.DateTimeFormat(intl, o).format(t) // unknown timezone
   }
 }
+
+// ---- the connected Google Calendar, read-only (the page's Calendar tab) -------------
+
+/** A Google Calendar connection the caller may read: their own, or a shared one. */
+export interface CalendarConnection {
+  id: number
+  label: string
+  scope: 'personal' | 'entity' | 'organization'
+  entity_name: string | null
+  status: string
+}
+
+/** One event as Google has it (never its description or attendees). */
+export interface CalendarEvent {
+  id: string
+  title: string
+  all_day: boolean
+  /** Timed: an ISO instant with the calendar's offset; all-day: "YYYY-MM-DD". */
+  start: string
+  /** Timed: an ISO instant; all-day: the day AFTER the last one (Google's exclusive end). */
+  end: string | null
+  /** The local day (YYYY-MM-DD) it is listed under. */
+  day: string
+  location: string
+  link: string | null
+  /** Shown as free ("transparent") on Google. */
+  free: boolean
+  /** ChatBranch booked it — `booking` is filled when its conversation is in your scope. */
+  chatbranch: boolean
+  booking: Booking | null
+}
+
+export interface CalendarEventsResponse {
+  ok: boolean
+  /** no_calendar | not_connected | google */
+  error?: string
+  detail?: string
+  connection?: CalendarConnection
+  calendar_id?: string
+  calendars?: { id: string; name: string; primary: boolean }[]
+  timezone?: string
+  from?: string
+  to?: string
+  truncated?: boolean
+  events: CalendarEvent[]
+}
+
+export async function listCalendarConnections(entityQuery = ''): Promise<CalendarConnection[]> {
+  const d = await call<{ calendars?: CalendarConnection[] }>(`bookings/calendars${entityQuery ? `?${entityQuery}` : ''}`)
+  return Array.isArray(d.calendars) ? d.calendars : []
+}
+
+export async function calendarEvents(q: {
+  connection?: number
+  calendar?: string
+  /** YYYY-MM-DD, inclusive. */
+  from: string
+  to: string
+  entityQuery?: string
+}): Promise<CalendarEventsResponse> {
+  const p = new URLSearchParams({ from: q.from, to: q.to })
+  if (q.connection != null) p.set('connection', String(q.connection))
+  if (q.calendar) p.set('calendar', q.calendar)
+  const qs = [p.toString(), q.entityQuery ?? ''].filter(Boolean).join('&')
+  const d = await call<CalendarEventsResponse>(`bookings/calendar-events?${qs}`)
+  return { ...d, events: Array.isArray(d.events) ? d.events : [] }
+}
+
+// ---- plain calendar-day arithmetic on "YYYY-MM-DD" (no timezone involved) ----------
+
+const dayMs = 86_400_000
+/** "YYYY-MM-DD" → midnight UTC of that date (format it with timeZone 'UTC'). */
+export const dayStamp = (ymd: string) => Date.parse(`${ymd}T00:00:00Z`)
+export const ymdOf = (stamp: number) => new Date(stamp).toISOString().slice(0, 10)
+export const addDays = (ymd: string, n: number) => ymdOf(dayStamp(ymd) + n * dayMs)
+/** The Monday of the week holding `ymd`. */
+export const mondayOf = (ymd: string) => addDays(ymd, -((new Date(dayStamp(ymd)).getUTCDay() + 6) % 7))
+/** Today's date where the browser is. */
+export function todayYmd(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}

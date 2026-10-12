@@ -219,6 +219,27 @@ public static partial class ToolCatalog
                 A.Bool("upcoming", "Only future bookings."), A.Entity(), A.Limit(50, 500),
             }, link: (_, _) => Page("Open bookings", "/bookings"));
 
+        yield return T(b, "bookings_list_calendars", "List Google Calendars",
+            "The Google Calendar connections whose events you may read on the Bookings page: your own personal " +
+            "calendar, plus your outlets' and the organization's shared ones when you can see integrations.",
+            "GET", "/api/bookings/calendars", C("chats.view"), new[] { A.Entity() },
+            link: (_, _) => Page("Open the calendar", "/bookings?tab=calendar"));
+
+        yield return T(b, "bookings_list_calendar_events", "Read a Google Calendar",
+            "The events of a connected Google Calendar for a range of days (read-only): title, start, end, " +
+            "all-day, location, free/busy, and — for events ChatBranch booked — the booking and its conversation. " +
+            "connection = an id from bookings_list_calendars (default: the first); calendar = one of that " +
+            "account's calendars (default: its primary).",
+            "GET", "/api/bookings/calendar-events", C("chats.view"),
+            new[]
+            {
+                A.Int("connection", "Calendar connection id (bookings_list_calendars)."),
+                A.Str("calendar", "Calendar id within that account (default: primary)."),
+                A.Str("from", "First day, YYYY-MM-DD (default: today)."),
+                A.Str("to", "Last day, YYYY-MM-DD (default: 6 days after from; at most 62 days)."),
+                A.Entity(),
+            }, link: (_, _) => Page("Open the calendar", "/bookings?tab=calendar"));
+
         // ---- documents (the Documents / QR app skills) -------------------------
         yield return T("documents", "documents_list", "List documents",
             "PDF invoices, quotations, receipts, letters and QR codes the AI (or a teammate) made in conversations " +

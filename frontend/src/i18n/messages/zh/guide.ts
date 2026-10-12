@@ -266,8 +266,8 @@ export const guide: Dict<typeof source> = {
           body: '在对话中预订的预约——保存在 Google 日历或 ChatBranch 内——范围是你选择的门店。',
         },
         s2: {
-          title: '即将到来或过去',
-          body: '“即将到来”显示还未发生的预约，最近的在最前。“过去”显示已经发生的预约。',
+          title: '即将到来、过去或日历',
+          body: '“即将到来”显示还未发生的预约，最近的在最前。“过去”显示已经发生的预约。“日历”按周显示已连接的 Google 日历——其中的所有活动，并标出 ChatBranch 的预约。',
         },
         s3: {
           title: '预约列表',
