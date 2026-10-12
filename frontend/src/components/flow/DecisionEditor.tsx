@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { MultiSelect, Select, type SelectOption } from '@/components/ui/Select'
 import { useFormat, useT, type MessageKey } from '@/i18n'
-import { LOCALES } from '@/i18n/locales'
+import { CONTENT_LANGUAGES } from '@/i18n/locales'
 import { useTags } from '@/lib/tags'
 import {
   AI_DEFAULTS,
@@ -371,7 +371,7 @@ function ValueInput({
         <Select
           value={value}
           onChange={setValue}
-          options={withCurrent(LOCALES.map((l) => ({ value: l.code, label: l.native })))}
+          options={withCurrent(CONTENT_LANGUAGES.map((l) => ({ value: l.code, label: l.native })))}
           size="md"
           placeholder={t('flows.decisionEditor.chooseLanguage')}
           ariaLabel={t('flows.decisionEditor.language')}

@@ -20,7 +20,7 @@
 import { useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { Select } from '@/components/ui/Select'
-import { LOCALES, useT, type TFunction } from '@/i18n'
+import { CONTENT_LANGUAGES, useT, type TFunction } from '@/i18n'
 import type { WidgetLanguage } from '@/components/channels/inboxes'
 import { absoluteApiUrl } from '@/lib/apiBase'
 import { inputCls } from './WhatsAppSettings'
@@ -145,7 +145,7 @@ export function WidgetLookFields({
           ariaLabel={t('channels.widget.language')}
           options={[
             { value: 'auto', label: t('channels.widget.languageAuto') },
-            ...LOCALES.map((l) => ({ value: l.code, label: l.native })),
+            ...CONTENT_LANGUAGES.map((l) => ({ value: l.code, label: l.native })),
           ]}
         />
         {hint(t('channels.widget.languageHint'))}

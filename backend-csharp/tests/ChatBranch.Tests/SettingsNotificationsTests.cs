@@ -691,6 +691,9 @@ public class SettingsCapabilityTests : IClassFixture<ApiFactory>
         Assert.Equal("zh", (await agent.GetFromJsonAsync<JsonElement>("/api/auth/preferences")).GetProperty("locale").GetString());
         Assert.Equal(HttpStatusCode.BadRequest,
             (await agent.PutAsJsonAsync("/api/auth/preferences", new { locale = "fr" })).StatusCode);
+        // Manglish — the dashboard's friendly Malaysian-English voice — is a dashboard language too
+        (await agent.PutAsJsonAsync("/api/auth/preferences", new { locale = "Manglish" })).EnsureSuccessStatusCode();
+        Assert.Equal("manglish", (await agent.GetFromJsonAsync<JsonElement>("/api/auth/preferences")).GetProperty("locale").GetString());
 
         // the organization default: admin only; a user without a choice inherits it
         Assert.Equal(HttpStatusCode.Forbidden,

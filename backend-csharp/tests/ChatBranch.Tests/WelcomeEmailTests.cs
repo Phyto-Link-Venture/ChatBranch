@@ -696,4 +696,12 @@ public class WelcomeEmailRealInstallTests : IClassFixture<RealInstallInviteFacto
         Assert.False(body.GetProperty("must_change_password").GetBoolean());
         Assert.Equal("", body.GetProperty("restriction").GetString());
     }
+
+    [Theory]
+    [InlineData("manglish", "en")]   // the dashboard's Manglish voice: emails go out in English
+    [InlineData("ms", "ms")]
+    [InlineData("zh", "zh")]
+    [InlineData("fr", "en")]
+    public void Emails_go_out_in_a_language_they_have(string locale, string expected) =>
+        Assert.Equal(expected, WelcomeEmail.Normalize(locale));
 }

@@ -7,5 +7,5 @@
 export { I18nProvider, useI18n, useT, translate, syncLocaleFromServer, clearUserLocale, type TFunction } from './I18nProvider'
 export { Trans } from './Trans'
 export { useFormat } from './format'
-export { LOCALES, DEFAULT_LOCALE, isLocale, intlTag, browserLocale, type Locale } from './locales'
+export { LOCALES, CONTENT_LANGUAGES, DEFAULT_LOCALE, isLocale, intlTag, browserLocale, type Locale } from './locales'
 export type { MessageKey, Vars } from './types'

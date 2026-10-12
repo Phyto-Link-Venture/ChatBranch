@@ -203,7 +203,7 @@ public static class WidgetAdminEndpoints
 
     /// <summary>
     /// The website widget's language: <c>auto</c> (the visitor's browser) or
-    /// one of the dashboard's locales (<see cref="SettingsEndpoints.SupportedLocales"/>).
+    /// one of the customer languages (<see cref="SettingsEndpoints.CustomerLocales"/>).
     /// The script carries a dictionary for each — keep them in step.
     /// </summary>
     internal static string WidgetLanguage(ChannelAccount a) => NormalizeLanguage(Cfg(a, "language")) ?? "auto";
@@ -213,13 +213,13 @@ public static class WidgetAdminEndpoints
     {
         var v = (raw ?? "").Trim().ToLowerInvariant();
         if (v.Length == 0 || v == "auto") return "auto";
-        return SettingsEndpoints.SupportedLocales.Contains(v) ? v : null;
+        return SettingsEndpoints.CustomerLocales.Contains(v) ? v : null;
     }
 
     /// <summary>A 400 detail when the body carries an unknown language, else null.</summary>
     private static string? LanguageError(JsonElement body) =>
         Has(body, "language") && NormalizeLanguage(Str(body, "language")) == null
-            ? $"language must be auto or one of: {string.Join(", ", SettingsEndpoints.SupportedLocales)}."
+            ? $"language must be auto or one of: {string.Join(", ", SettingsEndpoints.CustomerLocales)}."
             : null;
 
     private static string Cfg(ChannelAccount a, string key) =>

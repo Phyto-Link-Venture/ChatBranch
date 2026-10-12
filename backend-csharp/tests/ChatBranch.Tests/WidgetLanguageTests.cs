@@ -68,6 +68,10 @@ public class WidgetLanguageTests : IClassFixture<ApiFactory>
         Assert.Equal("ms", (await PublicConfig(token)).GetProperty("language").GetString());
         var badCreate = await admin.PostAsJsonAsync("/api/widgets", new { name = "Bad lang", language = "fr" });
         Assert.Equal(HttpStatusCode.BadRequest, badCreate.StatusCode);
+        // Manglish is the dashboard's voice, never a customer's: the widget has no Manglish words
+        var manglish = await admin.PatchAsJsonAsync($"/api/widgets/{id}", new { language = "manglish" });
+        Assert.Equal(HttpStatusCode.BadRequest, manglish.StatusCode);
+        Assert.Contains("en, ms, zh", (await manglish.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString());
 
         // zh on create; "" puts a widget back on auto
         var zh = await admin.PostAsJsonAsync("/api/widgets", new { name = "Chinese widget", language = "zh" });

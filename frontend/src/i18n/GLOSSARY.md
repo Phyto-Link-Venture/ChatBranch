@@ -73,3 +73,42 @@ full-width punctuation (，。：？！“”).
 Never translate: ChatBranch, WhatsApp, Telegram, Messenger, Instagram, LINE,
 Viber, WeChat, TikTok, Douyin, Zalo, Google, Gmail, Shopify, Stripe, MCP, SMS,
 LiveKit, Baileys, capability ids (`chats.view`), code, URLs.
+
+## Manglish (`messages/manglish/`) — the dashboard's friendly Malaysian-English voice
+
+Manglish is an OVERLAY on English (`Overlay<T>`): a file holds only the strings
+it rewrites, and every key it leaves out reads in English. It is a tone, not a
+new vocabulary — anyone who reads the English UI must still understand it at once.
+
+**Rewrite** the sentences that talk to the person: help text under a field,
+hints, notices and banners, empty states ("No chats yet…"), confirmations
+("Delete this…?"), success / error messages, loading lines, tooltips that are
+full sentences, the sign-in page, the page guides (`guide.tours.*`).
+
+**Keep exactly as in English** (leave the key out):
+- anything a person clicks or the manual quotes: button, menu, tab, column,
+  field, option and page names, step names, status chips, units, short labels;
+- words that reach a CUSTOMER or the AI: starter journey messages, default
+  replies, templates, AI briefs / instructions / prompts, example customer text
+  (`flows.starters.*`, `readySkills` templates, identity-ask wording…);
+- product and brand names, codes, ids, URLs, `{{variables}}`.
+
+**Voice:** warm, short, a bit cheeky but never rude or crude; plain words
+over formal ones ("Got problem saving lah — try again?" not "An error has
+occurred"). Particles — lah, ah, leh, liao, one, can — at most one per
+sentence and not in every sentence; common Malaysian words people use at work
+are fine (boleh, sikit, jom, settle, on the way); no Hokkien swear
+words, no slang that needs explaining, no mocking the reader. Numbers, dates,
+`{placeholders}` and `<tags>` stay exactly as in English; plural pairs
+(`x_one` / `x_other`) are rewritten together. Check with
+`node scripts/check-manglish.mjs <namespace>` (frontend).
+
+| English | Manglish |
+|---|---|
+| Something went wrong. Try again. | Aiyo, something went wrong. Try again can? |
+| Saved. | Saved liao. |
+| Are you sure? | Confirm ah? |
+| No results. | Nothing found leh. |
+| Loading… | Loading, wait ah… |
+| You don't have access to this page. | Sorry ah, this page not for your account. |
+| Please choose one. | Choose one first lah. |

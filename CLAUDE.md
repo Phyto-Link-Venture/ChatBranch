@@ -1841,12 +1841,22 @@ When you fix one of these, update this table, `README.md` and
   `role="alert"` div as the first child of the modal body, the page-level copy
   gated on the modal being closed, `setMsg(null)` when opening one. The same
   holds for drawers (`InboxSetupDrawer`).
-- **Localisation (`src/i18n/`).** English, Bahasa Melayu, 简体中文 (`locales.ts`;
+- **Localisation (`src/i18n/`).** English, Bahasa Melayu, 简体中文, Manglish (`locales.ts`;
   keep in step with `SettingsEndpoints.SupportedLocales`). Strings live in
   `messages/<locale>/<namespace>.ts` — one file per area (`common`, `shell`,
   `ui`, `chats`, `contacts`, `flows`, `ai`, `admin`, `settings`, `channels`…);
   English is the SOURCE and `Dict<typeof source>` makes every other locale carry
-  exactly its keys, so a missing translation is a type error. **No user-visible
+  exactly its keys, so a missing translation is a type error. **Manglish**
+  (code `manglish`, the dashboard's friendly Malaysian-English voice) is an
+  OVERLAY instead (`messages/manglish/`, `Overlay<T>`): it rewrites only the
+  sentences (help, notices, empty states, confirmations, errors, the page
+  guides), `translate()` falls back to English per key (the exact plural form
+  first), labels people click / the manual quotes and anything customer- or
+  AI-facing stay English; rules + voice in `src/i18n/GLOSSARY.md`, checked by
+  `node scripts/check-manglish.mjs` (keys, `{placeholders}`, plural pairs). It is
+  never a customer's language: `CONTENT_LANGUAGES` (the widget, a contact's
+  language) and the API's `SettingsEndpoints.CustomerLocales` keep en/ms/zh, and
+  emails / the bill PDF in Manglish go out in English. **No user-visible
   English literal in a component**: `const t = useT()` → `t('chats.filter.title')`,
   `t('common.counts.items', { count })` (plural pairs `x_one`/`x_other`, picked by
   `Intl.PluralRules`), `{name}` placeholders, `<Trans k=… values={{ link: <Link/> }} />`

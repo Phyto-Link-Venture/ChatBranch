@@ -39,8 +39,14 @@ public static partial class SettingsEndpoints
     internal const string AppearanceSettingKey = "appearance_default";
     internal const string LocaleSettingKey = "default_locale";
 
-    /// <summary>The dashboard languages (frontend/src/i18n/locales.ts — keep in step).</summary>
-    internal static readonly string[] SupportedLocales = { "en", "ms", "zh" };
+    /// <summary>The dashboard languages (frontend/src/i18n/locales.ts — keep in step).
+    /// "manglish" is the dashboard's friendly Malaysian-English voice (an overlay on
+    /// English): never a customer's language — the widget and documents keep
+    /// <see cref="CustomerLocales"/>, emails sent in it go out in English.</summary>
+    internal static readonly string[] SupportedLocales = { "en", "ms", "zh", "manglish" };
+
+    /// <summary>Languages a customer-facing text has (the website widget's words).</summary>
+    internal static readonly string[] CustomerLocales = { "en", "ms", "zh" };
 
     /// <summary>The fonts Settings → Appearance offers (lib/theme.ts FONT_IDS — keep in step).</summary>
     private static readonly string[] AppearanceFonts =

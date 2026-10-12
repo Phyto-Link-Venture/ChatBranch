@@ -13,6 +13,8 @@ type AnyDict = Dict<Messages>
 async function loadMessages(l: Locale): Promise<AnyDict> {
   if (l === 'ms') return (await import('./messages/ms')).ms
   if (l === 'zh') return (await import('./messages/zh')).zh
+  // an OVERLAY: only the strings it rewrites; translate() falls back to English per key
+  if (l === 'manglish') return (await import('./messages/manglish')).manglish as unknown as AnyDict
   return en
 }
 
@@ -39,10 +41,12 @@ export function translate(dict: AnyDict, locale: Locale, key: string, vars?: Var
   if (typeof count === 'number') {
     const cat = new Intl.PluralRules(intlTag(locale)).select(count)
     const enCat = new Intl.PluralRules('en').select(count)
+    // the exact form first, from the language then English, before any "_other" —
+    // an overlay that rewrote only one form never shows "1 items"
     msg =
       lookup(dict, `${key}_${cat}`) ??
-      lookup(dict, `${key}_other`) ??
       lookup(en, `${key}_${enCat}`) ??
+      lookup(dict, `${key}_other`) ??
       lookup(en, `${key}_other`)
   }
   msg ??= lookup(dict, key) ?? lookup(en, key)

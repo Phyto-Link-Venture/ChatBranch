@@ -2,15 +2,24 @@
  * The dashboard languages. Keep in step with the API's
  * SettingsEndpoints.SupportedLocales (the preference endpoints validate
  * against it). Adding one = a `messages/<code>/` folder with every namespace,
- * an entry here, and the code in that C# list.
+ * an entry here, and the code in that C# list. Manglish is an OVERLAY on
+ * English (`messages/manglish/`, `Overlay<T>`): it rewrites the sentences in a
+ * friendly Malaysian-English voice and falls back to English for the rest.
  */
 export const LOCALES = [
   { code: 'en', label: 'English', native: 'English', intl: 'en-MY' },
   { code: 'ms', label: 'Malay', native: 'Bahasa Melayu', intl: 'ms-MY' },
   { code: 'zh', label: 'Chinese (Simplified)', native: '简体中文', intl: 'zh-CN' },
+  { code: 'manglish', label: 'Manglish (Malaysian English)', native: 'Manglish', intl: 'en-MY' },
 ] as const
 
 export type Locale = (typeof LOCALES)[number]['code']
+
+/**
+ * Languages a CUSTOMER can have (a contact's language, the website widget's
+ * words): Manglish is the dashboard's voice only, never one a customer is set to.
+ */
+export const CONTENT_LANGUAGES = LOCALES.filter((l) => l.code !== 'manglish')
 
 export const DEFAULT_LOCALE: Locale = 'en'
 

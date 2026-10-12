@@ -9,6 +9,7 @@
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "check:contrast": "node scripts/check-theme-contrast.mjs",
+    "check:manglish": "node scripts/check-manglish.mjs",
     "test": "jest",
     "test:watch": "jest --watch"
   },
