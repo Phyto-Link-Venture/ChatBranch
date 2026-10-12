@@ -5,6 +5,7 @@
  */
 import type { MessageKey, TFunction } from '@/i18n'
 import { channelName, statusLabel, type Channel, type ThreadStatus } from './inboxTypes'
+import { dayStartIso, todayKey } from '@/lib/timeZone'
 
 export type DatePreset = '' | 'today' | '24h' | '7d' | '30d' | '90d' | 'custom'
 
@@ -147,17 +148,11 @@ export const SORTS: { value: Sort; label: MessageKey }[] = [
 /** [from, to) in ISO for a range; undefined bounds are open. */
 export function rangeBounds(r: DateRange, now = new Date()): { from?: string; to?: string } {
   const hours = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString()
-  const localDay = (ymd: string, addDays = 0) => {
-    const [y, m, d] = ymd.split('-').map(Number)
-    if (!y || !m || !d) return undefined
-    return new Date(y, m - 1, d + addDays).toISOString()
-  }
+  // calendar days begin at midnight in the zone times are shown in (Settings → Time zone)
+  const localDay = (ymd: string, addDays = 0) => dayStartIso(ymd, addDays)
   switch (r.preset) {
-    case 'today': {
-      const start = new Date(now)
-      start.setHours(0, 0, 0, 0)
-      return { from: start.toISOString() }
-    }
+    case 'today':
+      return { from: dayStartIso(todayKey(now.getTime())) }
     case '24h':
       return { from: hours(24) }
     case '7d':

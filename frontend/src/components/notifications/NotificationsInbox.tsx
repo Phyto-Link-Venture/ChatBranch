@@ -19,7 +19,8 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { refreshNotifications } from '@/components/shell/notificationsStore'
 import { tint } from '@/lib/color'
-import { intlTag, useFormat, useI18n, useT, type TFunction } from '@/i18n'
+import { useFormat, useT, type TFunction } from '@/i18n'
+import { dayStartIso } from '@/lib/timeZone'
 import {
   NOTIF_CATEGORIES,
   categoryMeta,
@@ -32,22 +33,16 @@ const PAGE_SIZE = 30
 
 type ReadFilter = 'all' | 'unread' | 'read'
 
-/** Day bucket label: Today / Yesterday / weekday (this week) / 12 Mar 2026 — in the UI language. */
-function dayLabel(d: Date, now: Date, t: TFunction, tag: string, fullDate: (d: Date) => string): string {
-  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
-  const days = Math.round((start(now) - start(d)) / 86_400_000)
+/** Day bucket label: Today / Yesterday / weekday (this week) / 12 Mar 2026 — in the UI language
+ *  and the zone times are shown in (Settings → Time zone). */
+function dayLabel(d: Date, now: Date, t: TFunction, f: ReturnType<typeof useFormat>): string {
+  const days = f.daysAgo(d, now)
   if (days === 0) return t('common.time.today')
   if (days === 1) return t('common.time.yesterday')
-  if (days > 1 && days < 7) return new Intl.DateTimeFormat(tag, { weekday: 'long' }).format(d)
-  return fullDate(d)
+  if (days != null && days > 1 && days < 7) return f.weekdayLong(d)
+  return f.date(d)
 }
 
-/** Local calendar date → ISO instant at its local midnight (+days). */
-function localMidnightIso(date: string, plusDays = 0): string {
-  const d = new Date(`${date}T00:00:00`)
-  d.setDate(d.getDate() + plusDays)
-  return d.toISOString()
-}
 
 /**
  * The full notification inbox: every alert the caller ever received, newest
@@ -59,7 +54,6 @@ function localMidnightIso(date: string, plusDays = 0): string {
 export function NotificationsInbox() {
   const t = useT()
   const f = useFormat()
-  const { locale } = useI18n()
   const router = useRouter()
   const [items, setItems] = useState<NotificationItem[]>([])
   const [page, setPage] = useState(1)
@@ -93,8 +87,8 @@ export function NotificationsInbox() {
       if (category) params.set('category', category)
       if (readFilter !== 'all') params.set('unread', readFilter === 'unread' ? 'true' : 'false')
       if (debounced) params.set('q', debounced)
-      if (from) params.set('from', localMidnightIso(from))
-      if (to) params.set('to', localMidnightIso(to, 1))
+      if (from) params.set('from', dayStartIso(from) ?? '')
+      if (to) params.set('to', dayStartIso(to, 1) ?? '')
       return params.toString()
     },
     [category, readFilter, debounced, from, to],
@@ -143,16 +137,15 @@ export function NotificationsInbox() {
 
   const groups = useMemo(() => {
     const now = new Date()
-    const tag = intlTag(locale)
     const out: { label: string; items: NotificationItem[] }[] = []
     for (const n of items) {
-      const label = dayLabel(new Date(n.created_at), now, t, tag, f.date)
+      const label = dayLabel(new Date(n.created_at), now, t, f)
       const last = out[out.length - 1]
       if (last && last.label === label) last.items.push(n)
       else out.push({ label, items: [n] })
     }
     return out
-  }, [items, t, f, locale])
+  }, [items, t, f])
 
   // ---- mutations (optimistic where safe) ----------------------------------
 

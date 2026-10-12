@@ -160,22 +160,27 @@ public static partial class ToolCatalog
         // ---- settings -------------------------------------------------------------
         const string st = "settings";
         yield return T(st, "settings_get_my_preferences", "Read my appearance & language",
-            "Your own theme / mode / accent / text size / language, and the organisation defaults.",
+            "Your own theme / mode / accent / text size / language / the time zone times are shown in, and the organisation defaults (incl. the business time zone).",
             "GET", "/api/auth/preferences");
         yield return T(st, "settings_set_my_preferences", "Set my appearance & language",
-            "Set your own look and dashboard language (en | ms | zh); null = back to the organisation default.",
+            "Set your own look, dashboard language (en | ms | zh) and the time zone times are shown in; null = back to the default.",
             "PUT", "/api/auth/preferences", null,
             new[]
             {
                 A.Obj("appearance", "{theme: paper|graphite|soft|ocean|forest|midnight|rose|sand|nord|contrast, mode: light|dark|system, accent, textSize, fontScale (85-130|null), radius, headingFont, bodyFont, lineHeight, density, spacing (70-140|null), contentWidth, gutter, cardPadding, navLayout, navSide, navWidth, navStart, motion, surface} or null."),
                 A.Any("locale", "en | ms | zh, or null."),
+                A.Any("time_zone", "Show times in: \"org\" (the business time zone), a zone such as Asia/Kuala_Lumpur, or null (the device's own)."),
             }, idempotent: true);
         yield return T(st, "settings_get_org_appearance", "Read the organisation's default look",
-            "The organisation-wide default theme, mode, accent and dashboard language.", "GET", "/api/settings/appearance");
+            "The organisation-wide default theme, mode, accent, dashboard language and business time zone (+ where it comes from: setting | env | server).", "GET", "/api/settings/appearance");
         yield return T(st, "settings_set_org_appearance", "Set the organisation's default look",
-            "Set the default theme / language for everyone who hasn't chosen their own.",
+            "Set the default theme / language for everyone who hasn't chosen their own, and the business time zone (the AI's clock, bookings, journeys, quiet hours).",
             "PUT", "/api/settings/appearance", C("settings.appearance.org"),
-            new[] { A.Obj("appearance", "The default appearance (or null)."), A.Any("locale", "en | ms | zh, or null.") },
+            new[]
+            {
+                A.Obj("appearance", "The default appearance (or null)."), A.Any("locale", "en | ms | zh, or null."),
+                A.Any("time_zone", "The business time zone, e.g. Asia/Kuala_Lumpur (null clears it — the server's ORG_TIMEZONE / TZ, else its own clock)."),
+            },
             idempotent: true);
         yield return T(st, "settings_get_custom_fields", "Read custom field definitions",
             "The contact custom fields (key, label, kind text|select|multiselect|number|boolean, options). Values " +

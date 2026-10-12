@@ -95,7 +95,7 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'app_keys.manage', area: 'Settings', label: 'Manage app & provider keys', lbl: 'admin.caps.appKeysManage' },
   { capability: 'pronunciation.manage', area: 'Settings', label: 'Manage pronunciation', lbl: 'admin.caps.pronunciationManage' },
   // Settings sub-pages — one capability each (Personal pages need none).
-  { capability: 'settings.appearance.org', area: 'Settings', label: 'Set the organization default appearance', lbl: 'admin.caps.settingsAppearanceOrg' },
+  { capability: 'settings.appearance.org', area: 'Settings', label: 'Set the organization default appearance, language and time zone', lbl: 'admin.caps.settingsAppearanceOrg' },
   { capability: 'settings.custom_fields.manage', area: 'Settings', label: 'Manage custom fields', lbl: 'admin.caps.settingsCustomFieldsManage' },
   { capability: 'settings.ai_keys.manage', area: 'Settings', label: 'Manage AI keys & models', lbl: 'admin.caps.settingsAiKeysManage' },
   { capability: 'rbac.manage', area: 'Admin', label: 'Edit the permission matrix', lbl: 'admin.caps.rbacManage' },

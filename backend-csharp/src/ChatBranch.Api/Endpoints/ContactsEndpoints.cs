@@ -1227,7 +1227,7 @@ public static class ContactsEndpoints
         new string((raw ?? "").Where(char.IsDigit).ToArray());
 
     private static string? Iso(DateTime? dt) =>
-        dt is DateTime d ? d.ToString("yyyy-MM-ddTHH:mm:ss.ffffff") : null;
+        dt is DateTime d ? DateTime.SpecifyKind(d, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ") : null;
 
     private static string? NullIfEmpty(string s) => s.Length > 0 ? s : null;
 

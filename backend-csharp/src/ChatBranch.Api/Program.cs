@@ -28,6 +28,8 @@ var dbProvider = DatabaseSetup.Provider(builder.Configuration["DATABASE_PROVIDER
 var conn = DatabaseSetup.ConnectionString(dbProvider, builder.Configuration.GetConnectionString("Default"),
     builder.Configuration["DATABASE_URL"]);
 builder.Services.AddDbContext<AppDbContext>(o => o.Use(dbProvider, conn));
+// every timestamp leaves as UTC with its "Z" — the database hands them back unspecified
+builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new ChatBranch.Api.UtcDateTimeConverter()));
 builder.Services.AddScoped<ScopingService>();
 builder.Services.AddScoped<ChatBranch.Data.Stores.ThreadStore>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.PersonaService>();

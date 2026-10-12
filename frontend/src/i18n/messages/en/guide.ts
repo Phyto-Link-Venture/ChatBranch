@@ -792,6 +792,24 @@ export const guide = {
         },
       },
     },
+    timeZone: {
+      title: 'Time zone',
+      intro: 'Which clock times are shown in, and your business time zone.',
+      steps: {
+        s1: {
+          title: 'Time zone',
+          body: 'Two clocks live here: the one YOUR dashboard shows times in, and the organization’s business clock.',
+        },
+        s2: {
+          title: 'Show times in',
+          body: 'This device’s zone (the default), the business time zone, or any other. Message times, notifications and reports follow your choice.',
+        },
+        s3: {
+          title: 'Business time zone',
+          body: 'The organization’s clock — the AI’s date and time, booking hours, journey schedules and quiet hours. An administrator sets it once for everyone.',
+        },
+      },
+    },
     users: {
       title: 'Users & roles',
       intro: 'Who can sign in and what each person may do.',

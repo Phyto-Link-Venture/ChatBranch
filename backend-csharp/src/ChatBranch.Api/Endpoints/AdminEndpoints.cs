@@ -61,7 +61,7 @@ public static class AdminEndpoints
         ("app_keys.manage", "Settings", "Manage app & provider keys"),
         ("pronunciation.manage", "Settings", "Manage pronunciation"),
         // Settings sub-pages — one capability each (Personal pages need none).
-        ("settings.appearance.org", "Settings", "Set the organization default appearance"),
+        ("settings.appearance.org", "Settings", "Set the organization default appearance, language and time zone"),
         ("settings.custom_fields.manage", "Settings", "Manage custom fields"),
         ("settings.ai_keys.manage", "Settings", "Manage AI keys & models"),
         ("rbac.manage", "Admin", "Edit the permission matrix"),

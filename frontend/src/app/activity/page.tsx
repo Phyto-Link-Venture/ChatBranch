@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
+import { dayStartIso } from '@/lib/timeZone'
 import {
   SOURCES,
   sourceMeta,
@@ -89,18 +90,16 @@ function readUrl(): { filters: Filters; page: number; size: number } {
   }
 }
 
-/** Filters → the API query (dates resolved in the viewer's own timezone). */
+/** Filters → the API query (days begin in the zone times are shown in — Settings → Time zone). */
 function apiQuery(f: Filters): URLSearchParams {
   const p = new URLSearchParams()
   const preset = PRESETS.find((x) => x.id === f.preset)
   if (preset?.ms) p.set('from', new Date(Date.now() - preset.ms).toISOString())
   if (f.preset === 'custom') {
-    if (f.from) p.set('from', new Date(`${f.from}T00:00:00`).toISOString())
-    if (f.to) {
-      const end = new Date(`${f.to}T00:00:00`)
-      end.setDate(end.getDate() + 1)
-      p.set('to', end.toISOString())
-    }
+    const from = f.from ? dayStartIso(f.from) : undefined
+    const to = f.to ? dayStartIso(f.to, 1) : undefined
+    if (from) p.set('from', from)
+    if (to) p.set('to', to)
   }
   if (f.actor) p.set('actor', f.actor)
   if (f.sources.length) p.set('source', f.sources.join(','))

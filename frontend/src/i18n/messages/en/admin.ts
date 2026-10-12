@@ -51,7 +51,7 @@ export const admin = {
     billingManage: 'Set AI billing markup & see costs',
     billingQuotasManage: 'Set AI usage quotas',
     pronunciationManage: 'Manage pronunciation',
-    settingsAppearanceOrg: 'Set the organization default appearance',
+    settingsAppearanceOrg: 'Set the organization default appearance, language and time zone',
     settingsCustomFieldsManage: 'Manage custom fields',
     settingsAiKeysManage: 'Manage AI keys & models',
     rbacManage: 'Edit the permission matrix',

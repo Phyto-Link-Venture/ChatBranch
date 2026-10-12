@@ -19,17 +19,24 @@ namespace ChatBranch.Api.Endpoints;
 ///
 /// <code>
 /// GET /api/auth/preferences    → {appearance|null, org_default|null, locale|null, org_locale|null, can_set_org_default,
-///                                 guides: {auto, seen}, chats: {sort}}
+///                                 guides: {auto, seen}, chats: {sort}, time_zone|null, org_time_zone}
 /// PUT /api/auth/preferences    {appearance?: {…}|null, locale?: "en"|"ms"|"zh"|null}   (null = back to the org default)
 ///                              {guides?: {auto?, seen?, reset?}} · {chats?: {sort: "newest"|"customer_newest"}|null}
-/// GET /api/settings/appearance → {appearance|null, locale|null, can_manage}
-/// PUT /api/settings/appearance {appearance?: {…}|null, locale?: …|null}   (capability settings.appearance.org)
+///                              {time_zone?: "org"|"&lt;IANA id&gt;"|null}   (null = this device's own zone)
+/// GET /api/settings/appearance → {appearance|null, locale|null, time_zone, time_zone_source, can_manage}
+/// PUT /api/settings/appearance {appearance?: {…}|null, locale?: …|null, time_zone?: "&lt;IANA id&gt;"|null}
+///                              (capability settings.appearance.org)
 /// </code>
 /// The dashboard language rides along: the user's own <c>locale</c> in the same
 /// preferences JSON, the organization default in Setting <c>default_locale</c>.
 /// So do two per-person conveniences: the page-guide memory (<c>guides</c>) and
 /// the chat list's order (<c>chats.sort</c>: newest message, or newest from the
 /// customer — the switch above the /chats list).
+/// And time: the organization's BUSINESS time zone (Setting <c>org_timezone</c>,
+/// <see cref="Data.Flows.OrgClock"/> — the AI's clock, bookings, journeys, quiet
+/// hours, report days) is set here with the org defaults, and each person picks
+/// which zone the dashboard SHOWS times in (<c>time_zone</c>: none = this device's
+/// own, <c>org</c> = the business zone, or an IANA id) — Settings → Time zone.
 /// Values are validated server-side against the same closed vocabularies the
 /// client uses, so a hand-crafted PUT can never store a look the app can't draw.
 /// </summary>
@@ -122,11 +129,15 @@ public static partial class SettingsEndpoints
             var hasLocale = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("locale", out _);
             var hasGuides = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("guides", out _);
             var hasChats = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("chats", out _);
-            if (!hasAppearance && !hasLocale && !hasGuides && !hasChats)
-                return AppearanceBad("Send {appearance: {…}}, {locale: \"en\"|\"ms\"|\"zh\"} (null = the organization default), {guides: {auto?, seen?}} and/or {chats: {sort}}.");
+            var hasZone = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("time_zone", out _);
+            if (!hasAppearance && !hasLocale && !hasGuides && !hasChats && !hasZone)
+                return AppearanceBad("Send {appearance: {…}}, {locale: \"en\"|\"ms\"|\"zh\"} (null = the organization default), {guides: {auto?, seen?}}, {chats: {sort}} and/or {time_zone: \"org\"|<IANA id>|null}.");
             string? locale = null;
             if (hasLocale && !TryLocale(body.GetProperty("locale"), out locale))
                 return AppearanceBad($"locale must be one of: {string.Join(", ", SupportedLocales)} (or null).");
+            string? ownZone = null;
+            if (hasZone && !TryOwnZone(body.GetProperty("time_zone"), out ownZone))
+                return AppearanceBad("time_zone must be \"org\" (the business time zone), a time zone such as \"Asia/Kuala_Lumpur\", or null (this device's own).");
 
             var userId = await UserIdOf(db, me);
             var profile = userId is int uid
@@ -159,6 +170,13 @@ public static partial class SettingsEndpoints
                 return AppearanceBad(guidesError);
             if (hasChats && MergeChats(doc, body.GetProperty("chats")) is string chatsError)
                 return AppearanceBad(chatsError);
+            if (hasZone)
+            {
+                if (ownZone == null) doc.Remove("time_zone"); else doc["time_zone"] = ownZone;
+                await AuditSettings(db, ctx, me, "preferences.update", "time_zone",
+                    ownZone == null ? "times shown in this device's time zone"
+                    : ownZone == OrgZoneChoice ? "times shown in the business time zone" : $"times shown in {ownZone}");
+            }
             profile.Preferences = ProfilePreferences.Save(doc);
             await db.SaveChangesAsync();
             return Results.Ok(await PreferencesPayload(db, sc, me));
@@ -171,10 +189,13 @@ public static partial class SettingsEndpoints
         app.MapGet("/api/settings/appearance", async (AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
+            var (zone, zoneSource) = ChatBranch.Data.Flows.OrgClock.Describe(sc);
             return Results.Ok(new
             {
                 appearance = OrgAppearance(sc),
                 locale = OrgLocale(sc),
+                time_zone = zone,
+                time_zone_source = zoneSource,
                 can_manage = await AdminEndpoints.HasCapabilityAsync(db, role, AppearanceOrgCapability),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
@@ -185,11 +206,24 @@ public static partial class SettingsEndpoints
             if (await RequireCapability(db, me, AppearanceOrgCapability) is { } denied) return denied;
             var hasAppearance = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("appearance", out _);
             var hasLocale = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("locale", out _);
-            if (!hasAppearance && !hasLocale)
-                return AppearanceBad("Send {appearance: {…}} and/or {locale: …} (null clears the organization default).");
+            var hasZone = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("time_zone", out _);
+            if (!hasAppearance && !hasLocale && !hasZone)
+                return AppearanceBad("Send {appearance: {…}}, {locale: …} and/or {time_zone: …} (null clears the organization default).");
             string? locale = null;
             if (hasLocale && !TryLocale(body.GetProperty("locale"), out locale))
                 return AppearanceBad($"locale must be one of: {string.Join(", ", SupportedLocales)} (or null).");
+            string? businessZone = null;
+            if (hasZone)
+            {
+                var raw = body.GetProperty("time_zone");
+                if (raw.ValueKind != JsonValueKind.Null)
+                {
+                    businessZone = ChatBranch.Data.Flows.OrgClock.Normalize(
+                        raw.ValueKind == JsonValueKind.String ? raw.GetString() : null);
+                    if (businessZone == null)
+                        return AppearanceBad("time_zone must be a time zone such as \"Asia/Kuala_Lumpur\" (or null to clear it).");
+                }
+            }
 
             if (hasAppearance)
             {
@@ -211,7 +245,23 @@ public static partial class SettingsEndpoints
                 await AuditSettings(db, ctx, me, "settings.update", "locale",
                     locale == null ? "organization language cleared" : $"organization language set to {locale}");
             }
-            return Results.Ok(new { appearance = OrgAppearance(sc), locale = OrgLocale(sc), can_manage = true });
+            if (hasZone)
+            {
+                var before = ChatBranch.Data.Flows.OrgClock.Describe(sc).Id;
+                sc.SetSetting(ChatBranch.Data.Flows.OrgClock.SettingKey, businessZone ?? "");
+                // the legacy row would otherwise answer once this one is cleared
+                if (sc.SettingValue(ChatBranch.Data.Flows.OrgClock.LegacySettingKey).Length > 0)
+                    sc.SetSetting(ChatBranch.Data.Flows.OrgClock.LegacySettingKey, "");
+                await AuditSettings(db, ctx, me, "settings.update", "time_zone",
+                    businessZone == null ? $"business time zone cleared (was {before})"
+                    : $"business time zone set to {businessZone} (was {before})");
+            }
+            var (zone, zoneSource) = ChatBranch.Data.Flows.OrgClock.Describe(sc);
+            return Results.Ok(new
+            {
+                appearance = OrgAppearance(sc), locale = OrgLocale(sc),
+                time_zone = zone, time_zone_source = zoneSource, can_manage = true,
+            });
         }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
@@ -298,7 +348,31 @@ public static partial class SettingsEndpoints
             can_set_org_default = await AdminEndpoints.HasCapabilityAsync(db, role, AppearanceOrgCapability),
             guides = GuidesOf(doc),
             chats = ChatsOf(doc),
+            time_zone = OwnZone(doc),
+            org_time_zone = ChatBranch.Data.Flows.OrgClock.Describe(sc).Id,
         };
+    }
+
+    /// <summary>A person's "show times in" choice meaning the business time zone.</summary>
+    internal const string OrgZoneChoice = "org";
+
+    /// <summary>The person's stored choice: "org", an IANA id, or null (this device's own zone).</summary>
+    private static string? OwnZone(JsonObject doc) =>
+        doc["time_zone"] is JsonValue v && v.TryGetValue<string>(out var z)
+            ? z == OrgZoneChoice ? z : ChatBranch.Data.Flows.OrgClock.Normalize(z)
+            : null;
+
+    /// <summary>null / "" / "auto" (= this device), "org", or a zone the server knows; false for anything else.</summary>
+    private static bool TryOwnZone(JsonElement v, out string? zone)
+    {
+        zone = null;
+        if (v.ValueKind == JsonValueKind.Null) return true;
+        if (v.ValueKind != JsonValueKind.String) return false;
+        var s = (v.GetString() ?? "").Trim();
+        if (s.Length == 0 || s == "auto") return true;
+        if (s == OrgZoneChoice) { zone = s; return true; }
+        zone = ChatBranch.Data.Flows.OrgClock.Normalize(s);
+        return zone != null;
     }
 
     /// <summary>The chat-list orders a person can keep (frontend inboxFilters.ts HEADER_SORTS — keep in step).</summary>

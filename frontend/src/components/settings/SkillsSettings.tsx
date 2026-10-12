@@ -1,6 +1,7 @@
 'use client'
 
 import { API } from '@/lib/apiBase'
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   AlertCircle,
@@ -23,10 +24,8 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { Modal } from '@/components/ui/Modal'
-import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
-import { authHeaders } from '@/lib/auth'
 import { useAccess } from '@/lib/useAccess'
 import { DEFAULT_AGENT_SKILLS } from '@/lib/flow/defaultAgentSkills'
 import { AvailabilityChips, useDefaultAvailability } from '@/components/ui/AvailabilityPicker'
@@ -108,7 +107,7 @@ export function SkillsSettings() {
   const { ready, can } = useAccess()
   const canManage = can('settings.ai.manage')
   // the organization's timezone is saved through the raw settings store (PUT /api/settings)
-  const canEditTimezone = can('settings.raw.manage')
+  const canEditTimezone = can('settings.appearance.org')
 
   const [skills, setSkills] = useState<Skill[] | null>(null)
   const [builtins, setBuiltins] = useState<BuiltinsPayload | null>(null)
@@ -275,7 +274,7 @@ export function SkillsSettings() {
       {error && <Banner tone="error">{error}</Banner>}
       {notice && <Banner tone="ok">{notice}</Banner>}
 
-      <BuiltinsSection data={builtins} canEditTimezone={canEditTimezone} onTimezoneSaved={load} />
+      <BuiltinsSection data={builtins} canEditTimezone={canEditTimezone} />
 
       {/* ready-made apps (Documents PDF, QR, payment links, Sheets) + instruction templates */}
       <ReadySkillsGallery
@@ -585,15 +584,7 @@ function IconButton({
 
 // ---- built-ins ----------------------------------------------------------------
 
-function BuiltinsSection({
-  data,
-  canEditTimezone,
-  onTimezoneSaved,
-}: {
-  data: BuiltinsPayload | null
-  canEditTimezone: boolean
-  onTimezoneSaved: () => void
-}) {
+function BuiltinsSection({ data, canEditTimezone }: { data: BuiltinsPayload | null; canEditTimezone: boolean }) {
   const t = useT()
   return (
     <section data-tour="skills-builtins" aria-labelledby="skills-builtin">
@@ -607,7 +598,7 @@ function BuiltinsSection({
           </h2>
           <p className="mt-0.5 text-[12.5px] text-text-muted">{t('ai.skills.builtinsBody')}</p>
         </div>
-        {data && <TimezoneControl data={data} canEdit={canEditTimezone} onSaved={onTimezoneSaved} />}
+        {data && <TimezoneControl data={data} canEdit={canEditTimezone} />}
       </div>
       {!data ? (
         <p className="text-[12.5px] text-text-muted">{t('ai.skills.builtinsUnavailable')}</p>
@@ -640,68 +631,10 @@ function BuiltinsSection({
   )
 }
 
-/** The business timezone the built-ins and `ctx.now` use (Setting org_timezone, superadmin). */
-function TimezoneControl({
-  data,
-  canEdit,
-  onSaved,
-}: {
-  data: BuiltinsPayload
-  canEdit: boolean
-  onSaved: () => void
-}) {
+/** The business timezone the built-ins and `ctx.now` use (Setting org_timezone) — changed at Settings → Time zone. */
+function TimezoneControl({ data, canEdit }: { data: BuiltinsPayload; canEdit: boolean }) {
   const t = useT()
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(data.timezone)
-  const [zones, setZones] = useState<string[]>([])
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-
-  useEffect(() => {
-    const intl = Intl as unknown as { supportedValuesOf?: (k: string) => string[] }
-    setZones(intl.supportedValuesOf?.('timeZone') ?? [])
-  }, [])
-
   const local = data.now.slice(11, 16)
-  const save = async () => {
-    setBusy(true)
-    setErr(null)
-    try {
-      const res = await fetch(`${API}/settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ key: 'org_timezone', value }),
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setEditing(false)
-      onSaved()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (editing)
-    return (
-      <div className="ml-auto flex flex-wrap items-center gap-2">
-        <Select
-          value={value}
-          onChange={setValue}
-          searchable
-          ariaLabel={t('ai.skills.timezoneAria')}
-          className="min-w-[220px]"
-          options={(zones.includes(value) ? zones : [value, ...zones]).map((z) => ({ value: z, label: z }))}
-        />
-        <Button size="sm" onClick={save} disabled={busy}>
-          {busy && <Loader2 size={12} className="animate-spin" aria-hidden />} {t('common.actions.save')}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-          {t('common.actions.cancel')}
-        </Button>
-        {err && <span className="text-[11.5px] text-[color:var(--red-ink)]">{err}</span>}
-      </div>
-    )
   return (
     <div className="ml-auto flex items-center gap-2 text-[12px] text-text-muted">
       <Clock size={12} aria-hidden />
@@ -709,16 +642,9 @@ function TimezoneControl({
         <span className="font-semibold text-text-high">{data.timezone}</span> {t('ai.skills.nowAt', { time: local })}
       </span>
       {canEdit && (
-        <button
-          type="button"
-          onClick={() => {
-            setValue(data.timezone)
-            setEditing(true)
-          }}
-          className="font-semibold text-[color:var(--brand-ink)] hover:underline"
-        >
+        <Link href="/settings/time-zone" className="font-semibold text-[color:var(--brand-ink)] hover:underline">
           {t('ai.skills.change')}
-        </button>
+        </Link>
       )}
     </div>
   )

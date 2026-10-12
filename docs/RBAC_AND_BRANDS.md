@@ -201,7 +201,7 @@ The permission matrix is data (`crm_rolepermission`, edited at `/permissions`,
 | `notifications.manage` | Settings — organization notification defaults | admin |
 | `account_assignment.manage` | Settings — account assignment + rebalance | admin |
 | `pronunciation.manage` | Settings — pronunciation | admin |
-| `settings.appearance.org` | Settings — the organization's default appearance | admin |
+| `settings.appearance.org` | Settings — the organization's default appearance and language, and the business time zone (Settings → Time zone) | admin |
 | `settings.custom_fields.manage` | Settings — custom fields | admin |
 | `settings.ai_keys.manage` | Settings — AI keys & models | **superadmin only** |
 | `app_keys.manage` | Settings — app & provider keys (also the default mail settings, the System email that welcome emails and password links go out through, the SIP trunk, connecting an integration with raw keys) | **superadmin only** |
@@ -273,7 +273,7 @@ refused; an organization-wide one follows `OrgWideAction`). Notable gates:
 | Integration provider keys (`PUT /api/integrations/settings`) | `app_keys.manage` |
 | Custom fields schema (`PUT /api/settings/custom-fields`) | `settings.custom_fields.manage` |
 | Org notification defaults (`PUT /api/auth/notification-prefs`) | `notifications.manage` |
-| Org appearance default (`PUT /api/settings/appearance`) | `settings.appearance.org` |
+| Org appearance default, language and business time zone (`PUT /api/settings/appearance`) | `settings.appearance.org` |
 | Account assignments, rebalance, routing rules (`/api/whatsapp/assignments*`, `PUT /api/whatsapp/routing-rules`) | `account_assignment.manage` |
 | Knowledge base and AI skills writes (`/api/aicore/knowledge*`, `PUT /api/aicore/skills`, skill draft/test) | `settings.ai.manage` |
 | Integrations — read (`GET /api/integrations`, `/providers`, `/accounts`, `/settings`) | `integrations.view` (settings also `app_keys.manage`); without it a person still lists **their own** connections |

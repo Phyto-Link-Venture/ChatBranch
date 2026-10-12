@@ -860,7 +860,7 @@ When you fix one of these, update this table, `README.md` and
   parser — never eval — `+ - * / ^`, parentheses, `%` with the calculator
   convention "200 + 10%" = 220, round/floor/ceil/abs/min/max, "RM 1,250.50 x 3"
   accepted, half-away-from-zero rounding to `decimals`); zone = Setting
-  `org_timezone` → TZ → UTC — plus `request_handover(reason)`: the model's
+  `org_timezone` (Settings → Time zone) → TZ → UTC — plus `request_handover(reason)`: the model's
   structured hand-over signal, `AiReplyResult.HandoverAsked` → meta
   `handover_asked` → the gate marks an `asked_for_human` handover while the
   reply still sends; the wording match `Humanizer.HandsOver` (EN/BM/ZH,
@@ -1852,7 +1852,8 @@ When you fix one of these, update this table, `README.md` and
   server-side): Personal — My account (no cap; `/settings/account`, your own
   name / email / password / devices via `/api/auth/me/*` —
   `Endpoints/MyAccountEndpoints.cs`, writes session-only, wrong passwords
-  throttled; also opened from the sidebar's name chip), Appearance (incl. Language), My notifications, My connections (no
+  throttled; also opened from the sidebar's name chip), Appearance (incl. Language), Time zone (no cap; the business
+  zone editable with `settings.appearance.org` — see Time zones), My notifications, My connections (no
   cap; `/settings/connections` connects your own Google products, see
   Integrations); Organization — Notification defaults (`notifications.manage`),
   Custom fields (`settings.custom_fields.manage`), App & provider keys
@@ -2036,6 +2037,23 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   and text size up front; accent, typography, spacing, layout and details
   under `Advanced`; "Reset to organization default"; admins publish the
   current look as the org default.
+- **Time zones.** Every `DateTime` the API writes is UTC with its "Z"
+  (`UtcDateTimeConverter`, `ConfigureHttpJsonOptions` in Program.cs — the
+  database hands timestamps back unspecified, and without it a browser read
+  them as local time: a notification showed UTC). A time meant as a wall clock
+  (a booking's local start, an org-local day) goes out as a STRING without an
+  offset, and `useFormat()` shows such a string exactly as written in any zone.
+  Settings → Time zone (`/settings/time-zone`, everyone): **Show times in** —
+  the person's choice (`Profile.Preferences` `time_zone`: none = this device,
+  `org` = the business zone, or an IANA id; `PUT /api/auth/preferences
+  {time_zone}`), held by `lib/timeZone.ts` (synced once per sign-in, cached in
+  localStorage `ui-timezone`) and applied by `useFormat()` to every time and by
+  `dayStartIso` / `f.daysAgo` to date filters and day groups; **Business time
+  zone** — Setting `org_timezone` (`OrgClock.Describe` / `Normalize`: IANA ids
+  only, a Windows id converted), read by everyone, set with
+  `settings.appearance.org` through `PUT /api/settings/appearance {time_zone}`
+  (`time_zone_source` setting | env | server; unset = the server's clock, said
+  in amber with a one-click "Use <this device's zone>"). Tests: `TimeZoneTests`.
 - **Typography helpers:** `.display` (the theme's display family/weight/
   tracking — page titles) and `.eyebrow` (the small uppercase label above a
   title). `tint(color, alpha)` (`lib/color.ts`) makes a translucent version of

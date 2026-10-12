@@ -16,6 +16,7 @@ import { RouteGuard } from './RouteGuard'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { syncLocaleFromServer, useT, type MessageKey } from '@/i18n'
 import { syncGuidesFromServer } from '@/lib/tours'
+import { syncTimeZoneFromServer } from '@/lib/timeZone'
 import { resetNotifications } from './notificationsStore'
 import { useLive } from './liveStore'
 import { CampaignModal } from '@/components/CampaignModal'
@@ -127,6 +128,7 @@ export function Shell({ children }: { children: ReactNode }) {
       identityCheckedAt = Date.now()
       void syncAppearanceFromServer() // a 404 on an older API is harmless
       void syncLocaleFromServer() // the user's own language, else the organization default
+      void syncTimeZoneFromServer() // which zone times are shown in (Settings → Time zone)
       void refreshIdentity()
       void syncGuidesFromServer(u.username) // closed page guides stay closed on every device
     } else if (u && Date.now() - identityCheckedAt > 60_000) {

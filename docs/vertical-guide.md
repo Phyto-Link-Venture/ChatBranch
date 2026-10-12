@@ -50,7 +50,7 @@ Read that table as a decision tree:
 - *"What's the date next Friday? How many business days until the 14th?"* →
   already covered: the **built-in tools** (`current_time`, `current_week`,
   `date_add`, `days_between`, `convert_timezone`) are always offered, in the
-  business timezone (Setting `org_timezone`, set on the Skills page).
+  business timezone (Setting `org_timezone`, set at Settings → Time zone).
 - *"Hand over orders above RM 10,000 / complaints / corporate accounts"* → write
   the rule in the persona; the built-in **`request_handover`** tool is how the
   model acts on it — calling it flags the chat for a person (an

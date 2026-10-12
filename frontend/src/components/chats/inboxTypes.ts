@@ -401,23 +401,18 @@ export const timeShort = (ts: string, f: Fmt) => (ts ? f.time(ts) : '')
 /** List-row stamp: time today, weekday this week, date beyond. */
 export const listStamp = (ts: string, f: Fmt) => {
   if (!ts) return ''
-  const d = new Date(ts)
-  const now = new Date()
-  if (d.toDateString() === now.toDateString()) return f.time(ts)
-  const days = (now.getTime() - d.getTime()) / 86_400_000
-  if (days < 6) return f.weekday(ts)
+  const days = f.daysAgo(ts) // calendar days in the zone times are shown in
+  if (days === 0) return f.time(ts)
+  if (days != null && days > 0 && days < 6) return f.weekday(ts)
   return f.date(ts)
 }
 
 export const timeAgo = (ts: string, f: Fmt) => f.relative(ts)
 
 export const dayLabel = (ts: string, f: Fmt, t: TFunction) => {
-  const d = new Date(ts)
-  const today = new Date()
-  const yest = new Date(today)
-  yest.setDate(today.getDate() - 1)
-  if (d.toDateString() === today.toDateString()) return t('common.time.today')
-  if (d.toDateString() === yest.toDateString()) return t('common.time.yesterday')
+  const days = f.daysAgo(ts)
+  if (days === 0) return t('common.time.today')
+  if (days === 1) return t('common.time.yesterday')
   return f.date(ts)
 }
 

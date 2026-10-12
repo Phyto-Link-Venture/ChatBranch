@@ -795,6 +795,24 @@ export const guide: Dict<typeof source> = {
         },
       },
     },
+    timeZone: {
+      title: 'Zon waktu',
+      intro: 'Jam yang digunakan untuk memaparkan masa, dan zon waktu perniagaan anda.',
+      steps: {
+        s1: {
+          title: 'Zon waktu',
+          body: 'Dua jam ada di sini: jam yang digunakan papan pemuka ANDA untuk memaparkan masa, dan jam perniagaan organisasi.',
+        },
+        s2: {
+          title: 'Paparkan masa dalam',
+          body: 'Zon peranti ini (lalai), zon waktu perniagaan, atau mana-mana zon lain. Masa mesej, pemberitahuan dan laporan mengikut pilihan anda.',
+        },
+        s3: {
+          title: 'Zon waktu perniagaan',
+          body: 'Jam organisasi — tarikh dan masa AI, waktu tempahan, jadual perjalanan dan waktu senyap. Pentadbir menetapkannya sekali untuk semua orang.',
+        },
+      },
+    },
     users: {
       title: 'Pengguna & peranan',
       intro: 'Siapa boleh log masuk dan apa yang boleh dibuat setiap orang.',

@@ -53,7 +53,7 @@ export const admin: Dict<typeof source> = {
     billingManage: '设置 AI 账单加价并查看成本',
     billingQuotasManage: '设置 AI 用量配额',
     pronunciationManage: '管理发音',
-    settingsAppearanceOrg: '设置组织默认外观',
+    settingsAppearanceOrg: '设置组织默认外观、语言和时区',
     settingsCustomFieldsManage: '管理自定义字段',
     settingsAiKeysManage: '管理 AI 密钥与模型',
     rbacManage: '编辑权限矩阵',
