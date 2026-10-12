@@ -148,7 +148,9 @@ public class BookingService
         DateOnly From, DateOnly To);
 
     /// <summary>Every free slot on [from, to] for this calendar (working hours − busy − holds), each
-    /// <paramref name="durationMinutes"/> long (default: the skill's default length).</summary>
+    /// <paramref name="durationMinutes"/> long (default: the skill's default length).
+    /// <paramref name="ignoreBookingId"/> = a booking being RESCHEDULED: its hold and its own Google
+    /// event (the free/busy span with exactly its start and end) don't count as busy.</summary>
     public async Task<AvailabilityResult> FreeSlotsAsync(CalendarAppConfig cfg, CalendarTarget target,
         TimeZoneInfo tz, DateOnly from, DateOnly to, int? ignoreBookingId = null, CancellationToken ct = default,
         int? durationMinutes = null)
@@ -176,10 +178,29 @@ public class BookingService
             if (!fb.Ok)
                 return new AvailabilityResult(false, fb.NotConnected ? "Google Calendar is not connected." : fb.Error,
                     Array.Empty<BookingAvailability.Slot>(), from, to);
-            busy.AddRange(fb.Busy);
+            var replaced = ignoreBookingId is int ib
+                ? await _db.Bookings.AsNoTracking().Where(x => x.Id == ib).ToListAsync(ct)
+                : new List<Booking>();
+            busy.AddRange(WithoutOwnEvents(fb.Busy, replaced, target.Key));
         }
         var free = BookingAvailability.FreeSlots(cfg, tz, now, from, to, busy, durationMinutes);
         return new AvailabilityResult(true, "", free, from, to);
+    }
+
+    /// <summary>
+    /// Google free/busy minus the events of bookings being rescheduled. Free/busy has no event ids, so
+    /// a span is the booking's own event when it has EXACTLY its start and end on the same calendar;
+    /// a span merged with a neighbouring event stays busy — the reschedule is then refused and the old
+    /// booking kept, never double-booked.
+    /// </summary>
+    private static IEnumerable<(DateTime Start, DateTime End)> WithoutOwnEvents(
+        IEnumerable<(DateTime Start, DateTime End)> busy, IReadOnlyCollection<Booking> replaced, string calendarKey)
+    {
+        var own = replaced.Where(x => x.Source == BookingSources.Google && x.ExternalEventId.Length > 0
+                                      && x.CalendarKey == calendarKey)
+            .Select(x => (Start: BookingAvailability.Utc(x.StartUtc), End: BookingAvailability.Utc(x.EndUtc))).ToList();
+        return own.Count == 0 ? busy
+            : busy.Where(b => !own.Contains((BookingAvailability.Utc(b.Start), BookingAvailability.Utc(b.End))));
     }
 
     // =========================================================================
@@ -206,6 +227,14 @@ public class BookingService
         internal string BookedResult = "";
         internal int? CancelledId;
         internal string CancelledResult = "";
+        /// <summary>A book call of this reply failed for its TIME — a reschedule in this reply then
+        /// keeps the old booking (all-or-nothing).</summary>
+        internal bool BookFailed;
+        /// <summary>The last book refusal asked for a cancel first (the per-customer limit, or their own
+        /// booking in the way) — following that advice is not a failed reschedule.</summary>
+        internal bool CancelFirst;
+        /// <summary>This reply called the book tool at all — a reschedule, so its cancel needs the new booking.</summary>
+        internal bool BookAttempted;
     }
 
     /// <summary>
@@ -232,6 +261,8 @@ public class BookingService
               + "said how long they want, ask them first; then pass that length as duration_minutes to this tool and "
               + $"to {b}_book, so the free times returned fit the whole appointment."
             : "";
+        // rescheduling: the customer's own booking may be checked as if it were free
+        var reschedule = cfg.Allows("book") && cfg.Allows("cancel");
         var lengthSchema = cfg.VariableLength
             ? ",\"duration_minutes\":{\"type\":\"integer\",\"enum\":[" + string.Join(",", cfg.Lengths)
               + $"],\"description\":\"Length of the appointment in minutes (default {cfg.DurationMinutes})\"}}"
@@ -249,12 +280,19 @@ public class BookingService
                 + "BEFORE suggesting any time and offer the customer two or three of the returned options, each with "
                 + "weekday, date, time and timezone — never invent, guess or round a time. Dates are YYYY-MM-DD in "
                 + "the business's local time: work out 'today', 'tomorrow' or 'next Tuesday' from the current date "
-                + $"in the system prompt. Bookings are possible up to {cfg.MaxDaysAhead} days ahead." + lengthHowTo,
+                + $"in the system prompt. Bookings are possible up to {cfg.MaxDaysAhead} days ahead." + lengthHowTo
+                + (reschedule
+                    ? " To reschedule, pass the customer's current booking as ignore_booking_id: its own time then counts "
+                      + "as free (it is only freed when you cancel it and book the new time in the same reply)."
+                    : ""),
                 Schema("{\"type\":\"object\",\"properties\":{"
                        + "\"from_date\":{\"type\":\"string\",\"description\":\"First day to search, YYYY-MM-DD (default: today)\"},"
                        + "\"to_date\":{\"type\":\"string\",\"description\":\"Last day to search, YYYY-MM-DD (default: 7 days after from_date). Use the same date as from_date to list every free time that day.\"},"
                        + "\"time\":{\"type\":\"string\",\"description\":\"Exact start to check, HH:mm local time (24-hour, e.g. 14:00 for 2 PM), with a single from_date\"}"
                        + lengthSchema
+                       + (reschedule
+                           ? ",\"ignore_booking_id\":{\"type\":\"integer\",\"description\":\"Rescheduling: the customer's current booking_id, whose own time then counts as free\"}"
+                           : "")
                        + "}}")));
         if (cfg.Allows("book"))
             yield return (b + "_book", "book", new LlmTool(b + "_book",
@@ -283,8 +321,9 @@ public class BookingService
             yield return (b + "_cancel", "cancel", new LlmTool(b + "_cancel",
                 $"Cancel one of this customer's upcoming bookings (booking_id from {b}_my_bookings). Only after "
                 + "the customer asked to cancel or reschedule and confirmed which appointment. To reschedule, call "
-                + $"{b}_cancel for the old booking AND {b}_book for the new time in the same reply. The cancellation "
-                + "takes effect when your reply is sent — confirm it with the date and time.",
+                + $"{b}_cancel for the old booking FIRST and then {b}_book for the new time, in the same reply: the two "
+                + "go together — if the new time can't be booked, the old booking is kept and nothing is cancelled. The "
+                + "cancellation takes effect when your reply is sent — confirm it with the date and time.",
                 Schema("{\"type\":\"object\",\"properties\":{"
                        + "\"booking_id\":{\"type\":\"integer\",\"description\":\"The booking to cancel\"}"
                        + "},\"required\":[\"booking_id\"]}")));
@@ -296,10 +335,13 @@ public class BookingService
     public async Task<ToolOutcome> ExecuteToolAsync(ToolBinding binding, string? argsJson, SkillContext ctx,
         CancellationToken ct = default)
     {
+        var session = ctx.Apps;
+        var bookedBefore = session.BookedId != null;
+        ToolOutcome outcome;
         try
         {
             var args = ParseArgs(argsJson);
-            var outcome = binding.Action switch
+            outcome = binding.Action switch
             {
                 "availability" => await AvailabilityToolAsync(binding, args, ctx, ct),
                 "book" => await BookToolAsync(binding, args, ctx, ct),
@@ -307,13 +349,47 @@ public class BookingService
                 "my_bookings" => MyBookingsTool(binding, ctx),
                 _ => Error($"unknown calendar action '{binding.Action}'", "", ok: false),
             };
-            return outcome.Json.Length <= ResultCap ? outcome : outcome with { Json = outcome.Json[..ResultCap] };
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            return Error($"The calendar tool failed ({ex.GetType().Name}).",
+            outcome = Error($"The calendar tool failed ({ex.GetType().Name}).",
                 "Don't promise a time. Tell the customer a teammate will confirm the appointment.", ok: false);
+        }
+        // a reschedule is all-or-nothing: a book that reserved nothing keeps the booking it was replacing
+        if (binding.Action == "book") session.BookAttempted = true;
+        if (binding.Action == "book" && !bookedBefore && session.BookedId == null && !session.CancelFirst)
+            outcome = await KeepReplacedBookingAsync(outcome, session, ct);
+        return outcome.Json.Length <= ResultCap ? outcome : outcome with { Json = outcome.Json[..ResultCap] };
+    }
+
+    /// <summary>
+    /// A book call reserved nothing (the time was taken, bad input, a calendar error). Remember that
+    /// for this reply, and when the reply already cancels a booking — a reschedule — give that booking
+    /// back (cancelling → booked, out of the reply's actions) and say so in the result, so the reply
+    /// never cancels the old appointment without making the new one. Never throws.
+    /// </summary>
+    private async Task<ToolOutcome> KeepReplacedBookingAsync(ToolOutcome outcome, Session session, CancellationToken ct)
+    {
+        session.BookFailed = true;
+        if (session.CancelledId is not int id) return outcome;
+        try
+        {
+            var row = await RestoreCancelAsync(session, id, ct);
+            var node = System.Text.Json.Nodes.JsonNode.Parse(outcome.Json) as System.Text.Json.Nodes.JsonObject
+                       ?? new System.Text.Json.Nodes.JsonObject { ["ok"] = false };
+            var kept = $"The old booking ({id}) was kept because the new time could not be booked.";
+            node["error"] = $"{(string?)node["error"] ?? ""} {kept}".Trim();
+            node["advice"] = (row == null ? "" : $"Their appointment {LabelWithZone(row)} still stands — don't say it "
+                                                   + "was cancelled. ")
+                             + ((string?)node["advice"] ?? "");
+            node["old_booking_kept"] = id;
+            return new ToolOutcome(node.ToJsonString(), outcome.Ok);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch
+        {
+            return outcome;
         }
     }
 
@@ -328,8 +404,10 @@ public class BookingService
         var today = BookingAvailability.Today(now, tz);
         var last = BookingAvailability.LastDay(cfg, now, tz);
         if (LengthOf(args, cfg, out var length) is { } badLength) return badLength;
+        if (IgnoredBooking(args, b, target, ctx, out var ignore) is { } badIgnore) return badIgnore;
         var timeRaw = (Arg(args, "time") ?? "").Trim();
-        if (timeRaw.Length > 0) return await CheckTimeToolAsync(b, args, timeRaw, ctx, target, tz, today, last, length, ct);
+        if (timeRaw.Length > 0)
+            return await CheckTimeToolAsync(b, args, timeRaw, ctx, target, tz, today, last, length, ignore, ct);
         var from = ParseDate(Arg(args, "from_date"), today) ?? today;
         var to = ParseDate(Arg(args, "to_date"), today) ?? from.AddDays(7);
         if (to < from) (from, to) = (to, from);
@@ -337,7 +415,7 @@ public class BookingService
             return Refused($"Bookings can only be made up to {last:yyyy-MM-dd} ({cfg.MaxDaysAhead} days ahead).",
                 $"Offer times on or before {last:dddd d MMMM}.", new() { ["last_bookable_date"] = last.ToString("yyyy-MM-dd") });
 
-        var r = await FreeSlotsAsync(cfg, target, tz, from, to, ct: ct, durationMinutes: length);
+        var r = await FreeSlotsAsync(cfg, target, tz, from, to, ignore, ct, length);
         if (!r.Ok) return Unavailable(r.Error);
         // one day = every free time (the "is 2 PM open?" answer is in the list); several days =
         // a spread, which is a SAMPLE — a time missing from it may still be free
@@ -345,7 +423,7 @@ public class BookingService
         var offered = singleDay
             ? r.Free.Take(BookingAvailability.MaxSingleDay).ToList()
             : BookingAvailability.Spread(r.Free);
-        var payload = AvailabilityPayload(cfg, target, tz, last, r.From, r.To, length);
+        var payload = AvailabilityPayload(cfg, target, tz, last, r.From, r.To, length, ignore);
         payload["free_slots_in_range"] = r.Free.Count;
         AddUpcoming(payload, b, target, ctx);
 
@@ -365,7 +443,7 @@ public class BookingService
                       + "the customer a time is unavailable unless you checked that exact time (call this tool with `time`) or the "
                       + "book tool refused it. To list every free time on one day, call again with from_date = to_date. Offer 2–3 "
                       + "of these, with weekday, date, time and timezone.")
-                + SampleNote;
+                + IgnoreNote(ignore) + SampleNote;
             json = JsonSerializer.Serialize(payload);
             if (json.Length <= ResultCap || offered.Count == 0) break;
             if (singleDay && !shortSlots) { shortSlots = true; continue; }
@@ -373,6 +451,71 @@ public class BookingService
         }
         return new ToolOutcome(json, true);
     }
+
+    /// <summary>Take this reply's cancel of booking <paramref name="id"/> back: cancelling → booked, and
+    /// out of the reply's actions / previews. Returns the booking (null when it is gone).</summary>
+    private async Task<Booking?> RestoreCancelAsync(Session session, int id, CancellationToken ct)
+    {
+        var row = await _db.Bookings.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (!session.Preview && row is { Status: BookingStatus.Cancelling })
+        {
+            row.Status = BookingStatus.Booked;
+            row.CancelDraftId = null;
+            row.UpdatedAt = UtcNow;
+            await _db.SaveChangesAsync(ct);
+        }
+        session.Actions.RemoveAll(a => a.Type == AiPendingAction.Cancel && a.BookingId == id);
+        session.Previews.RemoveAll(p => p.Type == AiPendingAction.Cancel && p.BookingId == id);
+        session.CancelledId = null;
+        session.CancelledResult = "";
+        return row;
+    }
+
+    /// <summary>
+    /// After the model's tool calls: a reply that tried to book but reserved nothing must not cancel
+    /// either — a reschedule is all-or-nothing (the model may have cancelled after a "cancel first"
+    /// refusal and then never booked). Gives the cancel back and returns its booking id, else null.
+    /// The reply loop then treats the reply as not cancelling (its booking-claim check catches a
+    /// "has been cancelled"). Never throws.
+    /// </summary>
+    public async Task<int?> SettleRescheduleAsync(Session session, CancellationToken ct = default)
+    {
+        if (!session.BookAttempted || session.BookedId != null || session.CancelledId is not int id) return null;
+        try
+        {
+            await RestoreCancelAsync(session, id, ct);
+            session.BookFailed = true;
+            return id;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// The booking an availability check treats as free: <c>ignore_booking_id</c> (one of THIS
+    /// customer's upcoming bookings on this calendar, else a refusal), else the booking this reply
+    /// is already cancelling — a reschedule.
+    /// </summary>
+    private ToolOutcome? IgnoredBooking(JsonElement args, ToolBinding b, CalendarTarget target, SkillContext ctx,
+        out int? ignore)
+    {
+        ignore = ctx.Apps.CancelledId;
+        var raw = (Arg(args, "ignore_booking_id") ?? "").Trim();
+        if (raw.Length == 0) return null;
+        var contact = ContactOf(ctx);
+        if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) && contact != null
+            && Upcoming(contact.Id, b.Skill, target.Key, ctx.EntityId).Any(x => x.Id == id))
+        {
+            ignore = id;
+            return null;
+        }
+        return Refused($"Booking {raw} isn't one of this customer's upcoming bookings.",
+            $"Pass the booking_id of this customer's own booking (from {b.Base}_my_bookings), or leave ignore_booking_id out.");
+    }
+
+    private static string IgnoreNote(int? ignore) => ignore is int id
+        ? $" Booking {id}'s own time counts as free here: it is only freed when you cancel booking {id} and book the new time in the same reply."
+        : "";
 
     /// <summary>Said on every availability answer: a fresh call is the same live calendar.</summary>
     private const string SampleNote =
@@ -386,7 +529,7 @@ public class BookingService
     /// 7 days. Bad input comes back as <c>{ok:false, error, advice}</c>.
     /// </summary>
     private async Task<ToolOutcome> CheckTimeToolAsync(ToolBinding b, JsonElement args, string timeRaw, SkillContext ctx,
-        CalendarTarget target, TimeZoneInfo tz, DateOnly today, DateOnly last, int length, CancellationToken ct)
+        CalendarTarget target, TimeZoneInfo tz, DateOnly today, DateOnly last, int length, int? ignore, CancellationToken ct)
     {
         var cfg = b.Config;
         if (!TimeOnly.TryParseExact(timeRaw, new[] { "H:mm", "HH:mm" }, CultureInfo.InvariantCulture,
@@ -402,7 +545,7 @@ public class BookingService
             return Refused("`time` checks one day only.",
                 "Pass the day as from_date and leave to_date empty (or the same date). To see several days, call without `time`.");
 
-        var r = await FreeSlotsAsync(cfg, target, tz, day, day, ct: ct, durationMinutes: length);
+        var r = await FreeSlotsAsync(cfg, target, tz, day, day, ignore, ct, length);
         if (!r.Ok) return Unavailable(r.Error);
         var check = BookingAvailability.CheckTime(cfg, tz, UtcNow, day, time, r.Free, length);
         var label = cfg.VariableLength
@@ -414,23 +557,24 @@ public class BookingService
             ["label"] = label,
             ["available"] = check.Available,
         };
-        var payload = AvailabilityPayload(cfg, target, tz, last, day, day, length);
+        var payload = AvailabilityPayload(cfg, target, tz, last, day, day, length, ignore);
         payload["requested"] = requested;
         if (check.Available)
         {
             requested["end"] = BookingAvailability.LocalIso(check.Slot!.LocalEnd);
-            payload["note"] = $"{label} ({tz.Id}) is free. Offer it; book it only after the customer confirms that time." + SampleNote;
+            payload["note"] = $"{label} ({tz.Id}) is free. Offer it; book it only after the customer confirms that time."
+                              + IgnoreNote(ignore) + SampleNote;
         }
         else
         {
             requested["reason"] = check.Reason;
-            var alternatives = await AlternativesAsync(cfg, target, tz, day, r.Free, check.LocalStart, length, ct);
+            var alternatives = await AlternativesAsync(cfg, target, tz, day, r.Free, check.LocalStart, length, ignore, ct);
             payload["alternatives"] = alternatives.Select(s => SlotJson(s, cfg.VariableLength)).ToList();
             payload["note"] = $"{label} ({tz.Id}) is not available — {ReasonText(check.Reason, cfg, last)}. "
                               + (alternatives.Count > 0
                                   ? "Say so and offer these free alternatives instead."
                                   : $"Check other dates with this tool (up to {last:yyyy-MM-dd}).")
-                              + SampleNote;
+                              + IgnoreNote(ignore) + SampleNote;
         }
         AddUpcoming(payload, b, target, ctx);
         return new ToolOutcome(JsonSerializer.Serialize(payload), true);
@@ -450,7 +594,7 @@ public class BookingService
 
     /// <summary>The fields every availability answer starts with.</summary>
     private static Dictionary<string, object?> AvailabilityPayload(CalendarAppConfig cfg, CalendarTarget target,
-        TimeZoneInfo tz, DateOnly last, DateOnly from, DateOnly to, int length)
+        TimeZoneInfo tz, DateOnly last, DateOnly from, DateOnly to, int length, int? ignore = null)
     {
         var payload = new Dictionary<string, object?>
         {
@@ -463,6 +607,7 @@ public class BookingService
             ["last_bookable_date"] = last.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
         };
         if (cfg.VariableLength) payload["allowed_lengths"] = cfg.Lengths.ToList();
+        if (ignore is int id) payload["ignored_booking_id"] = id;
         return payload;
     }
 
@@ -509,14 +654,14 @@ public class BookingService
     /// </summary>
     private async Task<List<BookingAvailability.Slot>> AlternativesAsync(CalendarAppConfig cfg, CalendarTarget target,
         TimeZoneInfo tz, DateOnly day, IReadOnlyList<BookingAvailability.Slot> dayFree, DateTime? near, int length,
-        CancellationToken ct)
+        int? ignore, CancellationToken ct)
     {
         var picks = near is DateTime at
             ? dayFree.OrderBy(s => Math.Abs((s.LocalStart - at).Ticks)).ThenBy(s => s.StartUtc).Take(3)
                 .OrderBy(s => s.StartUtc).ToList()
             : BookingAvailability.Spread(dayFree, 3);
         if (picks.Count > 0) return picks;
-        var more = await FreeSlotsAsync(cfg, target, tz, day.AddDays(1), day.AddDays(7), ct: ct, durationMinutes: length);
+        var more = await FreeSlotsAsync(cfg, target, tz, day.AddDays(1), day.AddDays(7), ignore, ct, length);
         return more.Ok ? BookingAvailability.Spread(more.Free, 3) : new();
     }
 
@@ -529,6 +674,7 @@ public class BookingService
                 "Tell the customer a teammate will confirm the appointment.");
         var startRaw = (Arg(args, "start") ?? "").Trim();
         var session = ctx.Apps;
+        session.CancelFirst = false;
         if (session.BookedId != null)
             return startRaw == session.BookedStart
                 ? new ToolOutcome(session.BookedResult, true)
@@ -547,33 +693,52 @@ public class BookingService
         var day = DateOnly.FromDateTime(localStart);
         var now = UtcNow;
 
-        // the per-contact cap (cancelling rows are on their way out — a reschedule)
+        // the booking this reply cancels — a reschedule swaps one for the other
+        var replacing = session.CancelledId;
+
+        // the per-contact cap counts bookings, not units; cancelling rows (and the one this reply
+        // cancels, also in a playground preview) are on their way out
         var active = (await _db.Bookings.AsNoTracking()
             .Where(x => x.ContactId == contact.Id && x.SkillId == b.Skill.SkillId
                         && (x.Status == BookingStatus.Pending || x.Status == BookingStatus.Booked) && x.EndUtc > now)
-            .OrderBy(x => x.StartUtc).ToListAsync(ct)).Where(x => SameCompany(x, ctx.EntityId)).ToList();
+            .OrderBy(x => x.StartUtc).ToListAsync(ct))
+            .Where(x => SameCompany(x, ctx.EntityId) && x.Id != replacing).ToList();
         if (active.Count >= cfg.MaxActivePerContact)
         {
             var first = active[0];
+            session.CancelFirst = true;
             return Refused(
                 $"This customer already has {(active.Count == 1 ? "an upcoming booking" : $"{active.Count} upcoming bookings")} "
                 + $"({LabelOf(first)}, booking_id {first.Id}) — the limit is {cfg.MaxActivePerContact}.",
                 cfg.Allows("cancel")
-                    ? $"Offer to reschedule instead: with their agreement call {b.Base}_cancel for booking {first.Id} and then {b.Base}_book for the new time, in the same reply."
+                    ? $"Offer to reschedule instead: check the new time with {b.Base}_availability and ignore_booking_id = "
+                      + $"{first.Id} (their own booking's time then counts as free); then, with their agreement, call "
+                      + $"{b.Base}_cancel for booking {first.Id} and then {b.Base}_book for the new time, in the same reply."
                     : "Tell them about their existing booking; a teammate can help change it.",
                 new() { ["existing_booking"] = BookingJson(first) });
         }
 
-        // ONE booking covering the whole length: free only when every minute of it is
-        var r = await FreeSlotsAsync(cfg, target, tz, day, day, ct: ct, durationMinutes: length);
+        // ONE booking covering the whole length: free only when every minute of it is — the booking
+        // this reply cancels (its hold and its own Google event) doesn't count
+        var r = await FreeSlotsAsync(cfg, target, tz, day, day, replacing, ct, length);
         if (!r.Ok) return Unavailable(r.Error);
         var slot = r.Free.FirstOrDefault(s => s.LocalStart == localStart);
         if (slot == null)
         {
-            var alternatives = await AlternativesAsync(cfg, target, tz, day, r.Free, near: null, length, ct);
             var asked = cfg.VariableLength
                 ? BookingAvailability.RangeLabel(localStart, localStart.AddMinutes(length))
                 : BookingAvailability.StartLabel(localStart);
+            // the customer's OWN booking in the way: moving it means cancelling it first
+            if (replacing == null && cfg.Allows("cancel")
+                && await OwnBookingInTheWayAsync(cfg, b, target, tz, ctx, contact, day, localStart, length, ct) is { } own)
+            {
+                session.CancelFirst = true;
+                return Refused($"{asked} ({tz.Id}) overlaps this customer's own booking {own.Id} ({LabelOf(own)}).",
+                    $"If they want to MOVE that booking to this time, call {b.Base}_cancel for booking {own.Id} first and "
+                    + $"then {b.Base}_book again for this time, in the same reply. Otherwise offer another time.",
+                    new() { ["own_booking"] = BookingJson(own) });
+            }
+            var alternatives = await AlternativesAsync(cfg, target, tz, day, r.Free, near: null, length, replacing, ct);
             return Refused($"{asked} ({tz.Id}) is not an available time.",
                 alternatives.Count > 0
                     ? "Apologise, and offer the alternatives below (or check other dates with the availability tool). Book only after they choose."
@@ -622,8 +787,10 @@ public class BookingService
         _db.Bookings.Add(row);
         await _db.SaveChangesAsync(ct);
 
-        // two conversations racing for one slot: the first reservation wins
+        // two conversations racing for one slot: the first reservation wins (the booking this reply
+        // replaces is not a rival)
         var clash = await _db.Bookings.AsNoTracking().AnyAsync(x => x.Id < row.Id && x.CalendarKey == row.CalendarKey
+            && x.Id != replacing
             && BookingStatus.Holding.Contains(x.Status) && x.StartUtc < row.EndUtc && x.EndUtc > row.StartUtc, ct);
         if (clash)
         {
@@ -654,6 +821,30 @@ public class BookingService
         return new ToolOutcome(session.BookedResult, true);
     }
 
+    /// <summary>
+    /// The customer's own confirmed booking that alone keeps <paramref name="localStart"/> from being
+    /// free (with it ignored the time is free) — a reschedule the model should start with a cancel.
+    /// </summary>
+    private async Task<Booking?> OwnBookingInTheWayAsync(CalendarAppConfig cfg, ToolBinding b, CalendarTarget target,
+        TimeZoneInfo tz, SkillContext ctx, Contact contact, DateOnly day, DateTime localStart, int length,
+        CancellationToken ct)
+    {
+        var startUtc = BookingAvailability.ToUtc(localStart, tz);
+        var endUtc = startUtc.AddMinutes(length);
+        var buffer = TimeSpan.FromMinutes(cfg.BufferMinutes);
+        var mine = Upcoming(contact.Id, b.Skill, target.Key, ctx.EntityId)
+            .Where(x => x.Status == BookingStatus.Booked && x.CalendarKey == target.Key
+                        && BookingAvailability.Utc(x.StartUtc) - buffer < endUtc
+                        && BookingAvailability.Utc(x.EndUtc) + buffer > startUtc)
+            .ToList();
+        foreach (var own in mine)
+        {
+            var r = await FreeSlotsAsync(cfg, target, tz, day, day, own.Id, ct, length);
+            if (r.Ok && r.Free.Any(s => s.LocalStart == localStart)) return own;
+        }
+        return null;
+    }
+
     private async Task<ToolOutcome> CancelToolAsync(ToolBinding b, JsonElement args, SkillContext ctx, CancellationToken ct)
     {
         var contact = ContactOf(ctx);
@@ -668,6 +859,13 @@ public class BookingService
                 ? new ToolOutcome(session.CancelledResult, true)
                 : Refused("You already cancelled a booking in this reply — only one cancellation per reply.",
                     "Confirm that cancellation; anything else can be handled in their next message.");
+        // all-or-nothing: the new time failed in this reply, so the old booking stays
+        if (session.BookFailed && session.BookedId == null)
+            return Refused($"Booking {id} was kept: the new time could not be booked in this reply, and a reschedule "
+                           + "only cancels the old booking once the new time is booked.",
+                "Tell the customer their appointment still stands and offer other free times. If they want to cancel "
+                + "it without a new time, confirm that with them and cancel it in your next reply.",
+                new() { ["old_booking_kept"] = id });
 
         var tz = TimeZoneFor(b.Config);
         var target = ResolveTarget(b.Skill, b.Config, ctx.EntityId, UserIdOf(ctx.Assignee));
@@ -713,6 +911,14 @@ public class BookingService
             ["instructions"] = "The cancellation takes effect when your reply is sent. Confirm to the customer that "
                                + "this appointment is cancelled, restating its weekday, date and time.",
         };
+        if (session.BookAttempted && session.BookedId == null)
+        {
+            // a reschedule: this cancel only goes through together with the new booking
+            result["requires_new_booking"] = true;
+            result["instructions"] = $"This is a reschedule: now call {b.Base}_book for the new time in this reply. The "
+                                     + "cancellation only goes through together with the new booking — if no new time is "
+                                     + "booked in this reply, booking " + row.Id + " stays and you must not say it was cancelled.";
+        }
         session.CancelledId = row.Id;
         session.CancelledResult = JsonSerializer.Serialize(result);
         return new ToolOutcome(session.CancelledResult, true);
@@ -832,6 +1038,11 @@ public class BookingService
         if (actions.Count == 0) return ConfirmResult.Nothing;
         try
         {
+            // a reschedule: the bookings this reply cancels are replaced by its new one, so they don't
+            // make the new time "taken" — and they are only cancelled once the new one is made
+            var cancelIds = actions.Where(x => x.Type == AiPendingAction.Cancel).Select(x => x.BookingId).ToList();
+            var replacing = cancelIds.Count == 0 ? new List<Booking>()
+                : await _db.Bookings.AsNoTracking().Where(x => cancelIds.Contains(x.Id)).ToListAsync(ct);
             foreach (var a in actions.Where(x => x.Type == AiPendingAction.Book))
             {
                 var row = await _db.Bookings.FirstOrDefaultAsync(x => x.Id == a.BookingId, ct);
@@ -839,7 +1050,7 @@ public class BookingService
                     : row.Status == BookingStatus.Booked ? null
                     : row.Status is BookingStatus.Cancelled ? "The booking was cancelled before the reply was sent."
                     : row.Status is BookingStatus.Failed ? (row.Detail.Length > 0 ? row.Detail : "The booking failed.")
-                    : await MakeAsync(row, draft.Id, actor, draft.ThreadId, ct);
+                    : await MakeAsync(row, draft.Id, actor, draft.ThreadId, ct, replacing);
                 if (failure != null)
                 {
                     if (row != null && row.Status is BookingStatus.Pending or BookingStatus.Released)
@@ -849,8 +1060,10 @@ public class BookingService
                         row.UpdatedAt = UtcNow;
                         await _db.SaveChangesAsync(ct);
                     }
+                    var kept = replacing.Count == 0 ? ""
+                        : $" The booking it was replacing ({string.Join(", ", replacing.Select(LabelWithZone))}) stays.";
                     if (row != null) Record(row, "booking.failed", actor,
-                        $"📅 Booking failed — {LabelWithZone(row)} on {row.CalendarLabel}: {failure} The AI's reply was not sent.",
+                        $"📅 Booking failed — {LabelWithZone(row)} on {row.CalendarLabel}: {failure} The AI's reply was not sent.{kept}",
                         "Booking failed", failure, draft.ThreadId);
                     Release(actions.Where(x => x.BookingId != a.BookingId), "The reply was not sent: " + failure);
                     return new ConfirmResult(false, $"The booking could not be made: {failure}");
@@ -885,12 +1098,17 @@ public class BookingService
     }
 
     /// <summary>Make one reserved booking. Returns null on success, else why not.</summary>
+    /// <param name="replacing">Bookings the same reply cancels (a reschedule): neither their holds nor their
+    /// own Google events count against the new time.</param>
     private async Task<string?> MakeAsync(Booking row, int? draftId, string actor, int? noteThreadId,
-        CancellationToken ct)
+        CancellationToken ct, IReadOnlyCollection<Booking>? replacing = null)
     {
         var now = UtcNow;
+        replacing ??= Array.Empty<Booking>();
+        var replacedIds = replacing.Select(x => x.Id).ToList();
         if (BookingAvailability.Utc(row.StartUtc) <= now) return "the time has already passed.";
         var taken = await _db.Bookings.AsNoTracking().AnyAsync(x => x.Id != row.Id && x.CalendarKey == row.CalendarKey
+            && !replacedIds.Contains(x.Id)
             && BookingStatus.Holding.Contains(x.Status) && x.StartUtc < row.EndUtc && x.EndUtc > row.StartUtc, ct);
         if (taken) return "that time has been taken in the meantime.";
 
@@ -910,8 +1128,9 @@ public class BookingService
             var fb = await _calendar.FreeBusyAsync(integration, calendarId, BookingAvailability.Utc(row.StartUtc) - buffer,
                 BookingAvailability.Utc(row.EndUtc) + buffer, ct);
             if (!fb.Ok) return fb.NotConnected ? "Google Calendar is not connected." : fb.Error;
-            if (fb.Busy.Any(x => x.Start < BookingAvailability.Utc(row.EndUtc) + buffer
-                                 && x.End > BookingAvailability.Utc(row.StartUtc) - buffer))
+            if (WithoutOwnEvents(fb.Busy, replacing, row.CalendarKey)
+                .Any(x => x.Start < BookingAvailability.Utc(row.EndUtc) + buffer
+                          && x.End > BookingAvailability.Utc(row.StartUtc) - buffer))
                 return "that time is no longer free on the calendar.";
             var email = contact?.Email ?? "";
             var ev = await _calendar.InsertEventAsync(integration, calendarId, new GoogleCalendarClient.EventSpec(

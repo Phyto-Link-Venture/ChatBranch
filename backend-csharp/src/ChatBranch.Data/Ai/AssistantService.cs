@@ -276,7 +276,13 @@ public partial class AssistantService
             lines.Add($"  Call {b}_availability before mentioning any free time; you cannot book — a teammate confirms bookings.");
         if (cfg.Allows("cancel"))
             lines.Add($"  To cancel or reschedule: call {b}_my_bookings to find the booking, confirm with the customer "
-                      + $"which one, then call {b}_cancel" + (cfg.Allows("book") ? $" (plus {b}_book for the new time when rescheduling, in the same reply)" : "")
+                      + $"which one, then call {b}_cancel"
+                      + (cfg.Allows("book")
+                          ? $". To reschedule, check the new time with {b}_availability and ignore_booking_id = the old "
+                            + $"booking (its own time then counts as free), then in ONE reply call {b}_cancel for the old "
+                            + $"booking first and {b}_book for the new time. The two go together: if the new time can't be "
+                            + "booked, the old booking is kept — then say it still stands, never that it was cancelled"
+                          : "")
                       + ".");
         lines.Add("  If a calendar tool returns ok:false, follow its advice; if the calendar is unavailable, tell the "
                   + "customer a teammate will confirm the time — never invent or promise a time.");
@@ -730,6 +736,8 @@ public partial class AssistantService
                 if (step.Tool.EndsWith("_cancel", StringComparison.Ordinal) && BookingClaims.HasStatus(step.Result, "cancel_pending"))
                     cancelled = true;
             }
+            // a reschedule is all-or-nothing: a reply that tried to book and booked nothing cancels nothing
+            if (await _skills.Bookings.SettleRescheduleAsync(ctx.Apps, ct) != null) cancelled = false;
             // the [msg id] tags the model was shown never reach the customer
             var text = RenderPlaceholders(HumanTouch.StripTags((outcome.Text ?? "").Trim()), spec.Contact);
             // Markdown → what the customer's channel shows (in code: a prompt rule alone

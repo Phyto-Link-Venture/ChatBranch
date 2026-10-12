@@ -1092,6 +1092,251 @@ public class BookingTests
         Assert.Equal(2, r.Messages("60123000001").Count(m => m.Private && m.Text.StartsWith("📅")));
     }
 
+    // ---- rescheduling: the customer's own booking is not "busy", and a swap is all-or-nothing --------
+
+    /// <summary>A confirmed booking of this skill's calendar (Google: with its own event).</summary>
+    private static Booking OwnBooking(BookingRig r, int contactId, AgentSkill skill, DateTime startUtc, DateTime endUtc,
+        string eventId = "evt-old")
+    {
+        var cfg = CalendarAppConfig.From(skill.Config);
+        var google = cfg.Source == BookingSources.Google;
+        var row = new Booking
+        {
+            ContactId = contactId, SkillId = skill.SkillId,
+            CalendarKey = r.Bookings.ResolveTarget(skill, cfg, null, null).Key,
+            Source = google ? BookingSources.Google : BookingSources.ChatBranch,
+            IntegrationId = google ? r.Db.Integrations.Single().Id : null, ExternalEventId = google ? eventId : "",
+            Status = BookingStatus.Booked, StartUtc = startUtc, EndUtc = endUtc, Timezone = "Asia/Kuala_Lumpur",
+            Title = "Aisha Rahman — appointment", CalendarLabel = google ? "Google Calendar" : "ChatBranch bookings",
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        };
+        r.Db.Bookings.Add(row);
+        r.Db.SaveChanges();
+        return row;
+    }
+
+    /// <summary><see cref="Hourly"/> with a per-customer limit.</summary>
+    private static object HourlyLimit(int limit) => new
+    {
+        source = "google", calendar = "shared", min_notice_minutes = 0,
+        duration_minutes = 30, duration_unit_minutes = 30, max_units = 4, max_active_per_contact = limit,
+    };
+
+    private static List<JsonElement> ToolResults(BookingRig r) => r.Llm.Seen.Last().Messages
+        .Where(m => m.Role == "tool").Select(m => JsonDocument.Parse(m.Content!).RootElement.Clone()).ToList();
+
+    [Theory]
+    [InlineData(true, false, 1)]
+    [InlineData(true, true, 1)]     // Google free/busy also reports the old booking's own event
+    [InlineData(false, true, 1)]    // book first: refused by the one-booking limit → cancel → book
+    [InlineData(false, true, 2)]    // book first: refused "your own booking is in the way" → cancel → book
+    public void A_reschedule_into_its_own_time_swaps_the_bookings_in_one_reply(bool cancelFirst, bool googleShowsOld,
+        int limit)
+    {
+        using var r = new BookingRig();
+        var c = r.Contact();
+        r.GoogleRow();
+        var skill = r.Skill(HourlyLimit(limit));
+        var old = OwnBooking(r, c.Id, skill, BookingRig.Kul(13, 14), BookingRig.Kul(13, 14, 30));
+        if (googleShowsOld) r.Google.Busy.Add((BookingRig.Kul(13, 14), BookingRig.Kul(13, 14, 30)));
+        var cancel = ("calendar_cancel", $"{{\"booking_id\":{old.Id}}}");
+        var book = ("calendar_book", "{\"start\":\"2026-10-13T14:00\",\"duration_minutes\":60}");
+        r.Llm.Script = (msgs, _) =>
+        {
+            var tools = msgs.Where(m => m.Role == "tool").ToList();
+            if (tools.Count == 0) return cancelFirst ? ToolScriptLlm.Calls(cancel, book) : ToolScriptLlm.Calls(book);
+            if (!cancelFirst && tools.Count == 1) return ToolScriptLlm.Calls(cancel, book);
+            var last = JsonDocument.Parse(tools[^1].Content!).RootElement;
+            return last.TryGetProperty("status", out var st) && st.GetString() == "reserved"
+                ? ToolScriptLlm.Says($"Done — you're now booked for {last.GetProperty("label").GetString()} (Asia/Kuala_Lumpur).")
+                : ToolScriptLlm.Says("Sorry — a teammate will confirm a time with you.");
+        };
+
+        r.Say("60123000001", "Can I make my 2pm on Tuesday an hour instead?");
+
+        if (!cancelFirst)
+        {
+            var refused = ToolResults(r)[0];
+            Assert.False(refused.GetProperty("ok").GetBoolean());
+            Assert.Contains(limit == 1 ? "the limit is 1" : $"own booking {old.Id}", refused.GetProperty("error").GetString());
+            Assert.Contains($"_cancel for booking {old.Id}", refused.GetProperty("advice").GetString());
+            // the cancel that follows says it needs the new booking
+            Assert.True(ToolResults(r)[1].GetProperty("requires_new_booking").GetBoolean());
+        }
+        var rows = r.FreshBookings();
+        Assert.Equal(BookingStatus.Cancelled, rows.Single(b => b.Id == old.Id).Status);
+        var made = rows.Single(b => b.Id != old.Id);
+        Assert.Equal(BookingStatus.Booked, made.Status);
+        Assert.Equal(BookingRig.Kul(13, 14), BookingAvailability.Utc(made.StartUtc));
+        Assert.Equal(BookingRig.Kul(13, 15), BookingAvailability.Utc(made.EndUtc));
+        // the Google event is replaced: one new event, the old one deleted
+        var ev = JsonDocument.Parse(Assert.Single(r.Google.Inserts).Body).RootElement;
+        Assert.Equal(GoogleCalendarClient.Iso(BookingRig.Kul(13, 15)), ev.GetProperty("end").GetProperty("dateTime").GetString());
+        Assert.EndsWith("/events/evt-old", Assert.Single(r.Google.Deletes).Path);
+        Assert.Equal(AiDraftStatus.AutoSent, r.Drafts().Single().Status);
+        Assert.Contains("Tue 13 Oct, 2:00–3:00 PM",
+            r.Messages("60123000001").Single(m => m.Source == MessageSource.Ai).Text);
+    }
+
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 2)]   // book first (the time is busy), then the cancel is refused
+    [InlineData(false, 1)]   // book first (the limit), cancel, never book again → the cancel is given back
+    public void A_reschedule_to_a_busy_time_keeps_the_old_booking(bool cancelFirst, int limit)
+    {
+        using var r = new BookingRig();
+        var c = r.Contact();
+        r.GoogleRow();
+        var skill = r.Skill(HourlyLimit(limit));
+        var old = OwnBooking(r, c.Id, skill, BookingRig.Kul(13, 14), BookingRig.Kul(13, 14, 30));
+        r.Google.Busy.Add((BookingRig.Kul(13, 16), BookingRig.Kul(13, 17)));   // someone else's 4–5 PM
+        var cancel = ("calendar_cancel", $"{{\"booking_id\":{old.Id}}}");
+        var book = ("calendar_book", "{\"start\":\"2026-10-13T16:00\",\"duration_minutes\":60}");
+        r.Llm.Script = (msgs, _) => msgs.Count(m => m.Role == "tool") switch
+        {
+            0 => cancelFirst ? ToolScriptLlm.Calls(cancel, book) : ToolScriptLlm.Calls(book),
+            1 when !cancelFirst => ToolScriptLlm.Calls(cancel),
+            _ => ToolScriptLlm.Says("Sorry, 4 PM is taken — your 2:00 PM appointment stays. Would 11 AM suit you?"),
+        };
+
+        r.Say("60123000001", "Please move my 2pm on Tuesday to 4pm, an hour");
+
+        var results = ToolResults(r);
+        if (cancelFirst)
+        {
+            // the book's refusal says the old booking was kept
+            var refused = results[1];
+            Assert.False(refused.GetProperty("ok").GetBoolean());
+            Assert.Contains($"The old booking ({old.Id}) was kept because the new time could not be booked.",
+                refused.GetProperty("error").GetString());
+            Assert.Equal(old.Id, refused.GetProperty("old_booking_kept").GetInt32());
+        }
+        else if (limit == 2)
+        {
+            var cancelRefused = results[1];
+            Assert.False(cancelRefused.GetProperty("ok").GetBoolean());
+            Assert.Contains($"Booking {old.Id} was kept", cancelRefused.GetProperty("error").GetString());
+        }
+        else
+        {
+            // the cancel was accepted only as part of a reschedule — no new booking, so it was given back
+            Assert.True(results[1].GetProperty("requires_new_booking").GetBoolean());
+        }
+        // nothing changed: the old booking stands, no Google insert or delete, nothing to deliver
+        var row = Assert.Single(r.FreshBookings());
+        Assert.Equal(BookingStatus.Booked, row.Status);
+        Assert.Null(row.CancelDraftId);
+        Assert.Empty(r.Google.Inserts);
+        Assert.Empty(r.Google.Deletes);
+        Assert.Empty(AiPendingAction.From(r.Drafts().Single().Context));
+        Assert.DoesNotContain(r.Messages("60123000001"), m => m.Private && m.Text.StartsWith("📅 Cancelled"));
+    }
+
+    [Fact]
+    public void A_new_time_taken_before_delivery_keeps_the_old_booking_too()
+    {
+        using var r = new BookingRig();
+        var c = r.Contact();
+        r.GoogleRow();
+        var skill = r.Skill(Hourly);
+        var old = OwnBooking(r, c.Id, skill, BookingRig.Kul(13, 14), BookingRig.Kul(13, 14, 30));
+        r.Set("ai_review_mode", "review_all");
+        r.Llm.Script = (msgs, _) => msgs.Count(m => m.Role == "tool") == 0
+            ? ToolScriptLlm.Calls(("calendar_cancel", $"{{\"booking_id\":{old.Id}}}"),
+                ("calendar_book", "{\"start\":\"2026-10-13T16:00\",\"duration_minutes\":60}"))
+            : ToolScriptLlm.Says("Moved to Tue 13 Oct, 4:00–5:00 PM (Asia/Kuala_Lumpur).");
+
+        r.Say("60123000001", "Please move my 2pm on Tuesday to 4pm, an hour");
+        var draft = r.Drafts().Single();
+        Assert.Equal(AiDraftStatus.Pending, draft.Status);
+        Assert.Equal(BookingStatus.Cancelling, r.FreshBookings().Single(b => b.Id == old.Id).Status);
+
+        // the new time is taken in Google while the reply waits for review
+        r.Google.Busy.Add((BookingRig.Kul(13, 16), BookingRig.Kul(13, 17)));
+        Assert.Equal(AiGateStatus.Blocked, r.Gate.Approve(draft.Id, "admin").Status);
+
+        var rows = r.FreshBookings();
+        Assert.Equal(BookingStatus.Booked, rows.Single(b => b.Id == old.Id).Status);   // the cancel was released
+        Assert.Equal(BookingStatus.Failed, rows.Single(b => b.Id != old.Id).Status);
+        Assert.Empty(r.Google.Inserts);
+        Assert.Empty(r.Google.Deletes);
+        var note = Assert.Single(r.Messages("60123000001"), m => m.Private && m.Text.StartsWith("📅 Booking failed"));
+        Assert.Contains("The booking it was replacing", note.Text);
+    }
+
+    [Fact]
+    public async Task Ignore_booking_id_frees_only_the_customers_own_booking()
+    {
+        using var r = new BookingRig();
+        var c = r.Contact();
+        var other = r.Contact("Ben Tan", "60123000002", "ben@example.com");
+        var skill = r.Skill(new { source = "chatbranch", min_notice_minutes = 0 });
+        var mine = OwnBooking(r, c.Id, skill, BookingRig.Kul(13, 14), BookingRig.Kul(13, 14, 30));
+        var theirs = OwnBooking(r, other.Id, skill, BookingRig.Kul(13, 15), BookingRig.Kul(13, 15, 30));
+        var ctx = () => new SkillContext { ContactId = c.Id };
+        var day = new { from_date = "2026-10-13", to_date = "2026-10-13" };
+
+        var plain = await Tool(r, skill, "availability", day, ctx());
+        Assert.DoesNotContain("2026-10-13T14:00", Starts(plain));
+
+        var ignoring = await Tool(r, skill, "availability",
+            new { from_date = "2026-10-13", to_date = "2026-10-13", ignore_booking_id = mine.Id }, ctx());
+        Assert.True(ignoring.GetProperty("ok").GetBoolean(), ignoring.ToString());
+        Assert.Contains("2026-10-13T14:00", Starts(ignoring));
+        Assert.DoesNotContain("2026-10-13T15:00", Starts(ignoring));             // another customer's stays busy
+        Assert.Equal(mine.Id, ignoring.GetProperty("ignored_booking_id").GetInt32());
+        var exact = await Tool(r, skill, "availability",
+            new { from_date = "2026-10-13", time = "14:00", ignore_booking_id = mine.Id }, ctx());
+        Assert.True(exact.GetProperty("requested").GetProperty("available").GetBoolean());
+
+        var refused = await Tool(r, skill, "availability",
+            new { from_date = "2026-10-13", ignore_booking_id = theirs.Id }, ctx());
+        Assert.False(refused.GetProperty("ok").GetBoolean());
+        Assert.Contains("isn't one of this customer's upcoming bookings", refused.GetProperty("error").GetString());
+        Assert.False((await Tool(r, skill, "availability", new { ignore_booking_id = "abc" }, ctx()))
+            .GetProperty("ok").GetBoolean());
+
+        // the per-customer limit's refusal points at it
+        var limited = await Tool(r, skill, "book", new { start = "2026-10-14T10:00" }, ctx());
+        Assert.Contains($"ignore_booking_id = {mine.Id}", limited.GetProperty("advice").GetString());
+    }
+
+    [Fact]
+    public void A_plain_cancel_still_cancels()
+    {
+        using var r = new BookingRig();
+        var c = r.Contact();
+        r.GoogleRow();
+        var skill = r.Skill(Hourly);
+        var old = OwnBooking(r, c.Id, skill, BookingRig.Kul(13, 14), BookingRig.Kul(13, 14, 30));
+        r.Llm.Script = (msgs, _) => msgs.Count(m => m.Role == "tool") == 0
+            ? ToolScriptLlm.Calls(("calendar_cancel", $"{{\"booking_id\":{old.Id}}}"))
+            : ToolScriptLlm.Says("Your appointment on Tue 13 Oct, 2:00 PM is cancelled.");
+
+        r.Say("60123000001", "Please cancel my 2pm on Tuesday");
+
+        Assert.Equal(BookingStatus.Cancelled, Assert.Single(r.FreshBookings()).Status);
+        Assert.EndsWith("/events/evt-old", Assert.Single(r.Google.Deletes).Path);
+        Assert.Empty(r.Google.Inserts);
+    }
+
+    [Fact]
+    public async Task A_playground_reschedule_previews_the_swap_and_touches_nothing()
+    {
+        using var r = new BookingRig();
+        var c = r.Contact();
+        var skill = r.Skill(new { source = "chatbranch", min_notice_minutes = 0, duration_unit_minutes = 30, max_units = 4 });
+        var old = OwnBooking(r, c.Id, skill, BookingRig.Kul(13, 14), BookingRig.Kul(13, 14, 30));
+        var ctx = new SkillContext { ContactId = c.Id, Apps = new BookingService.Session { Preview = true } };
+
+        Assert.True((await Tool(r, skill, "cancel", new { booking_id = old.Id }, ctx)).GetProperty("ok").GetBoolean());
+        // the booking still reads "booked" in a preview, yet the limit and the slot both treat it as replaced
+        var swapped = await Tool(r, skill, "book", new { start = "2026-10-13T14:00", duration_minutes = 60 }, ctx);
+        Assert.True(swapped.GetProperty("ok").GetBoolean(), swapped.ToString());
+        Assert.Equal(new[] { "cancel", "book" }, ctx.Apps.Previews.Select(p => p.Type));
+        Assert.Equal(BookingStatus.Booked, Assert.Single(r.FreshBookings()).Status);
+    }
+
     [Fact]
     public void Rejecting_a_reschedule_restores_the_old_booking()
     {

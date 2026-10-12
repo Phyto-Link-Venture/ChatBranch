@@ -931,6 +931,23 @@ When you fix one of these, update this table, `README.md` and
   release; `AiOpsWorker` releases orphans after 30 min; an operator preview, an
   empty reply and a dropped flow message release at once. Limits: one book + one
   cancel per reply, `max_active_per_contact`, the conversation's own contact only.
+  **Rescheduling = cancel + book in ONE reply, all-or-nothing.** The customer's own
+  booking never blocks its own reschedule: the book tool ignores the booking the
+  reply is cancelling (`FreeSlotsAsync(ignoreBookingId)` drops its hold AND its own
+  Google event — the free/busy span with exactly its start and end; a span merged
+  with a neighbour stays busy, so that refuses rather than double-books), the race
+  guard and the delivery re-check (`MakeAsync` `replacing`) do the same, and the
+  per-customer limit doesn't count it; `_availability` takes `ignore_booking_id`
+  (one of THIS customer's upcoming bookings, else ok:false; the reply's pending
+  cancel is ignored by default). A book that reserves nothing gives the reply's
+  cancel back (cancelling → booked, `old_booking_kept`, "The old booking (X) was
+  kept because the new time could not be booked."); a cancel after a failed book is
+  refused; a cancel after a "cancel first" refusal (the limit, or their own booking
+  in the way) says `requires_new_booking`, and `SettleRescheduleAsync` (after each
+  tool round in `AssistantService`) gives it back when the reply never booked — the
+  booking-claim check then catches "has been cancelled". At delivery `ConfirmAsync`
+  makes books first; a failed book releases the cancel. Tests: the reschedule block
+  of `BookingTests`.
   Every outcome writes audit `booking.created|cancelled|failed` (+
   `booking.unconfirmed` when the confirmation text is refused after booking), a
   "📅" private note and a notification (assignee, else admins; RefKey
