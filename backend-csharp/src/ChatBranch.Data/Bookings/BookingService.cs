@@ -952,6 +952,35 @@ public class BookingService
             .Where(x => SameCompany(x, entityId)).Take(10).ToList();
     }
 
+    /// <summary>
+    /// What the booking-claim check (<see cref="Ai.BookingClaims"/>) measures a reply
+    /// against: the contact's upcoming ACTIVE bookings and the ones cancelled in the
+    /// last 30 days, made for the answering conversation's company — this
+    /// conversation's own first — in each booking's local time. Never throws.
+    /// </summary>
+    public List<Ai.BookingClaims.KnownBooking> KnownForClaims(int contactId, int? threadId, int? entityId)
+    {
+        try
+        {
+            var now = UtcNow;
+            var since = now.AddDays(-30);
+            return _db.Bookings.AsNoTracking()
+                .Where(x => x.ContactId == contactId
+                            && ((x.Status == BookingStatus.Booked && x.EndUtc > now)
+                                || (x.Status == BookingStatus.Cancelled && x.UpdatedAt > since)))
+                .OrderByDescending(x => x.UpdatedAt).Take(40).ToList()
+                .Where(x => x.ThreadId == threadId || SameCompany(x, entityId))
+                .OrderByDescending(x => x.ThreadId == threadId).ThenByDescending(x => x.UpdatedAt).Take(10)
+                .Select(x =>
+                {
+                    var tz = TimeZoneFor(x.Timezone, TimeZoneInfo.Utc);
+                    return new Ai.BookingClaims.KnownBooking(BookingAvailability.ToLocal(x.StartUtc, tz),
+                        BookingAvailability.ToLocal(x.EndUtc, tz), x.Status, x.UpdatedAt);
+                }).ToList();
+        }
+        catch { return new(); }
+    }
+
     /// <summary>Was this booking made for the same company as <paramref name="entityId"/>?</summary>
     private bool SameCompany(Booking x, int? entityId) => _scoping.CompanyOf(x.EntityId) == _scoping.CompanyOf(entityId);
 

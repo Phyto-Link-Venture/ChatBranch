@@ -285,7 +285,9 @@ export const STEP_CHOICES: StepChoice[] = [
   { id: 'call', kind: 'action', title: 'flows.stepChoice.call', hint: 'flows.stepChoice.callHint',
     config: { channels: ['AI voice call'], callVia: 'Phone (SIP)', script: '' } },
   { id: 'handover', kind: 'handover', title: 'flows.stepChoice.handover', hint: 'flows.stepChoice.handoverHint',
-    config: { team: '', priority: 'Normal', reason: '' } },
+    // a new Hand-over step lets the AI keep answering while the team is told; a step
+    // saved before the option existed (no key) stands the AI down (FlowEngine.DoHandover)
+    config: { team: '', priority: 'Normal', reason: '', aiKeepsAnswering: true } },
   { id: 'update', kind: 'update', title: 'flows.stepChoice.update', hint: 'flows.stepChoice.updateHint',
     config: { op: 'add_tag', tag: '' } },
   // an Update step with op "chatbot" (FlowEngine.SetChatbot): the per-chat AI switch

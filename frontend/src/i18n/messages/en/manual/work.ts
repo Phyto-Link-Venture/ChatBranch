@@ -166,7 +166,7 @@ export const work = {
       },
       s6: {
         title: 'Or let the AI carry on',
-        body: 'If no person is needed after all, click “Let AI continue”. This closes the handover and turns the chatbot back on for this chat.',
+        body: 'If no person is needed after all, click “Let AI continue”. This closes the handover and turns the chatbot back on for this chat. If the customer’s last message is still waiting for an answer, the AI answers it straight away.',
       },
       s7: {
         title: 'Turn the AI off or on for this chat only',

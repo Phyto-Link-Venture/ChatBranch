@@ -83,7 +83,7 @@ public partial class AssistantService
             if (i > lastAi) human.Current.Add(i + 1);
         }
         var parts = new PromptParts(string.IsNullOrWhiteSpace(o.Persona) ? null : o.Persona, o.Skills, o.Knowledge,
-            o.Lessons, o.Memory, o.EmojiStyle ?? "", human.Guidance());
+            o.Lessons, o.Memory, o.EmojiStyle ?? "", human.Guidance(), Reply: true);
         var system = BuildSystemPrompt(input.EntityId, input.Channel, contact, RetrievalQuery.FromHistory(history), parts);
         var hits = _lastComposition.Hits.ToList();
         var messages = turns.Select((t, i) => new LlmMessage(

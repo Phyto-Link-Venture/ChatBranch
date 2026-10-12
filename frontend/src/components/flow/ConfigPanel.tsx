@@ -962,6 +962,8 @@ function HandoverForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
   const team = str(cfg.team)
   const priority = str(cfg.priority) || 'Normal'
   const prioritySet = priority !== 'Normal'
+  // no key = a step saved before the option: the AI stands down, as it did then
+  const keepsAnswering = bool(cfg.aiKeepsAnswering)
   const options: SelectOption[] = [
     { value: '', label: t('flows.config.adminsNoTeam') },
     ...lookups.teams.map((tm) => ({ value: String(tm.id), label: tm.name })),
@@ -973,6 +975,12 @@ function HandoverForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
         <Select value={team} onChange={(v) => set('team', v)} options={options} size="md" ariaLabel={t('flows.config.team')} />
       </Field>
       <VariableTextarea label={t('flows.config.whyNote')} rows={3} value={str(cfg.reason)} onChange={(v) => set('reason', v)} />
+      <SwitchRow
+        label={t('flows.config.aiKeepsAnswering')}
+        help={t('flows.config.aiKeepsAnsweringHelp')}
+        on={keepsAnswering}
+        onChange={(v) => set('aiKeepsAnswering', v)}
+      />
       <Advanced count={prioritySet ? 1 : 0} forceOpen={prioritySet}>
         <Field label={t('flows.config.priority')}>
           <Segmented
@@ -987,7 +995,7 @@ function HandoverForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
           />
         </Field>
       </Advanced>
-      <Notice>{t('flows.config.handoverNotice')}</Notice>
+      <Notice>{t(keepsAnswering ? 'flows.config.handoverNoticeKeepsAi' : 'flows.config.handoverNotice')}</Notice>
     </>
   )
 }

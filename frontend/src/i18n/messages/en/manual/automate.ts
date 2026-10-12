@@ -88,7 +88,7 @@ export const automate = {
       },
       s8: {
         title: 'Update the contact or hand over',
-        body: 'Add “Update contact” and pick “Add tag”, “Remove tag” or “Set field” (for example add the tag “qualified”). Or add “Hand over”, choose the team under “Hand over to” and write “Why — a note for the team”.',
+        body: 'Add “Update contact” and pick “Add tag”, “Remove tag” or “Set field” (for example add the tag “qualified”). Or add “Hand over”, choose the team under “Hand over to” and write “Why — a note for the team”. Leave “AI keeps answering while the team is notified” on to let the AI keep replying, or switch it off so the AI stops until someone lets it continue.',
       },
       s9: {
         title: 'Finish with End',

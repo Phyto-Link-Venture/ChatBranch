@@ -244,6 +244,7 @@ public static class AiControlsEndpoints
 
             var actor = me.Identity?.Name ?? "unknown";
             var changed = 0;
+            var repliesQueued = 0;
             foreach (var chunk in ids.Chunk(200))
             {
                 var rows = await db.Threads.Where(t => chunk.Contains(t.Id)).ToListAsync();
@@ -275,13 +276,17 @@ public static class AiControlsEndpoints
                         changed++;
                 }
                 await db.SaveChangesAsync();
+                // the AI back on answers the message each customer is waiting on (one job per chat)
+                if (action == "ai_on")
+                    foreach (var t in rows)
+                        if (AiResume.QueueWaitingReply(db, sc, t, actor)) repliesQueued++;
             }
             AuditTrail.Write(db, "inbox.bulk", $"{action} ×{ids.Count}",
                 $"{ids.Count} conversation{(ids.Count == 1 ? "" : "s")}"
                 + (action == "assign" ? $" → {(value.Length > 0 ? value : "(unassigned)")}" : "")
                 + (skipped.Count > 0 ? $" · {skipped.Count} skipped" : ""),
                 actor: actor);
-            return Results.Ok(new { ok = true, action, matched = ids.Count, changed, skipped });
+            return Results.Ok(new { ok = true, action, matched = ids.Count, changed, skipped, replies_queued = repliesQueued });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.manage");
 
         // ---- one conversation's handover: take it / let the AI continue / flag -----------
@@ -299,6 +304,7 @@ public static class AiControlsEndpoints
                 && p.ValueKind == JsonValueKind.String ? (p.GetString() ?? "").Trim() : "";
             var action = Prop("action").ToLowerInvariant();
             var me_ = me.Identity?.Name ?? "";
+            var replyQueued = false;
             switch (action)
             {
                 case "take":
@@ -314,6 +320,8 @@ public static class AiControlsEndpoints
                     if (t.Status == ThreadStatus.Pending) t.Status = ThreadStatus.Open;
                     AuditTrail.Add(db, "thread.handover.continue", $"{t.Channel}:{t.Key}", "chatbot on", actor: me_);
                     await db.SaveChangesAsync();
+                    // the customer's message that arrived while a person had the chat gets its answer now
+                    replyQueued = AiResume.QueueWaitingReply(db, sc, t, me_);
                     break;
                 case "flag":
                     var reason = Prop("reason");
@@ -335,6 +343,7 @@ public static class AiControlsEndpoints
                 ai_reason = verdict.Reason,
                 ai_rule = verdict.Rule,
                 ai_forced = verdict.Forced,
+                ai_reply_queued = replyQueued,
                 handover = HandoverPayload(t),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");

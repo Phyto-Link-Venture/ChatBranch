@@ -225,6 +225,7 @@ export const chats: Dict<typeof source> = {
     takeIt: 'Ambil alih',
     letAiContinue: 'Biar AI teruskan',
     letAiContinueHint: 'Tutup penyerahan dan hidupkan semula chatbot untuk sembang ini',
+    willAnswer: 'AI akan membalas mesej terakhir.',
   },
   identity: {
     asking: 'Pelanggan tidak dikenali — sedang bertanya siapa mereka',

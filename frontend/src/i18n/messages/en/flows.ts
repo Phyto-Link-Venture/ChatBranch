@@ -498,6 +498,10 @@ export const flows = {
     whyNote: 'Why — a note for the team',
     handoverNotice:
       'Their latest conversation moves to the team, the AI stops replying in it, and a private note explains why. The team is notified; High and Urgent also alert admins.',
+    handoverNoticeKeepsAi:
+      'Their latest conversation moves to the team and a private note explains why — the AI keeps answering there in the meantime. The team is notified; High and Urgent also alert admins.',
+    aiKeepsAnswering: 'AI keeps answering while the team is notified',
+    aiKeepsAnsweringHelp: 'Off: the AI stops replying in that chat until someone lets it continue.',
     change: 'Change',
     addTag: 'Add tag',
     removeTag: 'Remove tag',
@@ -1046,6 +1050,7 @@ export const flows = {
     theTeam: 'the team',
     toTeam: 'To {team}',
     toTeamPriority: 'To {team} · {priority} priority',
+    aiKeepsAnswering: 'AI keeps answering',
     chatbotOnAll: 'Turn the AI on in all their chats',
     chatbotOffAll: 'Turn the AI off in all their chats',
     chatbotOnChannels: 'Turn the AI on for {channels}',

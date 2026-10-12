@@ -49,6 +49,7 @@ export interface StepText {
 
 const str = (v: unknown) => (v === undefined || v === null ? '' : String(v)).trim()
 const clip = (s: string, n = 110) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s)
+const bool = (v: unknown) => v === true || v === 'true' || v === 'Yes' || v === 'yes'
 const listOf = (ctx: DescribeContext, xs: string[]) => (ctx.list ? ctx.list(xs) : xs.join(', '))
 
 /** A skill reference holds the skill's id; flows saved before the picker held
@@ -398,7 +399,10 @@ export function describeStep(t: TFunction, node: FlowNode, ctx: DescribeContext 
                 priority: PRIORITY_KEYS[priority] ? t(PRIORITY_KEYS[priority]) : priority,
               })
             : t('flows.describe.toTeam', { team }),
-        detail: str(cfg.reason) ? clip(str(cfg.reason)) : undefined,
+        detail:
+          [str(cfg.reason) ? clip(str(cfg.reason)) : '', bool(cfg.aiKeepsAnswering) ? t('flows.describe.aiKeepsAnswering') : '']
+            .filter(Boolean)
+            .join(' · ') || undefined,
       }
     }
     case 'update': {

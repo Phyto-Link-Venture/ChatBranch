@@ -225,6 +225,7 @@ export const chats: Dict<typeof source> = {
     takeIt: '接手',
     letAiContinue: '让 AI 继续',
     letAiContinueHint: '关闭转人工，并为此对话重新开启聊天机器人',
+    willAnswer: 'AI 将回复最后一条消息。',
   },
   identity: {
     asking: '未知客户——正在询问对方身份',

@@ -90,7 +90,7 @@ export const automate: Dict<typeof source> = {
       },
       s8: {
         title: 'Kemas kini kenalan atau serahkan',
-        body: 'Tambah “Kemas kini kenalan” dan pilih “Tambah tag”, “Buang tag” atau “Tetapkan medan” (contohnya tambah tag “qualified”). Atau tambah “Serahkan”, pilih pasukan di bawah “Serahkan kepada” dan tulis “Sebab — nota untuk pasukan”.',
+        body: 'Tambah “Kemas kini kenalan” dan pilih “Tambah tag”, “Buang tag” atau “Tetapkan medan” (contohnya tambah tag “qualified”). Atau tambah “Serahkan”, pilih pasukan di bawah “Serahkan kepada” dan tulis “Sebab — nota untuk pasukan”. Biarkan “AI terus membalas sementara pasukan dimaklumkan” hidup supaya AI terus membalas, atau matikannya supaya AI berhenti sehingga seseorang membenarkannya meneruskan.',
       },
       s9: {
         title: 'Tamatkan dengan Tamat',

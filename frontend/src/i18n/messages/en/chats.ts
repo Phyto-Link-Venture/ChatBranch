@@ -225,6 +225,7 @@ export const chats = {
     takeIt: 'Take it',
     letAiContinue: 'Let AI continue',
     letAiContinueHint: 'Close the handover and turn the chatbot back on for this chat',
+    willAnswer: 'The AI will answer the last message.',
   },
   identity: {
     asking: 'Unknown customer — asking who they are',

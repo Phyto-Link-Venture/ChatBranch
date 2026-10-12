@@ -175,13 +175,23 @@ public static class Handover
         {
             var action = AiGate.Str(ctx, "action", AiActions.Send);
             var asked = AiGate.Bool(ctx, "handover_asked") == true;
-            switch (KindForAiDraft(draftKind, text, action, canned, asked))
+            var partial = AiPartialHandover.From(ctx);
+            switch (KindForAiDraft(draftKind, text, action, canned, asked, partial != null))
             {
+                case HandoverKinds.CheckFailed when partial != null:
+                    // the reply answers everything else and goes out (no reviewer hears of it),
+                    // so the chat's owners are told a person must check the part left out —
+                    // the AI keeps answering meanwhile
+                    Mark(db, thread, HandoverKinds.CheckFailed, partial.HandoverReason(), "ai", standDown: false);
+                    break;
                 case HandoverKinds.CheckFailed:
                     var why = AiGate.Str(ctx, "reason", "");
+                    // a check about the whole reply stands the AI down; one pinned to a
+                    // part that left too little to send (ai_keeps_answering) does not
                     Mark(db, thread, HandoverKinds.CheckFailed,
                         why.Length > 0 ? $"The AI's reply checks stopped its answer: {why}"
-                            : "The AI's reply checks stopped its answer.", "ai", notify: false);
+                            : "The AI's reply checks stopped its answer.", "ai", notify: false,
+                        standDown: AiGate.Bool(ctx, "ai_keeps_answering") != true);
                     break;
                 case HandoverKinds.AskedForHuman:
                     // the reply itself still has to reach the customer (its later bubbles are
@@ -201,12 +211,15 @@ public static class Handover
     /// Which handover a submitted AI draft starts (pure — the gate marks it, the
     /// AI playground only reports it): <c>check_failed</c> when the assistant
     /// refused the reply, <c>asked_for_human</c> when the reply tells the customer
-    /// a person will help, null otherwise.
+    /// a person will help, null otherwise. <paramref name="partial"/> = the reply was
+    /// sent without a part its checks pinned (<see cref="AiPartialHandover"/>) — a
+    /// <c>check_failed</c> handover that leaves the AI on.
     /// </summary>
-    public static string? KindForAiDraft(string draftKind, string text, string action, bool canned, bool asked = false)
+    public static string? KindForAiDraft(string draftKind, string text, string action, bool canned, bool asked = false,
+        bool partial = false)
     {
         if (canned || draftKind is not (AiDraftKind.Reply or AiDraftKind.FollowUp)) return null;
-        if (action is AiActions.Handover or AiActions.Block) return HandoverKinds.CheckFailed;
+        if (action is AiActions.Handover or AiActions.Block || partial) return HandoverKinds.CheckFailed;
         return asked || Humanizer.HandsOver(text) ? HandoverKinds.AskedForHuman : null;
     }
 

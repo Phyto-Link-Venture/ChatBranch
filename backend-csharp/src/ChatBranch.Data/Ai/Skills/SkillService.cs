@@ -298,7 +298,17 @@ public class SkillService
     // ---- checks ------------------------------------------------------------------
 
     public sealed record CheckRun(string SkillId, string Name, bool Ok, string Reason, string Fix,
-        string? Error, double Ms, string OnFail);
+        string? Error, double Ms, string OnFail)
+    {
+        /// <summary>
+        /// The sentences of the draft a failing check objects to, when it can say
+        /// (the built-in booking-claim check). Empty = the whole reply. A reply whose
+        /// every failing check is pinned keeps the rest (<see cref="Ai.PartialReply"/>).
+        /// </summary>
+        public IReadOnlyList<string> Sentences { get; init; } = Array.Empty<string>();
+        /// <summary>What the pinned sentences are about (<see cref="Ai.PartialReply.Appointment"/>…).</summary>
+        public string Topic { get; init; } = "";
+    }
 
     /// <summary>
     /// Run every enabled check skill on a draft reply. A check that cannot run

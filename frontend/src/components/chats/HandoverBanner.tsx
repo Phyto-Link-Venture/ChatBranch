@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Bot, Hand, Loader2, UserCheck } from 'lucide-react'
 import { handoverAction, handoverBy, type UiHandover } from '@/lib/aiControls'
 import { timeAgo } from './inboxTypes'
@@ -9,8 +9,9 @@ import { useFormat, useT } from '@/i18n'
 /**
  * "The AI handed this over" — shown above the composer while a handover is
  * open: why, by whom and when, with "Take it" (assign to me) and "Let AI
- * continue" (closes the handover and turns the chatbot back on). A person's
- * reply or resolving the conversation closes it too (server side).
+ * continue" (closes the handover and turns the chatbot back on — and, when the
+ * customer's message is still waiting, the AI answers it: a short note says so).
+ * A person's reply or resolving the conversation closes it too (server side).
  */
 export default function HandoverBanner({
   channel,
@@ -37,13 +38,31 @@ export default function HandoverBanner({
   const f = useFormat()
   const [busy, setBusy] = useState<'take' | 'continue' | null>(null)
   const [err, setErr] = useState<string | null>(null)
-  if (!handover?.open) return null
+  const [willAnswer, setWillAnswer] = useState(false)
+  // the note belongs to the chat it was shown on
+  useEffect(() => setWillAnswer(false), [channel, threadKey])
+  useEffect(() => {
+    if (!willAnswer) return
+    const timer = setTimeout(() => setWillAnswer(false), 6000)
+    return () => clearTimeout(timer)
+  }, [willAnswer])
+  if (!handover?.open)
+    return willAnswer ? (
+      <div
+        role="status"
+        className="mx-3 mb-2 flex items-center gap-2 rounded-xl border border-line bg-card px-3 py-2 text-[12.5px] text-text-mid sm:mx-4"
+      >
+        <Bot size={14} aria-hidden className="shrink-0 text-[color:var(--green-ink)]" />
+        {t('chats.handover.willAnswer')}
+      </div>
+    ) : null
 
   const act = async (action: 'take' | 'continue') => {
     setBusy(action)
     setErr(null)
     try {
-      await handoverAction(channel, threadKey, action, undefined, threadId)
+      const res = await handoverAction(channel, threadKey, action, undefined, threadId)
+      if (action === 'continue' && res?.ai_reply_queued) setWillAnswer(true)
       onChanged()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))

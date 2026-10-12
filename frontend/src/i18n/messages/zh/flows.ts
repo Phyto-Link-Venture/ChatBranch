@@ -484,6 +484,10 @@ export const flows: Dict<typeof source> = {
     priority: '优先级',
     whyNote: '原因——给团队的备注',
     handoverNotice: '对方最近的对话会转给团队，AI 停止在其中回复，并附上一条私密备注说明原因。团队会收到通知；“高”和“紧急”还会提醒管理员。',
+    handoverNoticeKeepsAi:
+      '对方最近的对话会转给团队，并附上一条私密备注说明原因——在此期间 AI 会继续在其中回复。团队会收到通知；“高”和“紧急”还会提醒管理员。',
+    aiKeepsAnswering: '通知团队期间 AI 继续回复',
+    aiKeepsAnsweringHelp: '关闭时：AI 会停止在该对话中回复，直到有人让它继续。',
     change: '更改',
     addTag: '添加标签',
     removeTag: '移除标签',
@@ -1024,6 +1028,7 @@ export const flows: Dict<typeof source> = {
     theTeam: '团队',
     toTeam: '转给{team}',
     toTeamPriority: '转给{team} · {priority}优先级',
+    aiKeepsAnswering: 'AI 继续回复',
     chatbotOnAll: '在对方所有对话中开启 AI',
     chatbotOffAll: '在对方所有对话中关闭 AI',
     chatbotOnChannels: '为 {channels} 开启 AI',

@@ -66,8 +66,9 @@ public partial class AssistantService
     /// <param name="EmojiStyle">the emoji STYLE (off | light | expressive) — null = the entity's
     /// setting (<c>ai_emoji_style</c>), "" = no style line at all.</param>
     /// <param name="Touches">the human-like tool guidance of a chat reply (<see cref="HumanTurn.Guidance"/>).</param>
+    /// <param name="Reply">a chat reply to the customer's waiting messages: carries <see cref="EveryTopicRule"/>.</param>
     private sealed record PromptParts(string? Persona, bool Skills, bool Knowledge, bool Lessons, bool Memory,
-        string? EmojiStyle = null, string Touches = "")
+        string? EmojiStyle = null, string Touches = "", bool Reply = false)
     {
         public static readonly PromptParts All = new(null, true, true, true, true);
     }
@@ -115,10 +116,22 @@ public partial class AssistantService
                           + "alerted through that call.");
         }
         if (parts.Touches.Length > 0) sb.AppendLine().AppendLine(parts.Touches);
+        if (parts.Reply) sb.AppendLine().AppendLine(EveryTopicRule);
         // the prompt-injection floor — last, and not editable by any setting (PromptGuard)
         sb.AppendLine().AppendLine(PromptGuard.Rules);
         return sb.ToString().TrimEnd();
     }
+
+    /// <summary>
+    /// Chat replies answer EVERYTHING the customer raised since the last reply — a
+    /// reply once answered the newest line only ("ignore the invoice things") and the
+    /// question before it went unanswered. One part it can't do never silences the rest.
+    /// </summary>
+    public const string EveryTopicRule =
+        "The customer may raise several things in one message or across several messages since your last reply. "
+        + "Address every one, in order, in one reply. If you can't do one of them (needs a person, a tool refused), "
+        + "say so for that item only and still answer the rest. When their messages disagree (they changed a time "
+        + "or changed their mind), the latest message wins.";
 
     private string SafeEmojiStyle(int? entityId)
     {
@@ -379,13 +392,14 @@ public partial class AssistantService
         try
         {
             var contact = await ContactAsync(thread.ContactId, ct);
-            var history = History(thread.Id, 20);
+            // every customer message since our last reply is in view, however many there were
+            var history = History(thread.Id, ReplyWindow(thread.Id));
             var lastUser = history.LastOrDefault(m => m.Direction == MessageDirection.In)?.Text ?? "";
 
             var (account, policy) = PolicyFor(thread);
             var human = TurnFor(thread.Channel, account, policy, history);
             var system = BuildSystemPrompt(thread.EntityId, thread.Channel, contact, RetrievalQuery.FromHistory(history),
-                PromptParts.All with { EmojiStyle = policy.EmojiStyle, Touches = human.Guidance() });
+                PromptParts.All with { EmojiStyle = policy.EmojiStyle, Touches = human.Guidance(), Reply = true });
             var messages = Transcript(history, human);
             AddQuotedContext(history, messages);
             AttachCustomerImages(thread, history, messages);
@@ -716,6 +730,11 @@ public partial class AssistantService
                                                   && AppSkills.AppOf(s.Config) == AppSkills.Calendar);
         var booked = false;
         var cancelled = false;
+        // the conversation's own bookings: restating one ("confirmed for Mon 12 Oct, 3:15 PM") is honest
+        var known = guardBookingClaims && spec.Contact is { Id: > 0 } who
+            ? _skills.Bookings.KnownForClaims(who.Id, spec.ThreadId, spec.EntityId)
+            : new List<BookingClaims.KnownBooking>();
+        var today = DateOnly.FromDateTime(ctx.LocalNow.DateTime);
 
         for (; attempt <= MaxCheckRetries; attempt++)
         {
@@ -768,10 +787,16 @@ public partial class AssistantService
                 runs.Add(new SkillService.CheckRun("builtin:no_repeat", "Not a repeat", false,
                     "The follow-up repeats the previous message word for word.", "Write a different, shorter nudge.",
                     null, 0, "retry"));
-            if (guardBookingClaims && BookingClaims.Unbacked(draft, booked, cancelled) is { } claim)
-                runs.Add(new SkillService.CheckRun("builtin:no_false_booking_claim", "Booking claims match the calendar",
+            if (guardBookingClaims && BookingClaims.UnbackedClaims(draft, booked, cancelled, known, today) is { Count: > 0 } claims)
+            {
+                var claim = claims.Any(c => c.Kind == "cancelled") ? "cancelled" : "made";
+                runs.Add(new SkillService.CheckRun(BookingClaimCheck, "Booking claims match the calendar",
                     false, $"The reply says a booking was {claim} but no calendar tool did it.",
-                    "Call the calendar tool first, or don't say it is done.", null, 0, "retry"));
+                    BookingClaims.FixText(known), null, 0, "retry")
+                {
+                    Sentences = claims.Select(c => c.Sentence).ToList(), Topic = PartialReply.Appointment,
+                });
+            }
             checks.AddRange(runs.Select(r => new AiCheckRun(r.SkillId, r.Name, r.Ok, r.Reason, r.Fix, r.Error, attempt)));
             failing = runs.Where(r => !r.Ok).ToList();
             if (failing.Count == 0) { action = AiActions.Send; break; }
@@ -780,10 +805,39 @@ public partial class AssistantService
             if (failing.Any(f => f.OnFail == "handover")) { action = AiActions.Handover; break; }
         }
 
+        AiPartialHandover? partial = null;
+        var keepAiOn = false;
+        // (a conversation reply only: a flow's message has no handover to back the teammate line)
+        if (action == "" && (spec.Feature is "chat_reply" or "follow_up" or PlaygroundFeature)
+            && failing.Count > 0 && failing.All(f => f.Sentences.Count > 0 && f.OnFail == "retry"))
+        {
+            // Still failing, but every failing check pinned its problem to sentences (a
+            // booking claim nothing backs): leave those out and send the rest — the
+            // other topics still get their answer — with one line saying a teammate
+            // will check that part; the gate opens a handover that keeps the AI on.
+            // When too little is left to be a reply, a person answers — the AI still
+            // stays on (the next message gets an answer).
+            var topic = failing.Select(f => f.Topic).FirstOrDefault(t => t.Length > 0) ?? PartialReply.Appointment;
+            var why = string.Join("; ", failing.Select(f => f.Reason));
+            var dropped = failing.SelectMany(f => f.Sentences).Distinct().ToList();
+            if (PartialReply.Without(draft, dropped) is { } rest)
+            {
+                partial = new AiPartialHandover(topic, why, dropped);
+                draft = rest + "\n\n" + PartialReply.CustomerLine(topic, Review.AiReviewService.Language(rest));
+                action = AiActions.Send;
+                reason = partial.HandoverReason();
+            }
+            else
+            {
+                keepAiOn = true;
+                action = AiActions.Handover;
+            }
+        }
         if (action == "")
         {
             // Still failing after the retries: block only when EVERY failing check
-            // says block; an exhausted "retry" means a human answers.
+            // says block; an exhausted "retry" means a human answers (the whole reply
+            // was the problem, so the AI stands down until someone lets it continue).
             action = failing.All(f => f.OnFail == "block") ? AiActions.Block : AiActions.Handover;
         }
         if (failing.Count > 0 && action is AiActions.Handover or AiActions.Block)
@@ -809,6 +863,8 @@ public partial class AssistantService
             CostUsd = metered.Calls.Any(c => c.Result.CostUsd != null)
                 ? metered.Calls.Sum(c => c.Result.CostUsd ?? 0) : null,
             Feature = spec.Feature,
+            Partial = partial,
+            KeepAiOn = keepAiOn,
             PendingActions = ctx.Apps.Actions.ToList(),
             Attachments = ctx.Docs.DocumentIds.ToList(),
             Deferred = ctx.Docs.Deferred.ToList(),
@@ -819,6 +875,9 @@ public partial class AssistantService
         RecordUsage(metered, spec, result);
         return result;
     }
+
+    /// <summary>The built-in check that holds booking claims to the calendar (<see cref="BookingClaims"/>).</summary>
+    public const string BookingClaimCheck = "builtin:no_false_booking_claim";
 
     private static string HandoverReasonOf(string? argsJson)
     {
@@ -856,6 +915,15 @@ public partial class AssistantService
     /// </summary>
     public void ApplyOutcome(Thread? thread, AiReplyResult r, Contact? contact = null)
     {
+        if (r.Partial != null && thread != null && r.ShouldSend)
+        {
+            // the reply goes out without the part its checks pinned: a person checks
+            // that part, the AI keeps answering
+            var row = _db.Threads.FirstOrDefault(t => t.Id == thread.Id);
+            if (row != null)
+                Handover.Mark(_db, row, HandoverKinds.CheckFailed, r.Partial.HandoverReason(), "ai", standDown: false);
+            return;
+        }
         if (r.Action is not (AiActions.Handover or AiActions.Block)) return;
         try
         {
@@ -875,7 +943,8 @@ public partial class AssistantService
                 });
                 if (handover && tracked.Status is ThreadStatus.Open or ThreadStatus.Snoozed)
                     tracked.Status = ThreadStatus.Pending;
-                if (handover) Handover.Mark(_db, tracked, HandoverKinds.CheckFailed, r.Reason, "ai", note: false, notify: false, save: false);
+                if (handover) Handover.Mark(_db, tracked, HandoverKinds.CheckFailed, r.Reason, "ai", note: false, notify: false,
+                    save: false, standDown: !r.KeepAiOn);
                 tracked.UpdatedAt = DateTime.UtcNow; // the SSE stream refreshes the inbox
             }
             if (handover) Notify(tracked, contact, r);
@@ -1089,6 +1158,23 @@ public partial class AssistantService
             messages.Insert(userIdx, new LlmMessage("system", note));
         }
         catch { /* context only — never breaks the reply */ }
+    }
+
+    /// <summary>
+    /// How many messages a chat reply reads: the last 20 — more when the customer
+    /// wrote more than that since our last reply (up to 60), so none of them is cut off.
+    /// </summary>
+    private int ReplyWindow(int threadId)
+    {
+        try
+        {
+            var lastOut = _db.Messages.AsNoTracking()
+                .Where(m => m.ThreadId == threadId && !m.Private && m.Direction == MessageDirection.Out)
+                .Max(m => (int?)m.Id) ?? 0;
+            var waiting = _db.Messages.AsNoTracking().Count(m => m.ThreadId == threadId && !m.Private && m.Id > lastOut);
+            return Math.Clamp(waiting + 4, 20, 60);
+        }
+        catch { return 20; }
     }
 
     private List<Message> History(int threadId, int take)

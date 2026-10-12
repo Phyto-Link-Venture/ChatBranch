@@ -493,6 +493,10 @@ export const flows: Dict<typeof source> = {
     whyNote: 'Sebab — nota untuk pasukan',
     handoverNotice:
       'Perbualan terkini mereka berpindah kepada pasukan, AI berhenti membalas di situ, dan nota peribadi menerangkan sebabnya. Pasukan dimaklumkan; Tinggi dan Segera turut memberi amaran kepada pentadbir.',
+    handoverNoticeKeepsAi:
+      'Perbualan terkini mereka berpindah kepada pasukan dan nota peribadi menerangkan sebabnya — AI terus membalas di situ sementara itu. Pasukan dimaklumkan; Tinggi dan Segera turut memberi amaran kepada pentadbir.',
+    aiKeepsAnswering: 'AI terus membalas sementara pasukan dimaklumkan',
+    aiKeepsAnsweringHelp: 'Mati: AI berhenti membalas dalam sembang itu sehingga seseorang membenarkannya meneruskan.',
     change: 'Ubah',
     addTag: 'Tambah tag',
     removeTag: 'Buang tag',
@@ -1036,6 +1040,7 @@ export const flows: Dict<typeof source> = {
     theTeam: 'pasukan',
     toTeam: 'Kepada {team}',
     toTeamPriority: 'Kepada {team} · keutamaan {priority}',
+    aiKeepsAnswering: 'AI terus membalas',
     chatbotOnAll: 'Hidupkan AI dalam semua sembang mereka',
     chatbotOffAll: 'Matikan AI dalam semua sembang mereka',
     chatbotOnChannels: 'Hidupkan AI untuk {channels}',

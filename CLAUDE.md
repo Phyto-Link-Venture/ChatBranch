@@ -1239,10 +1239,33 @@ When you fix one of these, update this table, `README.md` and
   `******-**-1234` — and it is idempotent; it runs BEFORE the checks. The built-in
   check `builtin:no_false_booking_claim` (`Ai/BookingClaims.cs`, only when a
   calendar app skill is in scope) fails a draft that says an appointment HAS
-  BEEN cancelled / booked / confirmed when no `*_cancel` (`cancel_pending`) /
-  `*_book` (`reserved`) tool call of this reply did it — retry, then a person
-  (quoting an existing booking has no claim verb and passes). Tests:
-  `ChannelFormatterTests`.
+  BEEN cancelled / booked / confirmed when nothing backs it. A "made" claim is
+  backed by this reply's `*_book` (`reserved`) OR by restating one of the
+  conversation's ACTIVE bookings (`BookingService.KnownForClaims`: the contact's
+  upcoming booked rows + those cancelled in 30 days, same company, this
+  conversation's first — loaded before the loop): the claim's sentence (else the
+  whole draft) names that booking's start time or date ("3:15" / "3.15" / "15:15",
+  "12 Oct" / "Monday" / "today") and no other time or date — its end only beside
+  its start; a price ("RM 12.50") or a dotted date is never a time. A "cancelled"
+  claim is backed by this reply's `*_cancel` (`cancel_pending`) or when the most
+  recent booking for the time it names is already cancelled. Pure
+  (`BookingClaims.UnbackedClaims` → the failing sentences); the fix line lists the
+  active bookings ("Existing booking: Mon 12 Oct, 3:15–3:45 PM. You may say it is
+  booked for that time; don't say a NEW booking was made unless you call the book
+  tool."). Retry, then — this check PINS its sentences (`CheckRun.Sentences` /
+  `Topic`) — a **partial handover** (`Ai/PartialReply.cs`): when every failing
+  check is pinned, those sentences are dropped and the rest is sent with "I'll get
+  a teammate to check the appointment part for you." (EN/BM/ZH by the reply's
+  language), `AiReplyResult.Partial` → the draft's `partial_handover` → a
+  `check_failed` handover naming the topic and quoting what was left out, the AI
+  staying ON; too little left (< 3 words) = the whole draft is held with
+  `ai_keeps_answering` (still on). Only a check about the whole reply (unpinned,
+  or OnFail handover) stands the AI down, as before. Chat replies (and the
+  playground) carry `AssistantService.EveryTopicRule` — answer every topic raised
+  since the last reply, in order, say so for an item it can't do and still answer
+  the rest, the latest message wins on a conflict — and read every waiting
+  message (`ReplyWindow`: 20 messages, up to 60 when more are waiting). Tests:
+  `ChannelFormatterTests`, `AiSilenceTests`.
 - **AI reviewer — "AI to monitor AI"** (`Ai/Review/AiReviewService.cs`,
   `Endpoints/AiReviewEndpoints.cs`, the AI monitor's "AI review" tab
   `?tab=ai-review`, `components/ai-monitor/AiReviewPanel.tsx`). ON DEMAND ONLY —
@@ -1364,7 +1387,14 @@ When you fix one of these, update this table, `README.md` and
   assistant's handover outcome, the flow Hand-over step, the automation
   `hand_over` action, the identity exchange and `POST
   /api/inbox/threads/{channel}/{key}/handover` `{take|continue|flag}`
-  (`chats.send`). A person's reply (the human send endpoints — not API keys or
+  (`chats.send`). **continue** (and the bulk `ai_on`) also answers the message the
+  customer is waiting on (`Ai/AiResume.QueueWaitingReply`): when the last
+  customer-visible message is theirs, under 24 h old (`WaitingWindow`), the AI
+  eligible and no AI draft held for review, ONE ai_reply job is queued (payload
+  `resume_for` = that message; a job already queued / for that message = none),
+  audit `ai.resume.reply`; the answer carries `ai_reply_queued` (bulk:
+  `replies_queued`) and the banner says "The AI will answer the last message."
+  Tests: `AiSilenceTests`, `AiResumeApiTests`. A person's reply (the human send endpoints — not API keys or
   MCP) or resolving sets `handover_resolved_at`. UI: the inbox `handover` filter
   + "Needs human" tab, an amber chip, `HandoverBanner.tsx` (Take it / Let AI
   continue); `/api/live` adds `needs_human_count`; `GET /api/ai/handovers/stats`
@@ -2152,7 +2182,10 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   an answer and wakes nothing, `FlowEngine.MessageNotSentYet`) ·
   **followup** ("Follow up if no reply": yes = replied, no = no reply; up to 5
   nudges, stops on resolve) · decision (see Decisions below) · handover (to a team; a tracked handover,
-  kind `rule`) · update (add/remove tag, set a field, **Set chatbot on/off** =
+  kind `rule`; `aiKeepsAnswering` = "AI keeps answering while the team is
+  notified" — on for a new step and the appointment-reminder starter, it leaves the
+  chatbot on (`standDown: false`); a step saved without the key stands the AI down
+  as before) · update (add/remove tag, set a field, **Set chatbot on/off** =
   op `chatbot`, value on|off, scope all|channels — written through
   `AiEligibility.Set`) · end (outcome code); `stage` is a legacy pass-through. The
   step `skill` picker (`SkillPicker.tsx`) offers PROMPT skills only — tools,

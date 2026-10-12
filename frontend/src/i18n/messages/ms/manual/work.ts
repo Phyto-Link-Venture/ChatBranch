@@ -168,7 +168,7 @@ export const work: Dict<typeof source> = {
       },
       s6: {
         title: 'Atau biar AI teruskan',
-        body: 'Jika manusia tidak diperlukan, klik “Biar AI teruskan”. Ini menutup penyerahan dan menghidupkan semula chatbot untuk sembang ini.',
+        body: 'Jika manusia tidak diperlukan, klik “Biar AI teruskan”. Ini menutup penyerahan dan menghidupkan semula chatbot untuk sembang ini. Jika mesej terakhir pelanggan masih menunggu jawapan, AI terus membalasnya.',
       },
       s7: {
         title: 'Matikan atau hidupkan AI untuk sembang ini sahaja',

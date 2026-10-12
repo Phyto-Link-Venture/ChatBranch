@@ -104,7 +104,12 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
           n('d1', 'decision', check({ subject: 'reply', op: 'said_yes' })),
           n('u1', 'update', { op: 'add_tag', tag: 'confirmed' }),
           n('e1', 'end', { logCode: 'CONFIRMED', updateMemory: 'Yes' }),
-          n('h1', 'handover', { team: '', priority: 'High', reason: t('flows.starters.appointment.handoverReason') }),
+          n('h1', 'handover', {
+            team: '',
+            priority: 'High',
+            reason: t('flows.starters.appointment.handoverReason'),
+            aiKeepsAnswering: true,
+          }),
           n('e2', 'end', { logCode: 'NEEDS_FOLLOW_UP', updateMemory: 'Yes' }),
         ],
         [e('t1', 'a1'), e('a1', 'w1'), e('w1', 'd1'), e('d1', 'u1', 'yes'), e('u1', 'e1'), e('d1', 'h1', 'no'), e('h1', 'e2')],

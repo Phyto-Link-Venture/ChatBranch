@@ -128,6 +128,10 @@ export const flows: Overlay<Messages['flows']> = {
     handOverToHelp: 'You manage teams under Teams.',
     handoverNotice:
       'Their latest conversation goes to the team, the AI stops replying there, and a private note explains why. The team gets notified; for High and Urgent, the admins get alerted too.',
+    handoverNoticeKeepsAi:
+      'Their latest conversation goes to the team and a private note explains why — meanwhile the AI still replies there. The team gets notified; for High and Urgent, the admins get alerted too.',
+    aiKeepsAnswering: 'AI still replies while the team gets notified',
+    aiKeepsAnsweringHelp: 'Off: the AI stops replying in that chat until somebody lets it continue.',
     chatbotNotice:
       'It flips the same AI switch you see in the chat header. But the AI master switch, a contact set to “never”, never-AI tags and opt-outs still get the final say.',
     outcomeHelp: 'A short code shown on every finished run, like BOOKED or NO_REPLY.',

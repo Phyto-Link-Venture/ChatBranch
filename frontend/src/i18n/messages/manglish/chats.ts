@@ -31,6 +31,7 @@ export const chats: Overlay<Messages['chats']> = {
     aiHandedOver: 'The AI passed this one to a person',
     yours: ' — yours now ah; once you reply, it’s closed.',
     letAiContinueHint: 'Close the handover and let the chatbot take over this chat again',
+    willAnswer: 'Okay, the AI will reply the last message ya.',
   },
   identity: {
     asking: 'Unknown customer — asking them who they are first',

@@ -1082,15 +1082,20 @@ public partial class FlowEngine
         var thread = BookingThreadId(run) is int bookedIn ? _db.Threads.FirstOrDefault(t => t.Id == bookedIn) : null;
         thread ??= contact == null ? null : _db.Threads
             .Where(t => t.ContactId == contact.Id).OrderByDescending(t => t.UpdatedAt).FirstOrDefault();
+        // "AI keeps answering while the team is notified" — the step's choice; a step saved
+        // before the option existed (no key) stands the AI down, as it always did
+        var aiKeepsAnswering = CfgBool(cfg, "aiKeepsAnswering");
         if (thread != null)
         {
             if (team != null) { thread.TeamId = team.Id; thread.Assignee = ""; }
             thread.Status = ThreadStatus.Open;
-            Ai.AiEligibility.Set(thread, false); // the current number's tick + the legacy column
+            if (!aiKeepsAnswering) Ai.AiEligibility.Set(thread, false); // the current number's tick + the legacy column
             var note = $"Handed over by the flow “{wf.Name}” to {teamLabel} · {priority} priority"
-                       + (reason.Trim() != "" ? $" — {reason.Trim()}" : "");
+                       + (reason.Trim() != "" ? $" — {reason.Trim()}" : "")
+                       + (aiKeepsAnswering ? " · the AI keeps answering" : "");
             Ai.Handover.Mark(_db, thread, Ai.HandoverKinds.Rule, reason.Trim() != "" ? reason.Trim()
-                : $"The flow “{wf.Name}” handed it to {teamLabel}", "flow", note: false, notify: false, save: false);
+                : $"The flow “{wf.Name}” handed it to {teamLabel}", "flow", note: false, notify: false, save: false,
+                standDown: !aiKeepsAnswering);
             thread.Status = ThreadStatus.Open; // the team's queue picks it up
             _db.Messages.Add(new Message
             {

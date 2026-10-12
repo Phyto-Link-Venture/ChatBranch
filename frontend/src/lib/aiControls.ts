@@ -194,6 +194,8 @@ export interface HandoverActionResult {
   ai_enabled: boolean
   ai_reason: string
   ai_forced: boolean
+  /** "continue": the AI was queued to answer the customer's waiting message */
+  ai_reply_queued?: boolean
   handover: UiHandover | null
 }
 
