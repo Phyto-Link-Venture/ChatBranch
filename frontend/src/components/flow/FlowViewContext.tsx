@@ -28,6 +28,8 @@ export interface FlowView {
   selectedId: string | null
   /** unfinished-step notes per node id (translation keys) */
   issues: Record<string, MessageKey[]>
+  /** the journey starts "Before a booking" — its messages may use the {{booking_…}} variables */
+  bookingTrigger?: boolean
   onInsertOnEdge: (edgeId: string) => void
 }
 

@@ -8,6 +8,8 @@ import { MultiSelect, Select, type SelectOption } from '@/components/ui/Select'
 import { Trans, useT } from '@/i18n'
 import {
   AI_MESSAGE,
+  BOOKING_LEAD_UNITS,
+  BOOKING_TRIGGER,
   CALL_CHANNELS,
   CHATBOT_CHANNELS,
   DURATION_UNITS,
@@ -166,9 +168,13 @@ function TriggerForm({ cfg, set, onPatch, flowId }: { cfg: FlowConfig; set: SetF
   const audience = (str(cfg.audience) || (contacts.length ? 'some' : str(cfg.onlyTag) ? 'tag' : 'all')) as 'all' | 'tag' | 'some'
   const defaultRepeat = when === 'Message received' ? 'Every time' : 'Once'
   const repeat = str(cfg.repeat) || defaultRepeat
+  const booking = when === BOOKING_TRIGGER
   const showAudience = when !== 'Manual / API'
-  const showRepeat = when !== 'Scheduled' && when !== 'Manual / API' && when !== 'Contact created'
-  const advancedSet = (showAudience && audience !== 'all' ? 1 : 0) + (showRepeat && repeat !== defaultRepeat ? 1 : 0)
+  // "Before a booking" runs once per booking — there is nothing to repeat
+  const showRepeat = when !== 'Scheduled' && when !== 'Manual / API' && when !== 'Contact created' && !booking
+  const calendar = str(cfg.calendar)
+  const advancedSet =
+    (showAudience && audience !== 'all' ? 1 : 0) + (showRepeat && repeat !== defaultRepeat ? 1 : 0) + (booking && calendar ? 1 : 0)
   const repeatOptions: SelectOption[] = [
     ...choiceOptions(t, REPEAT_OPTIONS),
     ...(LEGACY_REPEATS[repeat] ? [{ value: repeat, label: t(LEGACY_REPEATS[repeat]) }] : []),
@@ -177,7 +183,17 @@ function TriggerForm({ cfg, set, onPatch, flowId }: { cfg: FlowConfig; set: SetF
   return (
     <>
       <Field label={t('flows.config.startWhen')}>
-        <Select value={when} onChange={(v) => set('when', v)} options={options} size="md" ariaLabel={t('flows.config.trigger')} />
+        <Select
+          value={when}
+          onChange={(v) =>
+            v === BOOKING_TRIGGER
+              ? onPatch({ when: v, amount: Number(cfg.amount) || 1, unit: str(cfg.unit) || 'hours', calendar, repeat: 'Every time' })
+              : set('when', v)
+          }
+          options={options}
+          size="md"
+          ariaLabel={t('flows.config.trigger')}
+        />
       </Field>
       {legacy && <Notice tone="amber">{t('flows.config.legacyTriggerNotice')}</Notice>}
 
@@ -238,6 +254,33 @@ function TriggerForm({ cfg, set, onPatch, flowId }: { cfg: FlowConfig; set: SetF
         </>
       )}
 
+      {booking && (
+        <>
+          <Field label={t('flows.config.bookingLead')} help={t('flows.config.bookingLeadHelp')}>
+            <div className="flex flex-wrap items-center gap-2">
+              <NumberInput
+                value={cfg.amount as number}
+                onChange={(v) => set('amount', v)}
+                min={1}
+                ariaLabel={t('flows.config.bookingLeadAmount')}
+                className="!w-20"
+              />
+              <div className="min-w-[120px]">
+                <Select
+                  value={str(cfg.unit) || 'hours'}
+                  onChange={(v) => set('unit', v)}
+                  options={choiceOptions(t, BOOKING_LEAD_UNITS)}
+                  size="md"
+                  ariaLabel={t('flows.config.bookingLeadUnit')}
+                />
+              </div>
+              <span className="text-[12.5px] text-text-mid">{t('flows.config.beforeBookingStarts')}</span>
+            </div>
+          </Field>
+          <Notice>{t('flows.config.bookingNotice')}</Notice>
+        </>
+      )}
+
       {when === 'Scheduled' && (
         <>
           <Field label={t('flows.config.time')} help={t('flows.config.timeHelp')}>
@@ -272,6 +315,7 @@ function TriggerForm({ cfg, set, onPatch, flowId }: { cfg: FlowConfig; set: SetF
 
       {(showAudience || showRepeat) && (
         <Advanced count={advancedSet} forceOpen={advancedSet > 0}>
+          {booking && <CalendarSkillPicker value={calendar} onChange={(v) => set('calendar', v)} />}
           {showAudience && (
             <div className="flex flex-col gap-3 rounded-lg border border-line bg-well p-3">
               <Field label={t('flows.config.whoCanEnter')}>
@@ -319,6 +363,28 @@ function TriggerForm({ cfg, set, onPatch, flowId }: { cfg: FlowConfig; set: SetF
         <div className="text-[11.5px] text-text-muted">{t('flows.config.noDateFields')}</div>
       )}
     </>
+  )
+}
+
+/** Which calendar's bookings a "Before a booking" journey reminds about: any, or one calendar app skill's. */
+function CalendarSkillPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const t = useT()
+  const { lookups } = useFlowView()
+  const calendars = lookups.skills.filter((s) => s.kind === 'app' && (!s.app || s.app === 'calendar'))
+  const options: SelectOption[] = [
+    { value: '', label: t('flows.config.anyCalendar') },
+    ...calendars.map((s) => ({
+      value: s.id,
+      label: s.name,
+      hint: s.enabled === false ? t('flows.skillPicker.off') : undefined,
+    })),
+  ]
+  if (value && !calendars.some((s) => s.id === value))
+    options.push({ value, label: lookups.skillsLoaded ? t('flows.config.calendarNotFound', { value }) : value })
+  return (
+    <Field label={t('flows.config.bookingCalendar')} help={t('flows.config.bookingCalendarHelp')}>
+      <Select value={value} onChange={onChange} options={options} size="md" ariaLabel={t('flows.config.bookingCalendar')} />
+    </Field>
   )
 }
 

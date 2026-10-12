@@ -104,6 +104,14 @@ function triggerTitle(t: TFunction, cfg: FlowConfig, ctx: DescribeContext): stri
         return t(yearly ? 'flows.describe.daysAfterYearly' : 'flows.describe.daysAfter', { count, field })
       return t(yearly ? 'flows.describe.onDateYearly' : 'flows.describe.onDate', { field })
     }
+    case 'Before a booking': {
+      const unit = ['minutes', 'hours', 'days'].includes(str(cfg.unit)) ? str(cfg.unit) : 'hours'
+      const lead = durationText(t, Math.max(1, Number(cfg.amount) || 1), unit)
+      const id = str(cfg.calendar)
+      if (!id) return t('flows.describe.beforeBookingAny', { lead })
+      const calendar = ctx.skills?.find((s) => s.id === id)?.name ?? id
+      return t('flows.describe.beforeBookingOn', { lead, calendar })
+    }
     case 'Scheduled': {
       const picked = Array.isArray(cfg.weekdays) ? cfg.weekdays.map(String) : []
       const time = str(cfg.time) || '09:00'

@@ -2103,7 +2103,14 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   (`lib/flow/nodeConfig.ts` — change both sides together). Triggers: Contact
   created · Tag added · Message received (optional keyword/channel) · Date field
   (days before/on/after a contact DATE CUSTOM FIELD, optionally yearly — not the
-  record's due date) · Scheduled (time + weekdays) · Manual / API
+  record's due date) · Before a booking (N minutes / hours / days before a
+  ChatBranch booking, per booking, follows reschedules, stops on cancel —
+  `FlowEngine.Bookings.cs`: `amount` + `unit` + optional `calendar` skill id, its
+  own pass in `EvaluateTriggers`, the run's sends go to the booking's chat via
+  `trigger_thread_id`; `{{booking_time}}` / `{{booking_date}}` /
+  `{{booking_start_time}}` / `{{booking_end_time}}` / `{{booking_length}}` /
+  `{{booking_calendar}}` / `{{booking_link}}` in the booking's timezone, empty
+  outside such a run) · Scheduled (time + weekdays) · Manual / API
   (`POST /api/flows/{flowId}/start`); repeat Once / Every time / Once a day.
   Legacy record-due-date triggers still execute but are never offered.
   Step kinds: trigger · action (send message on WhatsApp/Email/Telegram/SMS

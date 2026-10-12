@@ -36,7 +36,7 @@ import {
   fetchTeams,
   pushFlowLibrary,
 } from '@/lib/flow/api'
-import { branchLabelFor, type StepChoice } from '@/lib/flow/nodeConfig'
+import { BOOKING_TRIGGER, branchLabelFor, type StepChoice } from '@/lib/flow/nodeConfig'
 import {
   autoLayout,
   deleteStep,
@@ -456,6 +456,7 @@ export default function FlowBuilder() {
     stats,
     selectedId: panel?.kind === 'node' ? panel.id : null,
     issues,
+    bookingTrigger: graph.nodes.some((n) => n.type === 'trigger' && n.data?.config?.when === BOOKING_TRIGGER),
     onInsertOnEdge: (edgeId) => setInsert({ mode: 'edge', edgeId, hasContinuation: true }),
   }
 

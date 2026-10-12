@@ -118,7 +118,7 @@ export const automate: Dict<typeof source> = {
   journeyTriggers: {
     title: 'Pilih bila perjalanan bermula',
     summary:
-      'Kad pertama setiap perjalanan (“Apabila…”) menentukan siapa yang masuk dan bila: kenalan baharu, tag, mesej masuk, tarikh, jadual, atau anda memulakannya secara manual.',
+      'Kad pertama setiap perjalanan (“Apabila…”) menentukan siapa yang masuk dan bila: kenalan baharu, tag, mesej masuk, tarikh, tempahan, jadual, atau anda memulakannya secara manual.',
     steps: {
       s1: {
         title: 'Buka kad permulaan',
@@ -126,7 +126,7 @@ export const automate: Dict<typeof source> = {
       },
       s2: {
         title: 'Pilih apa yang memulakannya',
-        body: 'Klik senarai di bawah “Mulakan perjalanan ini apabila”. Pilihannya ialah “Kenalan dicipta”, “Kenalan ditag”, “Mesej diterima”, “Tiba pada suatu tarikh”, “Mengikut jadual” dan “Dimulakan secara manual atau melalui API”.',
+        body: 'Klik senarai di bawah “Mulakan perjalanan ini apabila”. Pilihannya ialah “Kenalan dicipta”, “Kenalan ditag”, “Mesej diterima”, “Tiba pada suatu tarikh”, “Sebelum tempahan bermula”, “Mengikut jadual” dan “Dimulakan secara manual atau melalui API”.',
       },
       s3: {
         title: 'Kenalan dicipta',
@@ -159,6 +159,10 @@ export const automate: Dict<typeof source> = {
       s10: {
         title: 'Dimulakan secara manual atau melalui API',
         body: 'Pilih ini untuk memulakan perjalanan sendiri. Pastikan perjalanan aktif, kemudian di bawah “Mulakan sekarang untuk…” cari dan pilih kenalan dan klik “Mula”. Pembangun anda boleh memulakannya daripada sistem lain melalui alamat API yang dipaparkan di situ.',
+      },
+      s11: {
+        title: 'Sebelum tempahan bermula',
+        body: 'Tetapkan “Hantar” — nombor dan “minit”, “jam” atau “hari” — untuk berapa lama sebelum setiap tempahan perjalanan bermula, contohnya 1 jam. Setiap tempahan mendapat larian sendiri, dan mesejnya dihantar ke sembang tempat tempahan itu dibuat. Tempahan yang dialihkan diingatkan untuk masa barunya; tempahan yang dibatalkan menghentikan perjalanan. Di bawah “Tetapan lanjutan”, “Kalendar” mengehadkannya kepada tempahan satu kemahiran kalendar. Dalam langkah mesej, pemboleh ubah “Tempahan” menambah masa, tarikh, tempoh dan pautan kalendar tempahan.',
       },
     },
     done: 'Kad atas kini menerangkan permulaan dalam bahasa mudah, contohnya “Mesej diterima di WhatsApp yang mengandungi “harga””, tanpa nota ambar.',

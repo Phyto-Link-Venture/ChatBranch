@@ -87,7 +87,7 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
     name: 'flows.starters.appointment.name',
     hint: 'flows.starters.appointment.hint',
     outline: [
-      'flows.starters.outline.dayBefore',
+      'flows.starters.outline.hourBefore',
       'flows.starters.outline.reminder',
       'flows.starters.outline.waitForReply',
       'flows.starters.outline.ifSaidYes',
@@ -95,12 +95,12 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
     build: (t) =>
       laidOut(
         [
-          n('t1', 'trigger', { when: 'Date field', field: 'appointment_date', dateWhen: 'before', days: 1, repeat: 'Every time' }),
+          n('t1', 'trigger', { when: 'Before a booking', amount: 1, unit: 'hours', calendar: '', repeat: 'Every time' }),
           n('a1', 'action', {
             channels: ['WhatsApp'], waMode: 'text',
             script: t('flows.starters.appointment.reminder'),
           }),
-          n('w1', 'wait', { mode: 'reply', timeoutAmount: 12, timeoutUnit: 'hours' }),
+          n('w1', 'wait', { mode: 'reply', timeoutAmount: 30, timeoutUnit: 'minutes' }),
           n('d1', 'decision', check({ subject: 'reply', op: 'said_yes' })),
           n('u1', 'update', { op: 'add_tag', tag: 'confirmed' }),
           n('e1', 'end', { logCode: 'CONFIRMED', updateMemory: 'Yes' }),

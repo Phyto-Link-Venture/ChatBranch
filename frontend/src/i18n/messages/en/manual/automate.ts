@@ -116,7 +116,7 @@ export const automate = {
   journeyTriggers: {
     title: 'Choose when a journey starts',
     summary:
-      'The first card of every journey (“When…”) decides who enters and when: a new contact, a tag, an incoming message, a date, a schedule, or you starting it by hand.',
+      'The first card of every journey (“When…”) decides who enters and when: a new contact, a tag, an incoming message, a date, a booking, a schedule, or you starting it by hand.',
     steps: {
       s1: {
         title: 'Open the starting card',
@@ -124,7 +124,7 @@ export const automate = {
       },
       s2: {
         title: 'Pick what starts it',
-        body: 'Click the list under “Start this journey when”. The choices are “A contact is created”, “A contact is tagged”, “A message arrives”, “A date comes round”, “On a schedule” and “Started by hand or by the API”.',
+        body: 'Click the list under “Start this journey when”. The choices are “A contact is created”, “A contact is tagged”, “A message arrives”, “A date comes round”, “Before a booking starts”, “On a schedule” and “Started by hand or by the API”.',
       },
       s3: {
         title: 'A contact is created',
@@ -157,6 +157,10 @@ export const automate = {
       s10: {
         title: 'Started by hand or by the API',
         body: 'Choose this to start the journey yourself. Make sure the journey is live, then under “Start it now for…” search and pick contacts and click “Start”. Your developers can start it from other systems through the API address shown there.',
+      },
+      s11: {
+        title: 'Before a booking starts',
+        body: 'Set “Send it” — a number and “minutes”, “hours” or “days” — for how long before each booking the journey starts, for example 1 hour. Every booking gets its own run, and its messages go to the chat the booking was made in. A moved booking is reminded for its new time; a cancelled one stops the journey. Under “Advanced settings”, “Calendar” limits it to one calendar skill’s bookings. In message steps, the “Booking” variables add the booking’s time, date, length and calendar link.',
       },
     },
     done: 'The top card now describes the start in plain words, for example “A message arrives on WhatsApp containing “price””, with no amber note.',

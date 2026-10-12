@@ -3,9 +3,10 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { useT } from '@/i18n'
-import { VARIABLE_GROUPS, VARIABLE_COUNT } from '@/lib/flow/variables'
+import { BOOKING_VARIABLES, VARIABLE_GROUPS, VARIABLE_COUNT } from '@/lib/flow/variables'
 import { fetchCustomFields } from '@/lib/customFields'
 import { textareaCls } from './fields'
+import { useFlowView } from './FlowViewContext'
 
 /** A customer custom field as {{cf_<key>}} — its label is the operator's own. */
 interface CustomVar {
@@ -48,6 +49,10 @@ export default function VariableTextarea({
   const ref = useRef<HTMLTextAreaElement>(null)
   const [open, setOpen] = useState(defaultOpen)
   const [custom, setCustom] = useState<CustomVar[] | null>(null)
+  // a "Before a booking" journey also offers the booking it was started for, first
+  const { bookingTrigger } = useFlowView()
+  const catalog = bookingTrigger ? [BOOKING_VARIABLES, ...VARIABLE_GROUPS] : VARIABLE_GROUPS
+  const count = VARIABLE_COUNT + (bookingTrigger ? BOOKING_VARIABLES.items.length : 0)
 
   useEffect(() => {
     if (!open) return
@@ -73,7 +78,7 @@ export default function VariableTextarea({
 
   // the catalog in the current language; custom fields keep the operator's labels
   const groups: { title: string; items: { key: string; label: string; example: string }[] }[] = [
-    ...VARIABLE_GROUPS.map((g) => ({
+    ...catalog.map((g) => ({
       title: t(g.lbl),
       items: g.items.map((v) => ({ key: v.key, label: t(v.lbl), example: v.exampleKey ? t(v.exampleKey) : v.example })),
     })),
@@ -103,7 +108,7 @@ export default function VariableTextarea({
           className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-text-muted hover:text-text-high"
         >
           <ChevronRight size={12} className={`transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
-          {open ? t('flows.variables.insert') : t('flows.variables.insertCount', { count: VARIABLE_COUNT })}
+          {open ? t('flows.variables.insert') : t('flows.variables.insertCount', { count })}
         </button>
         {open && (
           <div className="mt-2 flex max-h-[260px] flex-col gap-2.5 overflow-y-auto rounded-lg border border-line bg-well p-2.5">

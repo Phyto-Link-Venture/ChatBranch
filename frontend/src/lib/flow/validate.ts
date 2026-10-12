@@ -28,6 +28,8 @@ export function flowIssues(
         const when = s(c.when)
         if ((when === 'Tag added' || when === 'Contact has tag') && !s(c.tag)) add(n.id, 'flows.issues.chooseTriggerTag')
         if (when === 'Date field' && !s(c.field)) add(n.id, 'flows.issues.chooseDateField')
+        if (when === 'Before a booking' && !(Number.isInteger(Number(c.amount)) && Number(c.amount) >= 1))
+          add(n.id, 'flows.issues.bookingLead')
         if (c.audience === 'tag' && !s(c.onlyTag)) add(n.id, 'flows.issues.typeAudienceTag')
         if (c.audience === 'some' && !(Array.isArray(c.contacts) && c.contacts.length)) add(n.id, 'flows.issues.pickContacts')
         if (!edges.some((e) => e.source === n.id)) add(n.id, 'flows.issues.nothingAfter')

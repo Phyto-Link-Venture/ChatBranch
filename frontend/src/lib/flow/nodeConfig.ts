@@ -65,9 +65,17 @@ export const TRIGGERS: Choice[] = [
   { value: 'Tag added', lbl: 'flows.trigger.tagAdded', hint: 'flows.trigger.tagAddedHint' },
   { value: 'Message received', lbl: 'flows.trigger.messageReceived', hint: 'flows.trigger.messageReceivedHint' },
   { value: 'Date field', lbl: 'flows.trigger.dateField', hint: 'flows.trigger.dateFieldHint' },
+  { value: 'Before a booking', lbl: 'flows.trigger.bookingStarts', hint: 'flows.trigger.bookingStartsHint' },
   { value: 'Scheduled', lbl: 'flows.trigger.scheduled', hint: 'flows.trigger.scheduledHint' },
   { value: 'Manual / API', lbl: 'flows.trigger.manual', hint: 'flows.trigger.manualHint' },
 ]
+
+/**
+ * "Before a booking" (FlowEngine.Bookings.cs): `amount` × `unit` (minutes | hours |
+ * days) before each ChatBranch booking starts, optionally only one calendar skill's
+ * bookings (`calendar` = the skill id, "" = any). One run per booking.
+ */
+export const BOOKING_TRIGGER = 'Before a booking'
 
 /** Trigger `when` values from the debt-collection era — still executed by the
  * engine, never offered for new flows. Stored value → label key. */
@@ -224,6 +232,9 @@ export const DURATION_UNITS: Choice[] = [
   { value: 'days', lbl: 'flows.units.days' },
   { value: 'weeks', lbl: 'flows.units.weeks' },
 ]
+
+/** How far ahead a "Before a booking" reminder goes (no weeks). */
+export const BOOKING_LEAD_UNITS: Choice[] = DURATION_UNITS.filter((u) => u.value !== 'weeks')
 
 const DURATION_KEYS: Record<string, MessageKey> = {
   minutes: 'flows.duration.minutes',

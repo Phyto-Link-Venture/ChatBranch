@@ -270,6 +270,8 @@ public partial class FlowEngine
             case WhenMessageReceived:
             case WhenManual:
                 return false; // event-driven — never polled
+            case WhenBookingStarts:
+                return false; // per booking, not per contact — StartBookingTriggers
         }
         if (when == "Record status is")
         {
@@ -461,6 +463,11 @@ public partial class FlowEngine
                 var cfg = Cfg(node);
                 var when = When(cfg);
                 if (when is WhenMessageReceived or WhenManual) continue;
+                if (when == WhenBookingStarts)
+                {
+                    started += StartBookingTriggers(wf, node, cfg);
+                    continue;
+                }
                 if (!InTriggerWindow(cfg)) continue;
                 DateTime? notBefore = null;
                 if (when == WhenScheduled)
@@ -493,6 +500,7 @@ public partial class FlowEngine
             WhenTagAdded => $"tagged '{CfgStr(cfg, "tag")}'",
             WhenDateField => $"date field {CfgStr(cfg, "field")}",
             WhenScheduled => $"scheduled {CfgStr(cfg, "time")}",
+            WhenBookingStarts => BookingTriggerText(cfg),
             _ => when,
         };
     }
@@ -676,7 +684,7 @@ public partial class FlowEngine
         var contact = run.ContactId is int cid ? _db.Contacts.Find(cid) : null;
         var cfg = Cfg(node);
         var nodeId = Str(node, "id");
-        var vars = VariablesFor(contact);
+        var vars = RunVariables(run, contact);
         var script = Render(CfgStr(cfg, "script"), vars);
         var channels = ChannelList(cfg);
 
@@ -768,11 +776,14 @@ public partial class FlowEngine
 
     /// <summary>The WhatsApp numbers this step sends to: the CRM phone, plus —
     /// with "all linked" — every WhatsApp chat linked to the contact. Deduped on
-    /// the last nine digits so "+60 12…" and "6012…" are one number.</summary>
-    private List<string> WhatsAppTargets(Contact contact, JsonElement cfg)
+    /// the last nine digits so "+60 12…" and "6012…" are one number. A
+    /// "Before a booking" run sends to the booking's chat (<paramref name="chatKey"/>)
+    /// instead of the CRM phone.</summary>
+    private List<string> WhatsAppTargets(Contact contact, JsonElement cfg, string? chatKey = null)
     {
         var raw = new List<string>();
-        if (!string.IsNullOrWhiteSpace(contact.Phone)) raw.Add(contact.Phone);
+        if (chatKey != null) raw.Add(chatKey);
+        if ((chatKey == null || AllLinked(cfg)) && !string.IsNullOrWhiteSpace(contact.Phone)) raw.Add(contact.Phone);
         if (AllLinked(cfg))
             raw.AddRange(_db.Threads.AsNoTracking()
                 .Where(t => t.Channel == Domain.Channels.WhatsApp && t.ContactId == contact.Id)
@@ -806,11 +817,11 @@ public partial class FlowEngine
 
     /// <summary>templateVariables {"1": "{{name}}", …} rendered from the CRM, in
     /// slot order.</summary>
-    private List<string> TemplateParameters(JsonElement cfg, Contact contact)
+    private List<string> TemplateParameters(FlowRun run, JsonElement cfg, Contact contact)
     {
         if (cfg.ValueKind != JsonValueKind.Object || !cfg.TryGetProperty("templateVariables", out var tv)
             || tv.ValueKind != JsonValueKind.Object) return new();
-        var vars = VariablesFor(contact);
+        var vars = RunVariables(run, contact);
         return tv.EnumerateObject()
             .OrderBy(p => int.TryParse(p.Name, out var n) ? n : int.MaxValue)
             .Select(p => Render(p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() ?? "" : p.Value.ToString(), vars))
@@ -838,10 +849,12 @@ public partial class FlowEngine
             channels = channels.Where(c => c != "AI message").ToList();
             if (!channels.Any(c => MessageChannels.Contains(c)) && contact != null)
             {
-                var latest = _db.Threads.AsNoTracking()
-                    .Where(t => t.ContactId == contact.Id
-                                && (t.Channel == "whatsapp" || t.Channel == "email" || t.Channel == "telegram"))
-                    .OrderByDescending(t => t.UpdatedAt).Select(t => t.Channel).FirstOrDefault();
+                var latest = BookingThread(run)?.Channel is ("whatsapp" or "email" or "telegram") and var bookedOn
+                    ? bookedOn
+                    : _db.Threads.AsNoTracking()
+                        .Where(t => t.ContactId == contact.Id
+                                    && (t.Channel == "whatsapp" || t.Channel == "email" || t.Channel == "telegram"))
+                        .OrderByDescending(t => t.UpdatedAt).Select(t => t.Channel).FirstOrDefault();
                 var target = latest switch
                 {
                     "email" => "Email",
@@ -888,7 +901,8 @@ public partial class FlowEngine
     private void QueueWhatsApp(FlowRun run, string nodeId, Contact? contact, JsonElement cfg, string script)
     {
         if (contact == null) { Skip(run, nodeId, "whatsapp skipped: no contact"); return; }
-        var targets = WhatsAppTargets(contact, cfg);
+        var booked = BookingThread(run, Domain.Channels.WhatsApp);
+        var targets = WhatsAppTargets(contact, cfg, booked?.Key);
         if (targets.Count == 0) { Skip(run, nodeId, "whatsapp skipped: no contact phone"); return; }
         // waMode: text (default) | template | auto (text inside the 24h
         // window, the template once it has closed)
@@ -903,7 +917,7 @@ public partial class FlowEngine
             string kind; Dictionary<string, object?> payload;
             if (useTemplate)
             {
-                parameters ??= TemplateParameters(cfg, contact);
+                parameters ??= TemplateParameters(run, cfg, contact);
                 payload = new() { ["name"] = templateName,
                     ["language"] = CfgStr(cfg, "templateLanguage") is { Length: > 0 } l ? l : "en",
                     ["variables"] = string.Join(", ", parameters),
@@ -915,6 +929,7 @@ public partial class FlowEngine
                 if (string.IsNullOrEmpty(script)) { Skip(run, nodeId, "whatsapp skipped: empty message"); continue; }
                 kind = JobKind.Text; payload = new() { ["text"] = script };
             }
+            if (booked != null && to == booked.Key) payload[Stores.ThreadStore.JobThreadKey] = booked.Id;
             var job = _queue.Enqueue("whatsapp", kind, to, WithHints(payload, cfg), contact.Id,
                 flowRunId: run.Id, flowNode: nodeId);
             jobs.Add(job.Id);
@@ -927,8 +942,10 @@ public partial class FlowEngine
     private void QueueEmail(FlowRun run, string nodeId, Contact? contact, JsonElement cfg, string script)
     {
         if (contact == null) { Skip(run, nodeId, "email skipped: no contact"); return; }
+        var booked = BookingThread(run, Domain.Channels.Email);
         var raw = new List<string>();
-        if (!string.IsNullOrWhiteSpace(contact.Email)) raw.Add(contact.Email.Trim());
+        if (booked != null) raw.Add(booked.Key);
+        if ((booked == null || AllLinked(cfg)) && !string.IsNullOrWhiteSpace(contact.Email)) raw.Add(contact.Email.Trim());
         if (AllLinked(cfg))
             raw.AddRange(_db.Threads.AsNoTracking()
                 .Where(t => t.Channel == Domain.Channels.Email && t.ContactId == contact.Id)
@@ -941,6 +958,8 @@ public partial class FlowEngine
         {
             var payload = new Dictionary<string, object?> { ["text"] = script };
             if (CfgStr(cfg, "subject") is { Length: > 0 } subject) payload["subject"] = subject;
+            if (booked != null && string.Equals(to, booked.Key.Trim(), StringComparison.OrdinalIgnoreCase))
+                payload[Stores.ThreadStore.JobThreadKey] = booked.Id;
             var job = _queue.Enqueue("email", JobKind.Text, to, WithHints(payload, cfg),
                 contact.Id, flowRunId: run.Id, flowNode: nodeId);
             Log(run, nodeId, $"email queued (job #{job.Id})");
@@ -950,13 +969,20 @@ public partial class FlowEngine
     private void QueueTelegram(FlowRun run, string nodeId, Contact? contact, JsonElement cfg, string script)
     {
         if (contact == null) { Skip(run, nodeId, "telegram skipped: no contact"); return; }
-        var keys = _db.Threads.Where(t => t.Channel == "telegram" && t.ContactId == contact.Id)
-            .Select(t => t.Key).ToList();
+        var booked = BookingThread(run, Domain.Channels.Telegram);
+        var keys = booked != null && !AllLinked(cfg) ? new List<string> { booked.Key }
+            : _db.Threads.Where(t => t.Channel == "telegram" && t.ContactId == contact.Id)
+                .Select(t => t.Key).ToList();
+        if (booked != null && !keys.Contains(booked.Key)) keys.Insert(0, booked.Key);
         if (keys.Count == 0) { Skip(run, nodeId, "telegram skipped: no linked chat"); return; }
         if (string.IsNullOrEmpty(script)) { Skip(run, nodeId, "telegram skipped: empty message"); return; }
-        foreach (var key in keys)
-            _queue.Enqueue("telegram", JobKind.Text, key, WithHints(new() { ["text"] = script }, cfg),
+        foreach (var key in keys.Distinct())
+        {
+            var payload = new Dictionary<string, object?> { ["text"] = script };
+            if (booked != null && key == booked.Key) payload[Stores.ThreadStore.JobThreadKey] = booked.Id;
+            _queue.Enqueue("telegram", JobKind.Text, key, WithHints(payload, cfg),
                 contact.Id, flowRunId: run.Id, flowNode: nodeId);
+        }
         Log(run, nodeId, $"telegram queued ×{keys.Count}");
     }
 
@@ -969,8 +995,10 @@ public partial class FlowEngine
     private void QueueSms(FlowRun run, string nodeId, Contact? contact, JsonElement cfg, string script)
     {
         if (contact == null) { Skip(run, nodeId, "sms skipped: no contact"); return; }
+        var booked = BookingThread(run, Domain.Channels.Sms);
         var raw = new List<string>();
-        if (!string.IsNullOrWhiteSpace(contact.Phone)) raw.Add(contact.Phone);
+        if (booked != null) raw.Add(booked.Key);
+        if ((booked == null || AllLinked(cfg)) && !string.IsNullOrWhiteSpace(contact.Phone)) raw.Add(contact.Phone);
         if (AllLinked(cfg))
             raw.AddRange(_db.Threads.AsNoTracking()
                 .Where(t => t.Channel == Domain.Channels.Sms && t.ContactId == contact.Id)
@@ -983,7 +1011,9 @@ public partial class FlowEngine
         if (string.IsNullOrEmpty(script)) { Skip(run, nodeId, "sms skipped: empty message"); return; }
         foreach (var to in targets)
         {
-            var job = _queue.Enqueue(Domain.Channels.Sms, JobKind.Text, to, WithHints(new() { ["text"] = script }, cfg),
+            var payload = new Dictionary<string, object?> { ["text"] = script };
+            if (booked != null && to == Digits(booked.Key)) payload[Stores.ThreadStore.JobThreadKey] = booked.Id;
+            var job = _queue.Enqueue(Domain.Channels.Sms, JobKind.Text, to, WithHints(payload, cfg),
                 contact.Id, flowRunId: run.Id, flowNode: nodeId);
             Log(run, nodeId, $"sms queued (job #{job.Id})");
         }
@@ -1013,7 +1043,7 @@ public partial class FlowEngine
         var templateId = CfgInt(cfg, "scriptTemplateId");
         var template = templateId > 0 ? _db.ScriptTemplates.Find(templateId) : null;
         if (template == null) { Skip(run, nodeId, "script call skipped: no script chosen"); return; }
-        var spoken = Render(template.Content, VariablesFor(contact));
+        var spoken = Render(template.Content, RunVariables(run, contact));
         EnqueueCall(run, nodeId, contact, cfg, spoken);
     }
 
@@ -1039,7 +1069,7 @@ public partial class FlowEngine
         var contact = run.ContactId is int cid ? _db.Contacts.Find(cid) : null;
         var teamRef = CfgStr(cfg, "team").Trim();
         var priority = CfgStr(cfg, "priority").Trim(); if (priority == "") priority = "Normal";
-        var reason = Render(CfgStr(cfg, "reason"), VariablesFor(contact));
+        var reason = Render(CfgStr(cfg, "reason"), RunVariables(run, contact));
         Team? team = null;
         if (teamRef != "")
             team = int.TryParse(teamRef, out var tid)
@@ -1048,7 +1078,8 @@ public partial class FlowEngine
                     string.Equals(t.Name, teamRef, StringComparison.OrdinalIgnoreCase));
         var teamLabel = team?.Name ?? (teamRef != "" && !int.TryParse(teamRef, out _) ? teamRef : "the team");
 
-        var thread = contact == null ? null : _db.Threads
+        var thread = BookingThreadId(run) is int bookedIn ? _db.Threads.FirstOrDefault(t => t.Id == bookedIn) : null;
+        thread ??= contact == null ? null : _db.Threads
             .Where(t => t.ContactId == contact.Id).OrderByDescending(t => t.UpdatedAt).FirstOrDefault();
         if (thread != null)
         {
@@ -1093,7 +1124,7 @@ public partial class FlowEngine
         if (contact == null) { Skip(run, nodeId, "update skipped: no contact"); return; }
         var op = CfgStr(cfg, "op"); if (op == "") op = "add_tag";
         if (op == "add_tag" && CfgStr(cfg, "updateType") == "chatbot") op = "chatbot"; // the spec's alias
-        var vars = VariablesFor(contact);
+        var vars = RunVariables(run, contact);
         switch (op)
         {
             case "chatbot":
@@ -1510,6 +1541,12 @@ public partial class FlowEngine
             { Finish(run, FlowRunStatus.Failed, $"step {run.CurrentNode} is no longer in the flow"); return; }
             var nodeId = Str(node, "id");
             var kind = Str(node, "type");
+            // "Before a booking": a customer who cancelled never gets "see you soon"
+            if (kind != "trigger" && BookingGone(run) is string gone)
+            {
+                Finish(run, FlowRunStatus.Cancelled, gone);
+                return;
+            }
             EnterNode(run, nodeId);
             _completeDetail = "";
             string? branch = null;
@@ -1859,9 +1896,12 @@ public partial class FlowEngine
 
     // ---- run context (JSON bag; values come back as JsonElement after a reload)
 
-    private static string Ctx(FlowRun run, string key)
+    private static string Ctx(FlowRun run, string key) => CtxValue(run.Context, key);
+
+    /// <summary>One run-context value as a string ("" when absent) — for a context read without its run.</summary>
+    private static string CtxValue(Dictionary<string, object?> context, string key)
     {
-        if (!run.Context.TryGetValue(key, out var v) || v == null) return "";
+        if (!context.TryGetValue(key, out var v) || v == null) return "";
         if (v is JsonElement je)
             return je.ValueKind switch
             {

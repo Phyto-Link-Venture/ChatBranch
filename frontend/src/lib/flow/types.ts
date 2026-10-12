@@ -82,6 +82,8 @@ export interface AgentSkill {
   id: string
   name: string
   kind?: string
+  /** a connected-app skill's app (calendar, documents…) */
+  app?: string
   enabled?: boolean
   useWhen?: string
   instructions?: string

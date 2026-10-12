@@ -106,12 +106,13 @@ export async function pushFlowLibrary(workflows: WorkflowDef[]): Promise<PushRes
 
 /** The AI skills (Skills page is their only editor). [] on failure. */
 export async function fetchSkills(): Promise<AgentSkill[]> {
-  const data = await getJson<{ skills?: (AgentSkill & { use_when?: string })[] }>('/aicore/skills')
+  const data = await getJson<{ skills?: (AgentSkill & { use_when?: string; app?: string | null })[] }>('/aicore/skills')
   const rows = Array.isArray(data?.skills) ? data!.skills : []
   return rows.map((s) => ({
     id: String(s.id),
     name: s.name || String(s.id),
     kind: s.kind,
+    app: s.app ?? undefined,
     enabled: s.enabled,
     useWhen: s.useWhen ?? s.use_when ?? '',
   }))

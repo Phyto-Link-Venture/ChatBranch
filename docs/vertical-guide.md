@@ -387,8 +387,11 @@ went live, so arming a flow never back-fires on the whole contact book.
 
 Triggers: a contact is created · a contact is tagged · a message arrives
 (optionally with a keyword / on a channel) · a date comes round (days
-before/on/after a contact's date custom field, optionally yearly) · on a
-schedule · started by hand or by the API (`POST /api/flows/{flowId}/start`). The
+before/on/after a contact's date custom field, optionally yearly) · before a
+booking starts (N minutes / hours / days before each ChatBranch booking — one run
+per booking, sent to the chat it was made in, follows reschedules, stops on
+cancel; messages can use `{{booking_time}}`, `{{booking_length}}`,
+`{{booking_link}}`…) · on a schedule · started by hand or by the API (`POST /api/flows/{flowId}/start`). The
 old record-due-date triggers still run in flows that use them but are no longer
 offered.
 
