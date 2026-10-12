@@ -290,6 +290,151 @@ public class BookingTests
         Assert.Equal(8, oneDay.Count);   // a single-day query gets the whole list
     }
 
+    // ---- the availability tool: a whole day, an exact time, "missing ≠ busy" --------------
+    // (production 2026-10-12: a free 2 PM missing from the 8-slot sample was told "not open")
+
+    /// <summary>Call the availability tool the way the AI does; returns the parsed JSON.</summary>
+    private static async Task<JsonElement> Availability(BookingRig r, AgentSkill skill, object args)
+    {
+        var binding = new BookingService.ToolBinding(skill, CalendarAppConfig.From(skill.Config), "availability", "calendar");
+        var outcome = await r.Bookings.ExecuteToolAsync(binding, JsonSerializer.Serialize(args), new SkillContext());
+        return JsonDocument.Parse(outcome.Json).RootElement.Clone();
+    }
+
+    private static List<string> Starts(JsonElement j, string key = "slots") =>
+        j.GetProperty(key).EnumerateArray().Select(s => s.GetProperty("start").GetString()!).ToList();
+
+    [Fact]
+    public async Task A_one_day_search_lists_every_free_time_and_says_it_is_complete()
+    {
+        using var r = new BookingRig();
+        var skill = r.Skill(new { source = "chatbranch", min_notice_minutes = 0 });
+        // Tue 13 Oct, 09:00–17:00 on a 30-minute grid = 16 free times — twice the multi-day sample
+        var j = await Availability(r, skill, new { from_date = "2026-10-13", to_date = "2026-10-13" });
+
+        Assert.True(j.GetProperty("ok").GetBoolean());
+        var starts = Starts(j);
+        Assert.Equal(16, starts.Count);
+        Assert.Equal(16, j.GetProperty("free_slots_in_range").GetInt32());
+        Assert.Equal("2026-10-13T09:00", starts[0]);
+        Assert.Equal("2026-10-13T16:30", starts[^1]);
+        Assert.True(j.GetProperty("complete").GetBoolean());
+        Assert.Contains("all the free times", j.GetProperty("note").GetString());
+        Assert.Contains("never tell the customer your earlier times were made up", j.GetProperty("note").GetString());
+    }
+
+    [Fact]
+    public async Task A_multi_day_search_is_a_sample_that_says_a_missing_time_may_be_free()
+    {
+        using var r = new BookingRig();
+        var skill = r.Skill(new { source = "chatbranch", min_notice_minutes = 0 });
+        var j = await Availability(r, skill, new { from_date = "2026-10-13", to_date = "2026-10-16" });
+
+        Assert.True(Starts(j).Count <= BookingAvailability.MaxOffered);
+        Assert.False(j.GetProperty("complete").GetBoolean());
+        var note = j.GetProperty("note").GetString()!;
+        Assert.Contains("A time missing from this list may still be free", note);
+        Assert.Contains("call this tool with `time`", note);
+        Assert.Contains("Earlier results were real", note);
+    }
+
+    [Fact]
+    public async Task A_free_two_pm_left_out_of_the_sample_is_still_answered_as_available()
+    {
+        using var r = new BookingRig();
+        var skill = r.Skill(new { source = "chatbranch", min_notice_minutes = 0 });
+        // the regression: the multi-day sample skips Tue 14:00 although it is free …
+        var sample = await Availability(r, skill, new { from_date = "2026-10-13", to_date = "2026-10-16" });
+        Assert.DoesNotContain("2026-10-13T14:00", Starts(sample));
+        // … and the exact check says so
+        var j = await Availability(r, skill, new { from_date = "2026-10-13", time = "14:00" });
+        Assert.True(j.GetProperty("ok").GetBoolean());
+        var req = j.GetProperty("requested");
+        Assert.True(req.GetProperty("available").GetBoolean());
+        Assert.Equal("2026-10-13T14:00", req.GetProperty("start").GetString());
+        Assert.Equal("Tue 13 Oct, 2:00 PM", req.GetProperty("label").GetString());
+        Assert.False(j.TryGetProperty("alternatives", out _));
+        // a single day with the same date as to_date is the same question
+        var same = await Availability(r, skill, new { from_date = "2026-10-13", to_date = "2026-10-13", time = "14:00" });
+        Assert.True(same.GetProperty("requested").GetProperty("available").GetBoolean());
+    }
+
+    [Fact]
+    public async Task An_exact_time_that_is_not_bookable_says_why_and_offers_the_nearest()
+    {
+        using var r = new BookingRig();
+        var c = r.Contact();
+        var skill = r.Skill(new { source = "chatbranch", min_notice_minutes = 120, max_days_ahead = 14 });
+        var target = r.Bookings.ResolveTarget(skill, CalendarAppConfig.From(skill.Config), null, null);
+        r.Db.Bookings.Add(new Booking
+        {
+            ContactId = c.Id, SkillId = "x", CalendarKey = target.Key, Status = BookingStatus.Booked,
+            Timezone = "Asia/Kuala_Lumpur", StartUtc = BookingRig.Kul(13, 14), EndUtc = BookingRig.Kul(13, 14, 30),
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        });
+        r.Db.SaveChanges();
+
+        async Task<JsonElement> Ask(string day, string time) => await Availability(r, skill, new { from_date = day, time });
+        string Reason(JsonElement j) => j.GetProperty("requested").GetProperty("reason").GetString()!;
+
+        // taken by a booking → busy, with the nearest free times that day
+        var busy = await Ask("2026-10-13", "14:00");
+        Assert.False(busy.GetProperty("requested").GetProperty("available").GetBoolean());
+        Assert.Equal("busy", Reason(busy));
+        Assert.Equal(new[] { "2026-10-13T13:00", "2026-10-13T13:30", "2026-10-13T14:30" }, Starts(busy, "alternatives"));
+        Assert.Contains("already taken", busy.GetProperty("note").GetString());
+
+        Assert.Equal("outside_hours", Reason(await Ask("2026-10-13", "07:00")));
+        Assert.Equal("outside_hours", Reason(await Ask("2026-10-13", "16:45")));   // 30 minutes would run past 17:00
+        Assert.Equal("outside_hours", Reason(await Ask("2026-10-17", "10:00")));   // Saturday: closed
+        // now = Mon 08:00 KL with 2 hours' notice ⇒ nothing before 10:00 today
+        var soon = await Ask("2026-10-12", "09:00");
+        Assert.Equal("too_soon", Reason(soon));
+        Assert.Contains("10:00", string.Join(",", Starts(soon, "alternatives")));
+        Assert.Equal("too_soon", Reason(await Ask("2026-10-11", "10:00")));        // yesterday
+        Assert.Equal("off_grid", Reason(await Ask("2026-10-13", "14:10")));        // a 30-minute grid
+        Assert.Equal("beyond_last_day", Reason(await Ask("2026-10-30", "10:00"))); // 14 days ahead = 26 Oct
+    }
+
+    [Fact]
+    public async Task A_bad_time_is_a_refusal_not_an_exception()
+    {
+        using var r = new BookingRig();
+        var skill = r.Skill(new { source = "chatbranch", min_notice_minutes = 0 });
+        foreach (var bad in new[] { "2pm", "25:00", "14:60", "14", "noon" })
+        {
+            var j = await Availability(r, skill, new { from_date = "2026-10-13", time = bad });
+            Assert.False(j.GetProperty("ok").GetBoolean());
+            Assert.Contains("is not a time", j.GetProperty("error").GetString());
+            Assert.Contains("HH:mm", j.GetProperty("advice").GetString());
+        }
+        // `time` needs one day: no from_date, or a different to_date, is refused too
+        var noDay = await Availability(r, skill, new { time = "14:00" });
+        Assert.False(noDay.GetProperty("ok").GetBoolean());
+        var twoDays = await Availability(r, skill, new { from_date = "2026-10-13", to_date = "2026-10-14", time = "14:00" });
+        Assert.False(twoDays.GetProperty("ok").GetBoolean());
+        Assert.Contains("one day", twoDays.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task A_full_day_that_would_overflow_the_result_shrinks_its_slots_instead_of_being_cut()
+    {
+        using var r = new BookingRig();
+        // 09:00–17:00 every 10 minutes = 48 free times: too long with an `end` on each
+        var skill = r.Skill(new { source = "chatbranch", min_notice_minutes = 0, duration_minutes = 10, slot_step_minutes = 10 });
+        var binding = new BookingService.ToolBinding(skill, CalendarAppConfig.From(skill.Config), "availability", "calendar");
+        var outcome = await r.Bookings.ExecuteToolAsync(binding,
+            "{\"from_date\":\"2026-10-13\",\"to_date\":\"2026-10-13\"}", new SkillContext());
+
+        Assert.True(outcome.Json.Length <= 4000);
+        var j = JsonDocument.Parse(outcome.Json).RootElement;   // whole, valid JSON — never cut mid-string
+        var slots = j.GetProperty("slots").EnumerateArray().ToList();
+        Assert.Equal(48, slots.Count);
+        Assert.True(j.GetProperty("complete").GetBoolean());
+        Assert.All(slots, s => Assert.False(s.TryGetProperty("end", out _)));
+        Assert.Equal("2026-10-13T16:50", slots[^1].GetProperty("start").GetString());
+    }
+
     [Fact]
     public void Config_validation_names_the_problem()
     {

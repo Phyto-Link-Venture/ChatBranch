@@ -226,15 +226,22 @@ public class BookingService
         var dur = $"{cfg.DurationMinutes}-minute";
         if (cfg.Allows("availability"))
             yield return (b + "_availability", "availability", new LlmTool(b + "_availability",
-                $"Check open appointment times ({dur}) on {calendar}. Returns up to 8 free start times spread across "
-                + $"the dates, in {tzId} local time, each with a ready-made label. Call this BEFORE suggesting any "
-                + "time and offer the customer two or three of the returned options, each with weekday, date, time "
-                + "and timezone — never invent, guess or round a time. Dates are YYYY-MM-DD in the business's local "
-                + "time: work out 'today', 'tomorrow' or 'next Tuesday' from the current date in the system prompt. "
-                + $"Bookings are possible up to {cfg.MaxDaysAhead} days ahead.",
+                $"Check open appointment times ({dur}) on {calendar}, in {tzId} local time, each with a ready-made "
+                + $"label. A search over several days returns a SAMPLE of up to {BookingAvailability.MaxOffered} free "
+                + "start times spread across the dates; a one-day search (from_date = to_date) lists EVERY free time "
+                + "that day. When the customer asks for a specific time (\"can I have 2pm on Monday?\"), call it with "
+                + "that day as from_date and `time` (HH:mm): it answers whether that exact time is free and, if not, "
+                + "why and the nearest free times. A time missing from a sample may still be free — never tell the "
+                + "customer a time is unavailable unless you checked that exact time or the book tool refused it. "
+                + "Every result is the live calendar, so never call earlier results made up or unchecked. Call this "
+                + "BEFORE suggesting any time and offer the customer two or three of the returned options, each with "
+                + "weekday, date, time and timezone — never invent, guess or round a time. Dates are YYYY-MM-DD in "
+                + "the business's local time: work out 'today', 'tomorrow' or 'next Tuesday' from the current date "
+                + $"in the system prompt. Bookings are possible up to {cfg.MaxDaysAhead} days ahead.",
                 Schema("{\"type\":\"object\",\"properties\":{"
                        + "\"from_date\":{\"type\":\"string\",\"description\":\"First day to search, YYYY-MM-DD (default: today)\"},"
-                       + "\"to_date\":{\"type\":\"string\",\"description\":\"Last day to search, YYYY-MM-DD (default: 7 days after from_date). Use the same date as from_date to see one day.\"}"
+                       + "\"to_date\":{\"type\":\"string\",\"description\":\"Last day to search, YYYY-MM-DD (default: 7 days after from_date). Use the same date as from_date to list every free time that day.\"},"
+                       + "\"time\":{\"type\":\"string\",\"description\":\"Exact start to check, HH:mm local time (24-hour, e.g. 14:00 for 2 PM), with a single from_date\"}"
                        + "}}")));
         if (cfg.Allows("book"))
             yield return (b + "_book", "book", new LlmTool(b + "_book",
@@ -302,6 +309,8 @@ public class BookingService
         var now = UtcNow;
         var today = BookingAvailability.Today(now, tz);
         var last = BookingAvailability.LastDay(cfg, now, tz);
+        var timeRaw = (Arg(args, "time") ?? "").Trim();
+        if (timeRaw.Length > 0) return await CheckTimeToolAsync(b, args, timeRaw, ctx, target, tz, today, last, ct);
         var from = ParseDate(Arg(args, "from_date"), today) ?? today;
         var to = ParseDate(Arg(args, "to_date"), today) ?? from.AddDays(7);
         if (to < from) (from, to) = (to, from);
@@ -311,28 +320,148 @@ public class BookingService
 
         var r = await FreeSlotsAsync(cfg, target, tz, from, to, ct: ct);
         if (!r.Ok) return Unavailable(r.Error);
-        var offered = BookingAvailability.Spread(r.Free);
-        var payload = new Dictionary<string, object?>
+        // one day = every free time (the "is 2 PM open?" answer is in the list); several days =
+        // a spread, which is a SAMPLE — a time missing from it may still be free
+        var singleDay = r.From == r.To;
+        var offered = singleDay
+            ? r.Free.Take(BookingAvailability.MaxSingleDay).ToList()
+            : BookingAvailability.Spread(r.Free);
+        var payload = AvailabilityPayload(cfg, target, tz, last, r.From, r.To);
+        payload["free_slots_in_range"] = r.Free.Count;
+        AddUpcoming(payload, b, target, ctx);
+
+        // a full day must fit the result cap whole: shorter slots first, then fewer (never cut mid-JSON)
+        var shortSlots = false;
+        string json;
+        while (true)
         {
-            ["ok"] = true,
-            ["timezone"] = tz.Id,
-            ["calendar"] = target.Label,
-            ["duration_minutes"] = cfg.DurationMinutes,
-            ["from_date"] = r.From.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            ["to_date"] = r.To.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            ["slots"] = offered.Select(SlotJson).ToList(),
-            ["free_slots_in_range"] = r.Free.Count,
-            ["last_bookable_date"] = last.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            var complete = offered.Count == r.Free.Count;
+            payload["slots"] = offered.Select(s => shortSlots ? ShortSlotJson(s) : SlotJson(s)).ToList();
+            payload["complete"] = complete;
+            payload["note"] = (offered.Count == 0
+                ? $"No free times between {r.From:yyyy-MM-dd} and {r.To:yyyy-MM-dd}. Try other dates (up to {last:yyyy-MM-dd}) — don't offer a time that wasn't returned."
+                : complete
+                    ? "These are all the free times in the range. Offer 2–3 of them, with weekday, date, time and timezone."
+                    : "A sample of the free times, not all of them. A time missing from this list may still be free. Never tell "
+                      + "the customer a time is unavailable unless you checked that exact time (call this tool with `time`) or the "
+                      + "book tool refused it. To list every free time on one day, call again with from_date = to_date. Offer 2–3 "
+                      + "of these, with weekday, date, time and timezone.")
+                + SampleNote;
+            json = JsonSerializer.Serialize(payload);
+            if (json.Length <= ResultCap || offered.Count == 0) break;
+            if (singleDay && !shortSlots) { shortSlots = true; continue; }
+            offered = offered.Take(offered.Count - 1).ToList();
+        }
+        return new ToolOutcome(json, true);
+    }
+
+    /// <summary>Said on every availability answer: a fresh call is the same live calendar.</summary>
+    private const string SampleNote =
+        " Each call can return a different sample of the same live calendar. Earlier results were real, so never tell "
+        + "the customer your earlier times were made up or unchecked.";
+
+    /// <summary>
+    /// The availability tool with <c>time</c>: is that exact start free on the one day given? Free →
+    /// <c>requested.available = true</c>; else the reason (outside_hours | too_soon | busy |
+    /// off_grid | beyond_last_day) and up to 3 alternatives — the nearest that day, else the next
+    /// 7 days. Bad input comes back as <c>{ok:false, error, advice}</c>.
+    /// </summary>
+    private async Task<ToolOutcome> CheckTimeToolAsync(ToolBinding b, JsonElement args, string timeRaw, SkillContext ctx,
+        CalendarTarget target, TimeZoneInfo tz, DateOnly today, DateOnly last, CancellationToken ct)
+    {
+        var cfg = b.Config;
+        if (!TimeOnly.TryParseExact(timeRaw, new[] { "H:mm", "HH:mm" }, CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var time))
+            return Refused($"'{timeRaw}' is not a time.",
+                "Pass `time` as HH:mm in 24-hour local time (for example 14:00 for 2 PM), with the day as from_date.");
+        var fromRaw = Arg(args, "from_date");
+        if (ParseDate(fromRaw, today) is not DateOnly day)
+            return Refused(string.IsNullOrWhiteSpace(fromRaw) ? "`time` needs the day to check." : $"'{fromRaw}' is not a date.",
+                "Pass the day as from_date (YYYY-MM-DD) together with `time`.");
+        var toRaw = Arg(args, "to_date");
+        if (!string.IsNullOrWhiteSpace(toRaw) && ParseDate(toRaw, today) != day)
+            return Refused("`time` checks one day only.",
+                "Pass the day as from_date and leave to_date empty (or the same date). To see several days, call without `time`.");
+
+        var r = await FreeSlotsAsync(cfg, target, tz, day, day, ct: ct);
+        if (!r.Ok) return Unavailable(r.Error);
+        var check = BookingAvailability.CheckTime(cfg, tz, UtcNow, day, time, r.Free);
+        var label = BookingAvailability.StartLabel(check.LocalStart);
+        var requested = new Dictionary<string, object?>
+        {
+            ["start"] = BookingAvailability.LocalIso(check.LocalStart),
+            ["label"] = label,
+            ["available"] = check.Available,
         };
-        payload["note"] = offered.Count == 0
-            ? $"No free times between {r.From:yyyy-MM-dd} and {r.To:yyyy-MM-dd}. Try other dates (up to {last:yyyy-MM-dd}) — don't offer a time that wasn't returned."
-            : r.Free.Count > offered.Count
-                ? "A spread of the free times; ask for a specific day (from_date = to_date) to see more on that day. Offer 2–3 of these, with weekday, date, time and timezone."
-                : "These are all the free times in the range. Offer 2–3 of them, with weekday, date, time and timezone.";
+        var payload = AvailabilityPayload(cfg, target, tz, last, day, day);
+        payload["requested"] = requested;
+        if (check.Available)
+        {
+            requested["end"] = BookingAvailability.LocalIso(check.Slot!.LocalEnd);
+            payload["note"] = $"{label} ({tz.Id}) is free. Offer it; book it only after the customer confirms that time." + SampleNote;
+        }
+        else
+        {
+            requested["reason"] = check.Reason;
+            var alternatives = await AlternativesAsync(cfg, target, tz, day, r.Free, check.LocalStart, ct);
+            payload["alternatives"] = alternatives.Select(SlotJson).ToList();
+            payload["note"] = $"{label} ({tz.Id}) is not available — {ReasonText(check.Reason, cfg, last)}. "
+                              + (alternatives.Count > 0
+                                  ? "Say so and offer these free alternatives instead."
+                                  : $"Check other dates with this tool (up to {last:yyyy-MM-dd}).")
+                              + SampleNote;
+        }
+        AddUpcoming(payload, b, target, ctx);
+        return new ToolOutcome(JsonSerializer.Serialize(payload), true);
+    }
+
+    private static string ReasonText(string reason, CalendarAppConfig cfg, DateOnly last) => reason switch
+    {
+        BookingAvailability.Reasons.OutsideHours => "it is outside the business's opening hours",
+        BookingAvailability.Reasons.TooSoon => cfg.MinNoticeMinutes > 0
+            ? $"it is too soon: bookings need at least {cfg.MinNoticeMinutes} minutes' notice"
+            : "that time has already passed",
+        BookingAvailability.Reasons.OffGrid =>
+            $"appointments start on a {Math.Max(5, cfg.SlotStepMinutes)}-minute grid (e.g. on the hour or half hour)",
+        BookingAvailability.Reasons.BeyondLastDay => $"bookings can only be made up to {last:yyyy-MM-dd}",
+        _ => "that time is already taken",
+    };
+
+    /// <summary>The fields every availability answer starts with.</summary>
+    private static Dictionary<string, object?> AvailabilityPayload(CalendarAppConfig cfg, CalendarTarget target,
+        TimeZoneInfo tz, DateOnly last, DateOnly from, DateOnly to) => new()
+    {
+        ["ok"] = true,
+        ["timezone"] = tz.Id,
+        ["calendar"] = target.Label,
+        ["duration_minutes"] = cfg.DurationMinutes,
+        ["from_date"] = from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+        ["to_date"] = to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+        ["last_bookable_date"] = last.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+    };
+
+    private void AddUpcoming(Dictionary<string, object?> payload, ToolBinding b, CalendarTarget target, SkillContext ctx)
+    {
         var upcoming = ctx.ContactId is int cid ? Upcoming(cid, b.Skill, target.Key, ctx.EntityId) : new();
         if (upcoming.Count > 0)
             payload["customer_upcoming_bookings"] = upcoming.Select(x => BookingJson(x)).ToList();
-        return new ToolOutcome(JsonSerializer.Serialize(payload), true);
+    }
+
+    /// <summary>
+    /// Up to 3 other times to offer instead of a refused one on <paramref name="day"/>: the nearest
+    /// to <paramref name="near"/> that day (a spread of the day when no time is given), else a
+    /// spread of the next 7 days. ONE rule for the book tool's refusal and the exact-time check.
+    /// </summary>
+    private async Task<List<BookingAvailability.Slot>> AlternativesAsync(CalendarAppConfig cfg, CalendarTarget target,
+        TimeZoneInfo tz, DateOnly day, IReadOnlyList<BookingAvailability.Slot> dayFree, DateTime? near, CancellationToken ct)
+    {
+        var picks = near is DateTime at
+            ? dayFree.OrderBy(s => Math.Abs((s.LocalStart - at).Ticks)).ThenBy(s => s.StartUtc).Take(3)
+                .OrderBy(s => s.StartUtc).ToList()
+            : BookingAvailability.Spread(dayFree, 3);
+        if (picks.Count > 0) return picks;
+        var more = await FreeSlotsAsync(cfg, target, tz, day.AddDays(1), day.AddDays(7), ct: ct);
+        return more.Ok ? BookingAvailability.Spread(more.Free, 3) : new();
     }
 
     private async Task<ToolOutcome> BookToolAsync(ToolBinding b, JsonElement args, SkillContext ctx, CancellationToken ct)
@@ -383,12 +512,7 @@ public class BookingService
         var slot = r.Free.FirstOrDefault(s => s.LocalStart == localStart);
         if (slot == null)
         {
-            var alternatives = BookingAvailability.Spread(r.Free, 3);
-            if (alternatives.Count == 0)
-            {
-                var more = await FreeSlotsAsync(cfg, target, tz, day.AddDays(1), day.AddDays(7), ct: ct);
-                alternatives = more.Ok ? BookingAvailability.Spread(more.Free, 3) : new();
-            }
+            var alternatives = await AlternativesAsync(cfg, target, tz, day, r.Free, near: null, ct);
             return Refused($"{BookingAvailability.StartLabel(localStart)} ({tz.Id}) is not an available time.",
                 alternatives.Count > 0
                     ? "Apologise, and offer the alternatives below (or check other dates with the availability tool). Book only after they choose."
@@ -900,6 +1024,13 @@ public class BookingService
     {
         ["start"] = BookingAvailability.LocalIso(s.LocalStart),
         ["end"] = BookingAvailability.LocalIso(s.LocalEnd),
+        ["label"] = BookingAvailability.StartLabel(s.LocalStart),
+    };
+
+    /// <summary>A slot without its end — what a full day's list shrinks to when it would not fit the result cap.</summary>
+    private static Dictionary<string, object?> ShortSlotJson(BookingAvailability.Slot s) => new()
+    {
+        ["start"] = BookingAvailability.LocalIso(s.LocalStart),
         ["label"] = BookingAvailability.StartLabel(s.LocalStart),
     };
 

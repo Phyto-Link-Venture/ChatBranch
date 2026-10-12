@@ -8,11 +8,15 @@ namespace ChatBranch.Data.Bookings;
 /// own holding bookings) widened by the buffer, from <c>now + min notice</c> to
 /// <c>today + max_days_ahead</c>, each <c>duration</c> long, starting on the
 /// <c>slot_step</c> grid of its window. <see cref="Spread"/> then picks a
-/// handful spread across the days instead of one morning's worth.
+/// handful spread across the days instead of one morning's worth (a search over
+/// several days); a single day is listed whole, and <see cref="CheckTime"/> answers
+/// for one exact start.
 /// </summary>
 public static class BookingAvailability
 {
     public const int MaxOffered = 8;
+    /// <summary>A one-day search lists every free time — this many at most (a safety net).</summary>
+    public const int MaxSingleDay = 48;
 
     /// <summary>A free slot: UTC instants plus the wall-clock times the customer sees.</summary>
     public sealed record Slot(DateTime StartUtc, DateTime EndUtc, DateTime LocalStart, DateTime LocalEnd);
@@ -66,6 +70,49 @@ public static class BookingAvailability
             }
         }
         return slots.OrderBy(s => s.StartUtc).ToList();
+    }
+
+    /// <summary>Why an exact start time is not bookable — <see cref="CheckTime"/>'s reasons.</summary>
+    public static class Reasons
+    {
+        public const string OutsideHours = "outside_hours";
+        public const string TooSoon = "too_soon";
+        public const string Busy = "busy";
+        public const string OffGrid = "off_grid";
+        public const string BeyondLastDay = "beyond_last_day";
+    }
+
+    /// <summary>The answer for one exact start: the free <see cref="Slot"/> when available, else the reason.</summary>
+    public sealed record TimeCheck(bool Available, string Reason, Slot? Slot, DateTime LocalStart);
+
+    /// <summary>
+    /// Is the exact local start <paramref name="time"/> on <paramref name="day"/> bookable?
+    /// <paramref name="free"/> is <see cref="FreeSlots"/> for that day — the list the tools offer
+    /// from — so a time is available exactly when that list holds it and the two can never
+    /// disagree. Otherwise the reason is the first rule it breaks: beyond_last_day, too_soon (a
+    /// past day), outside_hours (no working window holds the whole appointment), off_grid (not
+    /// on its window's step), too_soon (inside the minimum notice), else the calendar was busy.
+    /// </summary>
+    public static TimeCheck CheckTime(CalendarAppConfig cfg, TimeZoneInfo tz, DateTime nowUtc, DateOnly day,
+        TimeOnly time, IReadOnlyList<Slot> free)
+    {
+        nowUtc = Utc(nowUtc);
+        var localStart = day.ToDateTime(time);
+        var hit = free.FirstOrDefault(s => s.LocalStart == localStart);
+        if (hit != null) return new TimeCheck(true, "", hit, localStart);
+        TimeCheck No(string reason) => new(false, reason, null, localStart);
+
+        if (day > LastDay(cfg, nowUtc, tz)) return No(Reasons.BeyondLastDay);
+        if (day < Today(nowUtc, tz)) return No(Reasons.TooSoon);
+        var start = time.ToTimeSpan();
+        var duration = TimeSpan.FromMinutes(cfg.DurationMinutes);
+        var step = TimeSpan.FromMinutes(Math.Max(5, cfg.SlotStepMinutes));
+        var holding = (cfg.Hours.TryGetValue(day.DayOfWeek, out var windows) ? windows : new())
+            .Where(w => start >= w.From && start + duration <= w.To).ToList();
+        if (holding.Count == 0 || tz.IsInvalidTime(localStart)) return No(Reasons.OutsideHours);
+        if (!holding.Any(w => (start - w.From).Ticks % step.Ticks == 0)) return No(Reasons.OffGrid);
+        if (ToUtc(localStart, tz) < nowUtc.AddMinutes(cfg.MinNoticeMinutes)) return No(Reasons.TooSoon);
+        return No(Reasons.Busy);
     }
 
     /// <summary>

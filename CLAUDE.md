@@ -899,7 +899,15 @@ When you fix one of these, update this table, `README.md` and
   (`BookingAvailability`) = weekday windows (org timezone unless the skill sets
   one) − Google free/busy − ChatBranch's own pending/booked/cancelling rows on
   the same `calendar_key`, with buffer, minimum notice, max days ahead and a
-  step grid; at most 8 slots spread across the days. A slot is RESERVED while
+  step grid. `calendar_availability` over several days answers a SPREAD of ≤8
+  slots (`complete: false` when that is a sample); a single day (from = to) lists
+  EVERY free time (≤48, slots shortened rather than cut to fit the 4000-char result);
+  `time` (HH:mm + one `from_date`) checks one exact start — `requested.available`, else
+  a reason (outside_hours | too_soon | busy | off_grid | beyond_last_day, the pure
+  `BookingAvailability.CheckTime`) + the 3 nearest free times (that day, else the next
+  7 — the same `AlternativesAsync` the book tool's refusal uses); its notes tell the
+  model a time missing from a sample may still be free and that earlier results were
+  real. A slot is RESERVED while
   the reply is written (`crm_booking` pending / cancelling) and MADE at delivery:
   `AiReplyResult.PendingActions` → the draft's `pending_actions`; `AiGate`
   delivery runs `BookingService.ConfirmAsync` BEFORE the text goes out (books
