@@ -488,6 +488,8 @@ export const chats: Dict<typeof source> = {
     voiceCallAt: 'Panggilan suara · {time}',
     systemNote: '{text} · {time}',
     privateNote: 'Nota peribadi — tidak dihantar',
+    fromPhone: 'Dihantar dari telefon',
+    fromMailApp: 'Dihantar dari aplikasi e-mel',
     sentFrom: 'Dihantar dari {account}',
     receivedOn: 'Diterima di {account}',
     viaAccount: 'melalui {account} ·',

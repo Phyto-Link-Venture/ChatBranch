@@ -206,6 +206,18 @@ outbound queue are already channel-blind.
   `ChannelAccount.Config.keep_phone_notifications` and hands it to the gateway
   (`POST /accounts/:id/settings`) before pairing and whenever it changes; the gateway
   keeps a copy in the session dir (`settings.json`). Off = online all the time.
+- **Messages sent from the phone** (or WhatsApp Web — another device of the number)
+  reach ChatBranch as the person's reply: the gateway pushes a live (`notify`)
+  message from its own number that it did not send itself, to a 1:1 chat, under 15
+  minutes old and not a reaction (`messages.js phoneSent`, self-tested) to
+  `POST /api/whatsapp/baileys/from-phone` (a file follows on `/baileys/media` with
+  `from_me=1`); `Channels/PhoneSentMessages.cs` stores it OUTBOUND, source
+  `external_client`, at the phone's own time, deduped by message id (ChatBranch's
+  own sends never twice). Like a person's reply in the dashboard it answers an open
+  handover (`agent:phone`), leaves a queued AI reply nothing to answer and supersedes
+  a held AI draft — no AI, flows, automations or notifications run on it. A chat the
+  person STARTED from the phone links the matching contact with the chatbot off. The
+  chat labels these bubbles "Sent from the phone".
 - No templates (rendered as text), no 24h window. The cold-text guard
   (`cold_text_guard`, default `block`) refuses free text — manual sends and
   queued text jobs alike — from a live conversation-role number to a contact who

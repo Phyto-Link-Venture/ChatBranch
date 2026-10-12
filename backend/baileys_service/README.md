@@ -29,6 +29,11 @@ header); the gateway pushes back to the API's `/api/whatsapp/baileys/*` routes.
   and comes online only around a send / typing, quiet again `BAILEYS_PRESENCE_IDLE_MS`
   (default 30 000) later. Pure + self-tested (`node presence.js --selftest`, also
   run by `calls.js --selftest`).
+- **Messages sent from the phone** (`index.js` `pushFromPhone`, rule in `messages.js`
+  `phoneSent`): a live message from the number itself that this gateway did not send
+  (`ownSends` holds its own ids), 1:1, under 15 minutes old, not a reaction → pushed
+  to the API's `/api/whatsapp/baileys/from-phone`, which records it as the person's
+  reply (a file follows on `/baileys/media` with `from_me=1`).
 - `calls.js` — **voice calls**. Composes the internals of
   [baileys-caller](https://github.com/SheIITear/baileys-caller) (MIT,
   WhatsApp Web's own VoIP WASM stack) around the *existing* account socket —

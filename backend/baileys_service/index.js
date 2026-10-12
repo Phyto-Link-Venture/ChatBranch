@@ -37,7 +37,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import pino from 'pino'
 import { buildMediaMessage, MediaRequestError, MAX_SEND_MEDIA_BODY, readJsonBodyCapped } from './media.js'
-import { buildQuoted, buildReact, KeyStore, mediaKind, parseInbound, postWithRetry, setNormalizer, unwrap } from './messages.js'
+import { buildQuoted, buildReact, KeyStore, mediaKind, messageSeconds, parseInbound, phoneSent, postWithRetry, setNormalizer, unwrap } from './messages.js'
 import { createPresence, DEFAULT_IDLE_MS } from './presence.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -181,6 +181,8 @@ const hasContent = (msg) => !!msg && Object.keys(msg).some((k) => !PROTOCOL_KEYS
 // Recent messages by id (inbound + what we sent), so a reply can quote the real
 // message; an id we no longer hold is rebuilt from the API's text (messages.js).
 const recentMessages = new KeyStore(2000)
+// ids this gateway sent itself (ChatBranch's own sends) — never synced back as "sent from the phone"
+const ownSends = new KeyStore(5000)
 
 // Downloadable envelope kinds (image / video / video note / audio / document /
 // sticker) live in messages.js (MEDIA_KINDS, mediaKind) so the selftest covers them.
@@ -192,7 +194,7 @@ const MAX_MEDIA_BYTES = 20 * 1024 * 1024
  *  is checked: a non-2xx is retried (up to 3 tries with backoff — the push can
  *  race the /inbound one) and a final failure is logged as mediaPushFailed with
  *  its status; the chat then shows "not available" for the attachment. */
-async function pushInboundMedia(id, m, waId, media) {
+async function pushInboundMedia(id, m, waId, media, fromMe = false) {
   try {
     const declared = Number(media.node?.fileLength || 0)
     if (declared > MAX_MEDIA_BYTES) {
@@ -219,6 +221,8 @@ async function pushInboundMedia(id, m, waId, media) {
       form.append('media_type', media.type)
       // the customer's own file name (documents) — a photo or voice note has none
       form.append('file_name', String(media.node?.fileName || ''))
+      // a file the person sent from the phone: the API files it as their outbound message
+      if (fromMe) form.append('from_me', '1')
       form.append('file', new Blob([buffer], { type: mime || 'application/octet-stream' }), filename)
       // no explicit Content-Type header — fetch sets the multipart boundary
       return fetch(`${API_URL}/api/whatsapp/baileys/media`, {
@@ -289,6 +293,50 @@ async function pushInbound(id, m) {
   // so the message row exists to hang the media on; fire-and-forget
   const media = mediaKind(unwrap(m.message))
   if (media) pushInboundMedia(id, m, waId, media)
+}
+
+/**
+ * A message the person sent from the PHONE (or WhatsApp Web) — another device of this
+ * number. Without this the API never saw it: the chat looked unanswered, the AI could
+ * answer the customer a second time and an open handover stayed open. Pushed to
+ * /from-phone (the API stores it as their reply; ChatBranch's own sends never come
+ * here — messages.js phoneSent), then its file, like an inbound one.
+ */
+async function pushFromPhone(id, m) {
+  if (!hasContent(unwrap(m.message))) return
+  const jid = m.key?.remoteJid || ''
+  let waId = ''
+  if (jid.endsWith('@s.whatsapp.net')) {
+    waId = digits(jid.split('@')[0])
+  } else {
+    // a lid chat: the customer's phone from the envelope, else a mapping an inbound taught us
+    // (never senderPn — on our own message that is OUR number)
+    const alt = String(m.key?.remoteJidAlt || '')
+    waId = alt.includes('@s.whatsapp.net') ? digits(alt.split('@')[0]) : phoneForLid(jid) || ''
+    if (waId && alt) rememberLid(waId, jid)
+  }
+  if (!waId) {
+    logEvent('fromPhoneSkip', { acct: id, id: m.key?.id, jid, why: 'unknown lid chat' })
+    return
+  }
+  if (waId === digits(acct(id).me || '')) return // a note to self is not a conversation
+  const parsed = parseInbound(m.message)
+  recentMessages.remember(m)
+  const r = await postWithRetry(() => fetch(`${API_URL}/api/whatsapp/baileys/from-phone`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+    body: JSON.stringify({
+      account_id: id, wa_id: waId, text: parsed.text, msg_id: m.key?.id || '',
+      reply_to: parsed.replyTo, ts: messageSeconds(m),
+    }),
+  }), { attempts: 3, baseDelayMs: 500 })
+  if (r.ok) logEvent('fromPhone', { acct: id, id: m.key?.id, to: waId })
+  else {
+    logEvent('fromPhonePushFailed', { acct: id, id: m.key?.id, status: r.status, attempts: r.attempts, error: r.error })
+    console.error(`[${id}] from-phone push failed (HTTP ${r.status || 'network'}): ${r.error}`)
+  }
+  const media = mediaKind(unwrap(m.message))
+  if (media) pushInboundMedia(id, m, waId, media, true)
 }
 
 /** Reverse DisconnectReason lookup: 401 -> "loggedOut", 403 -> "forbidden"… */
@@ -459,7 +507,11 @@ async function startAccount(id) {
     }
     if (type !== 'notify') return
     for (const m of messages) {
-      if (m.key?.fromMe) continue
+      if (m.key?.fromMe) {
+        // typed on the phone / WhatsApp Web: the person's own reply (never our own sends)
+        if (phoneSent(m, type, (mid) => !!ownSends.get(mid))) pushFromPhone(id, m)
+        continue
+      }
       pushInbound(id, m)
     }
   })
@@ -517,7 +569,7 @@ async function sendText(id, to, text, rawJid = null, quote = null) {
   await humanPause(a, jid)
   const quoted = quote ? buildQuoted({ jid, ...quote }, recentMessages) : null
   const result = await a.sock.sendMessage(jid, { text }, quoted ? { quoted } : undefined)
-  if (result) recentMessages.remember(result)
+  if (result) { recentMessages.remember(result); ownSends.remember(result) }
   logEvent('send', { acct: id, to: d, jid, id: result?.key?.id || '', quoted: quote?.id || '' })
   return result?.key?.id || ''
 }
@@ -528,6 +580,7 @@ async function sendReaction(id, to, msgId, fromMe, emoji, rawJid = null) {
   const { a, d, jid } = await resolveTarget(id, to, rawJid)
   await a.presence?.active()
   const result = await a.sock.sendMessage(jid, buildReact({ jid, id: msgId, fromMe, emoji }))
+  if (result) ownSends.remember(result)
   logEvent('react', { acct: id, to: d, jid, target: msgId, emoji: emoji || '(removed)' })
   return result?.key?.id || ''
 }
@@ -538,6 +591,7 @@ async function sendMedia(id, to, built, rawJid = null) {
   const { a, d, jid } = await resolveTarget(id, to, rawJid)
   await humanPause(a, jid)
   const result = await a.sock.sendMessage(jid, built.content)
+  if (result) ownSends.remember(result)
   logEvent('sendMedia', { acct: id, to: d, jid, kind: built.mediaType, bytes: built.bytes, id: result?.key?.id || '' })
   return result?.key?.id || ''
 }

@@ -175,6 +175,34 @@ public static class WebhooksEndpoints
             return Results.Ok(new { ok = true });
         }).AllowAnonymous();
 
+        // A message the person sent from the PHONE (or WhatsApp Web) of a paired number —
+        // stored as their reply, not an inbound (Channels/PhoneSentMessages). An unknown
+        // number has nothing to file it under: acked, never retried.
+        app.MapPost("/api/whatsapp/baileys/from-phone", async (HttpContext ctx, AppDbContext db,
+            ScopingService sc, ThreadStore store, InboundProcessor processor) =>
+        {
+            if (!BaileysSecretOk(ctx, sc)) return Results.StatusCode(401);
+            JsonElement body;
+            try { body = await ctx.Request.ReadFromJsonAsync<JsonElement>(); }
+            catch { return Results.Ok(new { ok = true, stored = false }); }
+            var account = await BaileysAccountByKey(db, Str(body, "account_id"));
+            if (account == null) return Results.Ok(new { ok = true, stored = false });
+            long ts = 0;
+            if (body.ValueKind == JsonValueKind.Object && body.TryGetProperty("ts", out var tsEl)
+                && tsEl.ValueKind == JsonValueKind.Number && tsEl.TryGetInt64(out var t)) ts = t;
+            var msg = ChatBranch.Data.Channels.PhoneSentMessages.Record(db, sc, store, processor, account,
+                Str(body, "wa_id") ?? "", Str(body, "text") ?? "", Str(body, "msg_id") ?? "",
+                Str(body, "reply_to") ?? "", ts);
+            if (msg != null && account.HealthStatus != Domain.Health.Healthy)
+            {
+                // the session just carried a message — it is alive
+                ChatBranch.Data.Channels.AccountHealth.SetStatus(db, account, Domain.Health.Healthy,
+                    "message sent from the phone", actor: "webhook");
+                await db.SaveChangesAsync();
+            }
+            return Results.Ok(new { ok = true, stored = msg != null });
+        }).AllowAnonymous();
+
         app.MapPost("/api/whatsapp/baileys/status-event", async (HttpContext ctx, AppDbContext db,
             ScopingService sc) =>
         {
@@ -237,7 +265,7 @@ public static class WebhooksEndpoints
         // NOT be stored answers non-2xx (400 bad request, 413 too large, 500 save
         // failure) so the gateway knows to retry or to log the loss — never a 200.
         app.MapPost("/api/whatsapp/baileys/media", async (HttpContext ctx, AppDbContext db,
-            ScopingService sc, InboundProcessor processor, MediaStore media) =>
+            ScopingService sc, InboundProcessor processor, MediaStore media, ThreadStore store) =>
         {
             if (!BaileysSecretOk(ctx, sc)) return Results.StatusCode(401);
             static IResult NotStored(int status, string detail) =>
@@ -270,6 +298,14 @@ public static class WebhooksEndpoints
                     .OrderByDescending(m => m.Id).ToListAsync())
                     .OrderByDescending(m => account != null && m.Thread!.AccountId == account.Id).FirstOrDefault()
                 : null;
+            // a file the person sent from the phone (from_me): their outbound message, never an inbound
+            if (msg == null && form["from_me"].ToString() == "1")
+            {
+                if (account == null) return Results.Ok(new { ok = true, stored = false });
+                msg = ChatBranch.Data.Channels.PhoneSentMessages.Record(db, sc, store, processor, account, waId,
+                    $"[{type}]", msgId);
+                if (msg == null) return NotStored(500, "could not record the message");
+            }
             if (msg == null)
                 msg = processor.ProcessInbound("whatsapp", waId, $"[{type}]", null, account?.Id, msgId);
             var thread = await db.Threads.FirstAsync(t => t.Id == msg.ThreadId);

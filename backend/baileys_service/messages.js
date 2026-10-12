@@ -172,6 +172,34 @@ export function parseInbound(message) {
   return { text: extractText(msg), replyTo: quotedId(msg), reaction: null }
 }
 
+/** How far back a message sent from the phone is still synced (seconds); older = history, skipped. */
+export const PHONE_SYNC_WINDOW_S = 15 * 60
+
+/** A WAMessage's timestamp in seconds (a protobuf Long or a number; 0 when absent). */
+export function messageSeconds(m) {
+  const ts = m?.messageTimestamp
+  if (ts == null) return 0
+  if (typeof ts === 'object') return Number(typeof ts.toNumber === 'function' ? ts.toNumber() : ts.low ?? 0)
+  return Number(ts) || 0
+}
+
+/**
+ * Was this message sent by a person on ANOTHER device of the account — the phone or
+ * WhatsApp Web — so ChatBranch should record it as their reply? A live (`notify`)
+ * upsert from our own number (fromMe), never one this gateway sent itself
+ * (`isOwn(id)`: ChatBranch's own sends), in a 1:1 chat, not a reaction, and recent
+ * (an older one is history replayed on connect). Content is checked by the caller.
+ */
+export function phoneSent(m, type, isOwn = () => false, nowS = Math.floor(Date.now() / 1000)) {
+  if (type !== 'notify' || !m?.key?.fromMe || !m.key.id) return false
+  if (isOwn(m.key.id)) return false
+  const jid = String(m.key.remoteJid || '')
+  if (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid')) return false
+  const ts = messageSeconds(m)
+  if (ts > 0 && nowS - ts > PHONE_SYNC_WINDOW_S) return false
+  return !parseInbound(m.message).reaction
+}
+
 /** A bounded map of recent WAMessages by id (oldest evicted first). */
 export class KeyStore {
   constructor(max = 2000) {
@@ -271,6 +299,26 @@ export function selftest() {
   let threw = false
   try { buildReact({ jid: 'j', id: '' }) } catch { threw = true }
   check(threw, 'react needs a message id')
+  // sent from the phone: our own number, live, not ours, 1:1, recent, not a reaction
+  const now = 1_800_000_000
+  const mine = (id, extra = {}) => ({
+    key: { id, fromMe: true, remoteJid: '60123@s.whatsapp.net' },
+    messageTimestamp: now - 5, message: { conversation: 'from my phone' }, ...extra,
+  })
+  check(phoneSent(mine('P1'), 'notify', () => false, now), 'a reply typed on the phone is synced')
+  check(!phoneSent(mine('P1'), 'append', () => false, now), 'history / own echoes (append) are not')
+  check(!phoneSent(mine('P1'), 'notify', (id) => id === 'P1', now), 'a message this gateway sent is not')
+  check(!phoneSent({ ...mine('P2'), key: { id: 'P2', fromMe: false, remoteJid: '60123@s.whatsapp.net' } }, 'notify', () => false, now),
+    'a customer message is not')
+  check(!phoneSent({ ...mine('P3'), key: { id: 'P3', fromMe: true, remoteJid: '1203@g.us' } }, 'notify', () => false, now),
+    'a group message is not')
+  check(!phoneSent(mine('P4', { messageTimestamp: { low: now - 3600, toNumber: () => now - 3600 } }), 'notify', () => false, now),
+    'an hour-old message (history) is not')
+  check(phoneSent(mine('P5', { messageTimestamp: { low: now - 60 } }), 'notify', () => false, now), 'a Long timestamp is read')
+  check(!phoneSent(mine('P6', { message: { reactionMessage: { key: { id: 'X' }, text: '👍' } } }), 'notify', () => false, now),
+    'a reaction from the phone is not a message')
+  check(phoneSent({ ...mine('P7'), key: { id: 'P7', fromMe: true, remoteJid: '9988@lid' } }, 'notify', () => false, now),
+    'a lid chat counts')
   return true
 }
 

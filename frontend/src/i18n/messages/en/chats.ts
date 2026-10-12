@@ -488,6 +488,8 @@ export const chats = {
     voiceCallAt: 'Voice call · {time}',
     systemNote: '{text} · {time}',
     privateNote: 'Private note — not sent',
+    fromPhone: 'Sent from the phone',
+    fromMailApp: 'Sent from the mail app',
     sentFrom: 'Sent from {account}',
     receivedOn: 'Received on {account}',
     viaAccount: 'via {account} ·',

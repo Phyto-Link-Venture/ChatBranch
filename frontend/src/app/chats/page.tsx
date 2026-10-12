@@ -2197,6 +2197,12 @@ function ChatsPage() {
                                   <Lock size={8} className="mr-0.5 inline" aria-hidden /> {t('chats.page.privateNote')}
                                 </span>
                               )}
+                              {/* a person's reply from outside ChatBranch: typed on the phone, or a mail app's Sent folder */}
+                              {!m.private && m.dir === 'out' && m.source === 'external_client' && (
+                                <span className="cb-bubble-source">
+                                  {t((m.channel || active.channel) === 'email' ? 'chats.page.fromMailApp' : 'chats.page.fromPhone')}
+                                </span>
+                              )}
                               {!m.private && m.dir === 'out' && m.source === 'ai' && <AiBubbleFeedback m={m} store={aiFeedback} />}
                               <MessageContent m={m} contactName={active.contact_name || active.name} onJump={jumpToMessage} />
                               <span className="cb-bubble-time">

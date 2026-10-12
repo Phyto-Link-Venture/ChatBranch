@@ -108,7 +108,8 @@ export interface UiMessage {
   text: string
   ts: string
   status: string
-  source: 'customer' | 'agent' | 'ai' | 'system'
+  /** external_client = a person's reply from outside ChatBranch (a QR number's phone, a mail app's Sent folder). */
+  source: 'customer' | 'agent' | 'ai' | 'system' | 'external_client'
   private?: boolean
   media?: UiMedia | null
   /** Which provider account carried this message (sender number for outbound). */

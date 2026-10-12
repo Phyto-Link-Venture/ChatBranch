@@ -484,6 +484,8 @@ export const chats: Dict<typeof source> = {
     voiceCallAt: '语音通话 · {time}',
     systemNote: '{text} · {time}',
     privateNote: '内部备注——不会发送',
+    fromPhone: '从手机发送',
+    fromMailApp: '从邮件应用发送',
     sentFrom: '发自 {account}',
     receivedOn: '收于 {account}',
     viaAccount: '经由 {account} ·',
