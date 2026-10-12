@@ -161,6 +161,7 @@ export const channels: Dict<typeof source> = {
       t1: 'WhatsApp mengehadkan mesej pertama daripada nombor yang dipasangkan kepada orang yang tiada dalam buku alamat telefon. Klik “Eksport kenalan (.vcf)” dan import fail itu ke telefon untuk mengelakkannya.',
       t2: 'Jangan sekali-kali menghantar mesej pukal atau mesej kepada orang yang tidak pernah menghubungi anda daripada nombor yang dipasangkan — itulah cara paling cepat untuk disekat.',
       t3: 'Untuk pelanggan sebenar, sambungkan nombor WhatsApp Business (Cloud API); ia juga boleh menghantar templat.',
+      t4: '“Kekalkan pemberitahuan telefon” (hidup secara lalai) membolehkan telefon terus berbunyi untuk mesej WhatsApp baharu: ChatBranch hanya kelihatan dalam talian semasa menghantar. Matikan dan ChatBranch kekal dalam talian, yang mendiamkan telefon, seperti WhatsApp Web.',
     },
     trouble:
       'Tiada kod QR, atau mesej menyebut gerbang: gerbang WhatsApp tidak berjalan — minta pasukan teknikal memulakannya, kemudian buka semula kad dan klik “Pasangkan”. Kad memaparkan “Terputus”: telefon di luar talian atau telah log keluar — klik “Pasangkan” dan imbas semula. Kad memaparkan “Disekat”: WhatsApp menyekat nombor itu; berhenti menggunakannya dan pasangkan nombor simpanan lain.',

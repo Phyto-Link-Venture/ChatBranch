@@ -38,6 +38,7 @@ import { fileURLToPath } from 'url'
 import pino from 'pino'
 import { buildMediaMessage, MediaRequestError, MAX_SEND_MEDIA_BODY, readJsonBodyCapped } from './media.js'
 import { buildQuoted, buildReact, KeyStore, mediaKind, parseInbound, postWithRetry, setNormalizer, unwrap } from './messages.js'
+import { createPresence, DEFAULT_IDLE_MS } from './presence.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -96,6 +97,8 @@ const SECRET = process.env.BAILEYS_SECRET || 'baileys-local-dev'
 const API_URL = (process.env.API_URL || process.env.DJANGO_URL || 'http://127.0.0.1:8090')
   .replace(/\/$/, '')
 const AUTH_ROOT = path.join(HERE, '..', 'data', 'whatsapp', 'baileys')
+// "Keep phone notifications": how long a number stays online after its last send / typing
+const PRESENCE_IDLE_MS = Number(process.env.BAILEYS_PRESENCE_IDLE_MS || DEFAULT_IDLE_MS)
 
 const logger = pino({ level: process.env.BAILEYS_LOG_LEVEL || 'silent' })
 
@@ -149,8 +152,22 @@ function phoneForLid(lidJid) {
 }
 
 function acct(id) {
-  if (!accounts.has(id)) accounts.set(id, { sock: null, state: 'stopped', qr: null, me: null, error: null })
+  if (!accounts.has(id)) accounts.set(id, { sock: null, state: 'stopped', qr: null, me: null, error: null, presence: null })
   return accounts.get(id)
+}
+
+// ---- per-number settings (kept next to the session, so they survive a restart) ----
+// keep_phone_notifications: stay offline between sends so the phone still buzzes
+// (presence.js) — set by the API from the number's settings (POST /accounts/:id/settings).
+const settingsFile = (id) => path.join(AUTH_ROOT, String(id), 'settings.json')
+
+function loadSettings(id) {
+  try { return JSON.parse(readFileSync(settingsFile(id), 'utf8')) || {} } catch { return {} }
+}
+
+function saveSettings(id, settings) {
+  mkdirSync(path.join(AUTH_ROOT, String(id)), { recursive: true })
+  writeFileSync(settingsFile(id), JSON.stringify(settings))
 }
 
 // Envelopes that carry no user content (session setup, receipts-of-sorts).
@@ -315,6 +332,7 @@ async function startAccount(id) {
   // in "starting" with no QR) — always pair with the current one.
   const { version } = await fetchLatestBaileysVersion()
 
+  const keepPhone = !!loadSettings(id).keep_phone_notifications
   const sock = makeWASocket({
     version,
     auth: state,
@@ -322,8 +340,12 @@ async function startAccount(id) {
     printQRInTerminal: false,
     browser: ['ChatBranch', 'Chrome', '1.0'],
     syncFullHistory: false,
+    // "Keep phone notifications": never announce online on connect (presence.js)
+    markOnlineOnConnect: !keepPhone,
   })
   a.sock = sock
+  a.presence?.stop()
+  a.presence = createPresence({ send: (kind) => sock.sendPresenceUpdate(kind), idleMs: PRESENCE_IDLE_MS })
 
   // watchdog: a healthy pairing emits a QR within seconds — surface a hang
   setTimeout(() => {
@@ -348,11 +370,13 @@ async function startAccount(id) {
       a.qr = null
       a.me = digits((sock.user?.id || '').split(':')[0])
       console.log(`[${id}] connected as +${a.me}`)
-      // announce presence — companions that never do get their sends deprioritized
-      sock.sendPresenceUpdate('available').catch(() => {})
+      // announce presence — companions that never do get their sends deprioritized;
+      // a "keep phone notifications" number stays quiet and comes online per send instead
+      a.presence.configure(!!loadSettings(id).keep_phone_notifications).catch(() => {})
       pushStatusEvent(id, 'connected', '')
     }
     if (connection === 'close') {
+      a.presence?.stop()
       // the VoIP session (calls.js) is bound to this dead socket — end any
       // live call now; the reconnect below hands calls a fresh socket later
       if (_calls) {
@@ -479,6 +503,7 @@ async function resolveTarget(id, to, rawJid = null) {
 /** Brief "typing…" before a send — reads human, and companion sessions that
  *  never emit presence look like bots to WhatsApp's scoring. */
 async function humanPause(a, jid) {
+  await a.presence?.active()
   try {
     await a.sock.presenceSubscribe(jid)
     await a.sock.sendPresenceUpdate('composing', jid)
@@ -501,6 +526,7 @@ async function sendText(id, to, text, rawJid = null, quote = null) {
  *  a reaction is a tap, not a message. */
 async function sendReaction(id, to, msgId, fromMe, emoji, rawJid = null) {
   const { a, d, jid } = await resolveTarget(id, to, rawJid)
+  await a.presence?.active()
   const result = await a.sock.sendMessage(jid, buildReact({ jid, id: msgId, fromMe, emoji }))
   logEvent('react', { acct: id, to: d, jid, target: msgId, emoji: emoji || '(removed)' })
   return result?.key?.id || ''
@@ -524,6 +550,7 @@ async function sendPresence(id, to, state) {
   const d = digits(to)
   const jid = lidHints.get(d) || `${d}@s.whatsapp.net`
   const kind = ['composing', 'paused', 'available'].includes(state) ? state : 'composing'
+  await a.presence?.active()
   try { await a.sock.presenceSubscribe(jid) } catch { /* optional */ }
   await a.sock.sendPresenceUpdate(kind, jid)
   return { ok: true, state: kind }
@@ -604,15 +631,28 @@ const readBody = (req) =>
 http
   .createServer(async (req, res) => {
     if (req.headers['x-baileys-secret'] !== SECRET) return json(res, 403, { detail: 'bad secret' })
-    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|send-media|react|presence|logout|check|call|call-end|call-status)$/)
+    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|send-media|react|presence|logout|check|call|call-end|call-status|settings)$/)
     if (!m) return json(res, 404, { detail: 'not found' })
     const [, id, action] = m
     try {
       if (action === 'status') {
         const a = accounts.get(id)
+        const keep = !!loadSettings(id).keep_phone_notifications
         return json(res, 200, a
-          ? { state: a.state, qr: a.qr, me: a.me, error: a.error }
-          : { state: 'stopped', qr: null, me: null, error: null })
+          ? { state: a.state, qr: a.qr, me: a.me, error: a.error, keep_phone_notifications: keep, online: a.presence ? a.presence.online : null }
+          : { state: 'stopped', qr: null, me: null, error: null, keep_phone_notifications: keep, online: null })
+      }
+      if (action === 'settings') {
+        // GET: the number's settings; POST {keep_phone_notifications}: store + apply now
+        if (req.method === 'GET') return json(res, 200, { keep_phone_notifications: !!loadSettings(id).keep_phone_notifications })
+        if (req.method !== 'POST') return json(res, 405, { detail: 'GET or POST' })
+        const body = await readBody(req)
+        if (typeof body.keep_phone_notifications !== 'boolean') return json(res, 400, { detail: 'keep_phone_notifications (true/false) is required' })
+        saveSettings(id, { ...loadSettings(id), keep_phone_notifications: body.keep_phone_notifications })
+        const a = accounts.get(id)
+        if (a?.state === 'connected' && a.presence) await a.presence.configure(body.keep_phone_notifications)
+        logEvent('settings', { acct: id, keep_phone_notifications: body.keep_phone_notifications })
+        return json(res, 200, { ok: true, keep_phone_notifications: body.keep_phone_notifications })
       }
       if (action === 'call-status') {
         // idle until calls.js has ever been loaded — don't boot WASM for a poll

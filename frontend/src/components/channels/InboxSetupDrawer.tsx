@@ -261,6 +261,8 @@ export function InboxSetupDrawer({
   const [aiDefault, setAiDefault] = useState<AiDefault>('')
   const [reviewMode, setReviewMode] = useState<ReviewMode>('')
   const [delivery, setDelivery] = useState<DeliveryState>(() => deliveryStateFrom(null))
+  // QR numbers: stay offline between sends so the phone still rings (on for a new number)
+  const [keepPhone, setKeepPhone] = useState(true)
   // validation + status
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [touched, setTouched] = useState<Record<string, boolean>>({})
@@ -326,6 +328,7 @@ export function InboxSetupDrawer({
     setAiDefault(inbox?.aiDefault ?? '')
     setReviewMode(inbox?.reviewMode ?? '')
     setDelivery(deliveryStateFrom(inbox?.wa?.delivery))
+    setKeepPhone(inbox?.wa ? !!inbox.wa.keep_phone_notifications : true)
     setErrors({})
     setTouched({})
     setFormError(null)
@@ -480,6 +483,7 @@ export function InboxSetupDrawer({
         if (c('access_token')) body.access_token = c('access_token')
         if (c('app_secret')) body.app_secret = c('app_secret')
       } else if (!id) body.provider = 'baileys'
+      if (kind === 'wa_qr') body.keep_phone_notifications = keepPhone ? 'true' : 'false'
       const a = await api<WaAccount>(id ? `whatsapp/accounts/${id}` : 'whatsapp/accounts', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -974,6 +978,13 @@ export function InboxSetupDrawer({
           <Help>
             {role === 'reminder' ? t('channels.drawer.who.roleReminderHelp') : t('channels.drawer.who.roleConversationHelp')}
           </Help>
+        </div>
+      )}
+
+      {kind === 'wa_qr' && (
+        <div data-tour="keep-phone-notifications">
+          <Toggle on={keepPhone} onChange={setKeepPhone} label={t('channels.drawer.who.keepPhone')} />
+          <Help>{keepPhone ? t('channels.drawer.who.keepPhoneOnHelp') : t('channels.drawer.who.keepPhoneOffHelp')}</Help>
         </div>
       )}
 

@@ -297,6 +297,9 @@ export const channels: Dict<typeof source> = {
         'Menghantar templat yang diluluskan serta-merta dan menyerahkan kenalan kepada nombor perbualan. Chatbot dimatikan secara lalai.',
       roleConversationHelp:
         'Mengendalikan perbualan AI yang dimulakan oleh pelanggan. Penghantaran dijarakkan seperti manusia untuk melindungi nombor.',
+        keepPhone: 'Kekalkan pemberitahuan telefon',
+        keepPhoneOnHelp: 'ChatBranch berada di luar talian antara penghantaran, jadi telefon ini masih berbunyi untuk mesej WhatsApp baharu.',
+        keepPhoneOffHelp: 'ChatBranch sentiasa dalam talian — WhatsApp kemudian mendiamkan pemberitahuan telefon ini, seperti apabila WhatsApp Web dibiarkan terbuka.',
       aiReplies: 'Balasan AI',
       aiRepliesAria: 'Lalai balasan AI',
       byRole: 'Ikut peranan',

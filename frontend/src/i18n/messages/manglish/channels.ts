@@ -72,6 +72,8 @@ export const channels: Overlay<Messages['channels']> = {
     voiceLocked: 'The super admin manages the voice trunk credentials — you can still look through them here.',
     useTlsHint: 'Just leave it on unless your provider says otherwise.',
     who: {
+      keepPhoneOnHelp: 'ChatBranch goes offline in between sends, so this phone still rings for new WhatsApp messages — no need to keep checking.',
+      keepPhoneOffHelp: 'ChatBranch stays online all the time — then WhatsApp will silence this phone’s notifications, same like leaving WhatsApp Web open.',
       voiceIntro:
         'The AI voice agent answers calls on the SIP trunk. Who to dial — and with which voice and script — is decided per call, from a conversation, a campaign or a flow step.',
       voiceNothing: 'Nothing to set here lah. Continue to check the configuration.',

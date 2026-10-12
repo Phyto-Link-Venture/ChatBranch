@@ -296,6 +296,9 @@ export const channels = {
         'Sends approved templates straight away and hands contacts to a conversation number. The chatbot is off by default.',
       roleConversationHelp:
         'Holds the AI conversations, customer-initiated. Sends are human-paced to protect the number.',
+        keepPhone: 'Keep phone notifications',
+        keepPhoneOnHelp: 'ChatBranch goes offline between sends, so this phone still rings for new WhatsApp messages.',
+        keepPhoneOffHelp: 'ChatBranch stays online all the time — WhatsApp then silences this phone’s notifications, as when WhatsApp Web is left open.',
       aiReplies: 'AI replies',
       aiRepliesAria: 'AI reply default',
       byRole: 'By role',

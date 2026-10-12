@@ -24,6 +24,11 @@ header); the gateway pushes back to the API's `/api/whatsapp/baileys/*` routes.
   `BAILEYS_PORT`, default 3020). One WhatsApp Web session per
   `crm.ChannelAccount` row with `provider="baileys"`; auth state persists in
   `backend/data/whatsapp/baileys/<account_id>/`.
+- `presence.js` — **keep phone notifications**: WhatsApp silences the phone while a
+  linked device shows as online, so a number with the setting stays `unavailable`
+  and comes online only around a send / typing, quiet again `BAILEYS_PRESENCE_IDLE_MS`
+  (default 30 000) later. Pure + self-tested (`node presence.js --selftest`, also
+  run by `calls.js --selftest`).
 - `calls.js` — **voice calls**. Composes the internals of
   [baileys-caller](https://github.com/SheIITear/baileys-caller) (MIT,
   WhatsApp Web's own VoIP WASM stack) around the *existing* account socket —
@@ -67,6 +72,7 @@ groups, no video.
 | `POST /accounts/:id/call` | `{to, room, livekit_url, token, max_seconds}` → call snapshot |
 | `POST /accounts/:id/call-end` | hang up the active call |
 | `POST /accounts/:id/presence` | typing/online presence before an AI reply (best-effort) |
+| `GET/POST /accounts/:id/settings` | `{keep_phone_notifications: bool}` — stay offline between sends so the phone keeps WhatsApp's notifications (`presence.js`; stored in the session dir's `settings.json`, applied to a live session at once) |
 | `GET  /accounts/:id/call-status` | `{status, call_id, room?}` — the API's busy/stale-state probe |
 
 ## Setup / run

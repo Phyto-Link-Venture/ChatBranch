@@ -199,6 +199,13 @@ outbound queue are already channel-blind.
 ### WhatsApp over Baileys
 - Unofficial WhatsApp Web protocol. **Violates WhatsApp's ToS**; dev/demo only.
   See `backend/baileys_service/README.md` and `RESEARCH.md`.
+- **Keep phone notifications** (per number, on for a new one): WhatsApp silences the
+  phone's notifications while a linked device shows as online, so the gateway stays
+  offline between sends and comes online only while sending / typing
+  (`presence.js`, `BAILEYS_PRESENCE_IDLE_MS`, default 30 s). The API stores it in
+  `ChannelAccount.Config.keep_phone_notifications` and hands it to the gateway
+  (`POST /accounts/:id/settings`) before pairing and whenever it changes; the gateway
+  keeps a copy in the session dir (`settings.json`). Off = online all the time.
 - No templates (rendered as text), no 24h window. The cold-text guard
   (`cold_text_guard`, default `block`) refuses free text — manual sends and
   queued text jobs alike — from a live conversation-role number to a contact who

@@ -258,6 +258,8 @@ export interface WaAccount {
   team_id?: number | null
   ai_default?: AiDefault
   ai_review_mode?: ReviewMode
+  /** QR numbers: offline between sends so the phone keeps WhatsApp's notifications */
+  keep_phone_notifications?: boolean
 }
 
 export interface MessagingAccount {

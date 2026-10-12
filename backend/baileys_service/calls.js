@@ -959,6 +959,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
   messagesSelftest()
   await selftestRetry()
   console.log('quote / reaction / inbound parsing OK')
+  // "keep phone notifications": online only around sends (pure; no WhatsApp needed)
+  const { selftest: presenceSelftest } = await import('./presence.js')
+  await presenceSelftest()
+  console.log('phone-notification presence OK')
   const { WasmEngine, lk } = await loadModules()
   console.log('modules loaded: baileys-caller internals + @livekit/rtc-node')
   if (!lk.Room || !lk.AudioSource || !lk.AudioFrame || !lk.AudioStream) {

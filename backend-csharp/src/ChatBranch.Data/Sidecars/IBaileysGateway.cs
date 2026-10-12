@@ -26,6 +26,28 @@ public record BaileysCheck(bool? Exists, string? Jid, string Error = "");
 public record BaileysQuote(string Id, bool FromMe, string Text = "");
 
 /// <summary>
+/// Per-number settings of a QR (Baileys) WhatsApp number, kept in
+/// <c>ChannelAccount.Config</c> and handed to the gateway (which stores its own copy
+/// next to the session): <see cref="KeepPhoneNotifications"/> = stay offline between
+/// sends so the phone keeps getting WhatsApp's notifications (backend/baileys_service/presence.js).
+/// </summary>
+public static class BaileysSettings
+{
+    public const string KeepPhoneNotifications = "keep_phone_notifications";
+
+    public static bool KeepPhone(ChatBranch.Domain.ChannelAccount a) =>
+        a.Config.TryGetValue(KeepPhoneNotifications, out var v) && v switch
+        {
+            bool b => b,
+            System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.True } => true,
+            System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.String } e =>
+                string.Equals(e.GetString(), "true", StringComparison.OrdinalIgnoreCase),
+            string str => string.Equals(str, "true", StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+}
+
+/// <summary>
 /// The Node Baileys gateway (unofficial WhatsApp Web, <c>backend/baileys_service</c>)
 /// stays a sidecar — no C# port exists. This is the HTTP contract the backend
 /// uses to drive it, mirroring Django's <c>whatsapp/client.py baileys_request</c>:
@@ -93,6 +115,13 @@ public interface IBaileysGateway
     /// </summary>
     Task<BaileysCheck> CheckNumberAsync(string accountExternalId, string number, CancellationToken ct = default) =>
         Task.FromResult(new BaileysCheck(null, null, "this Baileys gateway does not support number lookups"));
+    /// <summary>
+    /// "Keep phone notifications" (<see cref="BaileysSettings"/>): the gateway keeps the
+    /// number offline between sends so the phone still buzzes, and remembers it next to
+    /// the session. True when the gateway took it; the default (a double without it) says no.
+    /// </summary>
+    Task<bool> SetPhoneNotificationsAsync(string accountExternalId, bool keep, CancellationToken ct = default) =>
+        Task.FromResult(false);
     // ---- pairing (Settings → Channels → WhatsApp → Pair) ----
     Task<BaileysStatus> StatusAsync(string accountExternalId, CancellationToken ct = default);
     Task<BaileysStatus> StartAsync(string accountExternalId, CancellationToken ct = default);
@@ -223,6 +252,13 @@ public class HttpBaileysGateway : IBaileysGateway
     {
         var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/start", new { }, ct);
         return ok ? ToStatus(body, "") : new BaileysStatus("error", null, null, err);
+    }
+
+    public async Task<bool> SetPhoneNotificationsAsync(string a, bool keep, CancellationToken ct = default)
+    {
+        var (ok, _, _) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/settings",
+            new { keep_phone_notifications = keep }, ct, timeoutSeconds: 10);
+        return ok;
     }
 
     public async Task<BaileysStatus> LogoutAsync(string a, CancellationToken ct = default)

@@ -5,6 +5,7 @@ using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Channels;
 using ChatBranch.Data.Flows;
+using ChatBranch.Data.Sidecars;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -642,6 +643,7 @@ public static class WhatsAppSettingsEndpoints
                 return outside;
             if (WhatsAppProviders.IsBsp(provider)) ApplyBsp(row, body);
             if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
+            ApplyPhoneNotifications(row, body);   // QR numbers: handed to the gateway when it pairs
             // inbox "who answers it" keys: owning team + AI reply default
             if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
                     AsString(body, InboxSettings.AiDefaultKey),
@@ -721,6 +723,7 @@ public static class WhatsAppSettingsEndpoints
             // per-account delivery + AI knobs (quiet hours, send pacing, voice-call
             // brain/STT) — same config JSON, no health reset either
             if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
+            var phoneNotificationsChanged = ApplyPhoneNotifications(row, body);
             if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
                     AsString(body, InboxSettings.AiDefaultKey),
                     AsString(body, InboxSettings.ReviewModeKey)) is string inboxErr)
@@ -751,6 +754,11 @@ public static class WhatsAppSettingsEndpoints
             await db.SaveChangesAsync();
             // …and re-probe it now, off the request, instead of at the next checker pass
             if (credsChanged) _ = ctx.RequestServices.GetRequiredService<ChatBranch.Api.Workers.HealthRecheck>().Schedule(row.Id);
+            // "Keep phone notifications" takes effect on the live session at once (a number
+            // never paired gets it when it pairs; an unreachable gateway when it next pairs)
+            if (phoneNotificationsChanged && !string.IsNullOrWhiteSpace(row.ExternalId))
+                await ctx.RequestServices.GetRequiredService<ChatBranch.Data.Sidecars.IBaileysGateway>()
+                    .SetPhoneNotificationsAsync(row.ExternalId, BaileysSettings.KeepPhone(row));
 
             if (entityChanged)
                 // Re-file this number's existing conversations under the new
@@ -920,6 +928,8 @@ public static class WhatsAppSettingsEndpoints
                     acct.EntityId) is { } outside)
                 return outside;
             var key = await EnsureBaileysKey(db, acct);
+            // the session starts with the number's "keep phone notifications" setting
+            await gw.SetPhoneNotificationsAsync(key, BaileysSettings.KeepPhone(acct));
             var st = await gw.StartAsync(key);
             await Audit(db, ctx, me, "account.baileys_start", $"whatsapp:{id}", st.State);
             return Results.Ok(BaileysStatePayload(st));
@@ -1859,6 +1869,8 @@ public static class WhatsAppSettingsEndpoints
         // YCloud / Twilio: this account's own signed webhook + its provider settings
         webhook_path = WhatsAppProviders.WebhookPath(a),
         bsp = BspPayload(a),
+        // QR numbers: stay offline between sends so the phone keeps its notifications
+        keep_phone_notifications = BaileysSettings.KeepPhone(a),
     };
 
     /// <summary>The provider-specific, non-secret settings of a YCloud / Twilio account (secrets masked).</summary>
@@ -1972,6 +1984,23 @@ public static class WhatsAppSettingsEndpoints
         if (WhatsAppProviders.Cfg(row, "status_callback") == url) return false;
         row.Config = new Dictionary<string, object?>(row.Config) { ["status_callback"] = url };
         return true;
+    }
+
+    /// <summary>
+    /// "Keep phone notifications" on a QR (Baileys) number (<see cref="BaileysSettings"/>):
+    /// the body's <c>keep_phone_notifications</c> true / false. Other providers ignore it.
+    /// True when it changed.
+    /// </summary>
+    private static bool ApplyPhoneNotifications(ChannelAccount row, JsonElement body)
+    {
+        if (WhatsAppProviders.Of(row) != Providers.Baileys
+            || AsBool(body, BaileysSettings.KeepPhoneNotifications) is not bool on) return false;
+        var before = BaileysSettings.KeepPhone(row);
+        var cfg = new Dictionary<string, object?>(row.Config);
+        if (on) cfg[BaileysSettings.KeepPhoneNotifications] = true;
+        else cfg.Remove(BaileysSettings.KeepPhoneNotifications);
+        row.Config = cfg;
+        return before != on;
     }
 
     internal static Dictionary<string, string> DeliveryPayload(ChannelAccount a) =>

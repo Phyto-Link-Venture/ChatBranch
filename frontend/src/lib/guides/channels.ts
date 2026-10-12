@@ -4,7 +4,7 @@ import type { GuideDef } from './types'
 export const channelsGuides: GuideDef[] = [
   { id: 'connectFirstChannel', group: 'channels', href: '/channels', tour: 'channels', steps: 9, tips: 3, before: true, trouble: true, who: 'admin' },
   { id: 'whatsappCloud', group: 'channels', href: '/channels', tour: 'channels', steps: 10, tips: 3, before: true, trouble: true, who: 'admin' },
-  { id: 'whatsappQr', group: 'channels', href: '/channels', tour: 'channels', steps: 9, tips: 3, before: true, trouble: true, who: 'admin' },
+  { id: 'whatsappQr', group: 'channels', href: '/channels', tour: 'channels', steps: 9, tips: 4, before: true, trouble: true, who: 'admin' },
   { id: 'websiteWidget', group: 'channels', href: '/channels', tour: 'channels', steps: 9, tips: 3, before: true, trouble: true, who: 'admin' },
   { id: 'emailMailbox', group: 'channels', href: '/channels', tour: 'channels', steps: 9, tips: 3, before: true, trouble: true, who: 'admin' },
   { id: 'telegramBot', group: 'channels', href: '/channels', tour: 'channels', steps: 8, tips: 3, before: true, trouble: true, who: 'admin' },

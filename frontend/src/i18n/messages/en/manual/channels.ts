@@ -159,6 +159,7 @@ export const channels = {
       t1: 'WhatsApp limits first messages from paired numbers to people who are not in the phone’s address book. Click “Export contacts (.vcf)” and import the file on the phone to avoid this.',
       t2: 'Never send bulk or cold messages from a paired number — it is the fastest way to get it banned.',
       t3: 'For real customers, connect a WhatsApp Business (Cloud API) number instead; it can also send templates.',
+      t4: '“Keep phone notifications” (on by default) lets the phone keep ringing for new WhatsApp messages: ChatBranch only shows as online while it sends. Switch it off and ChatBranch stays online, which silences the phone, as WhatsApp Web does.',
     },
     trouble:
       'No QR code appears, or a message mentions the gateway: the WhatsApp gateway is not running — ask your technical team to start it, then reopen the card and click “Pair”. The card says “Disconnected”: the phone was offline or logged out — click “Pair” and scan again. The card says “Banned”: WhatsApp blocked the number; stop using it and pair a different spare number.',
