@@ -36,7 +36,10 @@ public class ScriptTemplate : IMultiEntityItem
     public DateTime UpdatedAt { get; set; }
 }
 
-public class Workflow : IEntityScoped
+/// <summary>A journey. "Runs for" = <see cref="EntityId"/> (the primary) plus its
+/// <see cref="LibraryKinds.Workflow"/> ticks in <c>crm_libraryentity</c> — several
+/// entities and their branches; none = the whole organization.</summary>
+public class Workflow : IMultiEntityItem
 {
     public int Id { get; set; }
     public int? EntityId { get; set; }

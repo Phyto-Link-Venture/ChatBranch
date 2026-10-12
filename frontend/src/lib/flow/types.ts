@@ -99,13 +99,11 @@ export interface WorkflowDef {
   nodes: FlowNode[]
   edges: FlowEdge[]
   /**
-   * "Runs for": an entity slug (that entity and its branches) or null = the whole
+   * "Runs for": the entities it serves (each with its branches), [] = the whole
    * organization. Undefined = not known yet (an offline copy) — the server keeps
    * the journey where it is, or puts a new one at the caller's default level.
    */
-  entity?: string | null
-  /** the entity's name, for the list (the server sends it) */
-  entityName?: string
+  entities?: { slug: string; name: string }[]
   /** false = the caller may read but not change it (outside their entities, or view-only) */
   editable?: boolean
 }

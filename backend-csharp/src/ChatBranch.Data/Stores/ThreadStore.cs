@@ -200,13 +200,26 @@ public class ThreadStore
         if (job.FlowRunId is not int rid) return (false, null);
         var run = _db.FlowRuns.AsNoTracking().FirstOrDefault(r => r.Id == rid);
         if (run == null) return (false, null);
-        var wfEntity = _db.Workflows.AsNoTracking().Where(w => w.Id == run.WorkflowId)
-            .Select(w => w.EntityId).FirstOrDefault();
-        if (wfEntity != null) return (true, _scoping.CompanyOf(wfEntity));
+        // the journey's companies ("Runs for": its entities + their branches; none = organization-wide)
+        var wf = _db.Workflows.AsNoTracking().FirstOrDefault(w => w.Id == run.WorkflowId);
+        var companies = wf == null ? new List<int>()
+            : LibraryEntities.Ids(_db, LibraryKinds.Workflow, wf.Id, wf.EntityId)
+                .Select(e => _scoping.CompanyOf(e)).OfType<int>().Distinct().ToList();
+        if (companies.Count == 1) return (true, companies[0]);
+        // the conversation that started / last answered the run — one of the journey's companies
         foreach (var k in new[] { "last_reply_thread_id", "trigger_thread_id" })
             if (Ai.AiGate.Num(run.Context, k) is double d
-                && _db.Threads.AsNoTracking().FirstOrDefault(t => t.Id == (int)d) is { } t && t.Channel == job.Channel)
+                && _db.Threads.AsNoTracking().FirstOrDefault(t => t.Id == (int)d) is { } t && t.Channel == job.Channel
+                && (companies.Count == 0 || _scoping.ThreadCompany(t) is int tc && companies.Contains(tc)))
                 return (true, _scoping.ThreadCompany(t));
+        if (companies.Count > 1)
+        {
+            // a journey of several companies: the contact's own one among them, else its first
+            var mine = job.ContactId is int cid ? ContactCompanies.LinkCompanies(_db, _scoping, cid) : new HashSet<int>();
+            foreach (var c in companies)
+                if (mine.Contains(c)) return (true, c);
+            return (true, companies[0]);
+        }
         return (false, null);
     }
 

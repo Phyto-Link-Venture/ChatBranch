@@ -39,6 +39,8 @@ public static class LibraryKinds
     public const string Skill = "skill";
     public const string Automation = "automation";
     public const string AiTask = "ai_task";
+    /// <summary>A journey's "Runs for" (<see cref="Workflow"/>).</summary>
+    public const string Workflow = "workflow";
 
     /// <summary>The kind for a library CLR type, or null when the type is not multi-entity.</summary>
     public static string? For(Type t) =>
@@ -48,5 +50,6 @@ public static class LibraryKinds
         : t == typeof(AgentSkill) ? Skill
         : t == typeof(AutomationRule) ? Automation
         : t == typeof(ChatBranch.Domain.AiTask) ? AiTask
+        : t == typeof(ChatBranch.Domain.Workflow) ? Workflow
         : null;
 }

@@ -402,6 +402,62 @@ public class BookingReminderTriggerTests
         Assert.DoesNotContain(penang.Id.ToString(), ids);
     }
 
+    [Fact]
+    public void A_journey_for_several_entities_reaches_each_of_them_and_no_other()
+    {
+        using var t = new TestDb();
+        t.Db.Tenants.Add(new Tenant { Id = 1, Name = "T", Slug = "t" });
+        Entity Ent(string slug) => new() { Name = slug, Slug = slug, TenantId = 1, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        var a = Ent("clinic-a"); var b = Ent("clinic-b"); var c = Ent("clinic-c");
+        t.Db.Entities.AddRange(a, b, c);
+        t.Db.SaveChanges();
+        var wf = Journey(t, entityId: a.Id);
+        // "Runs for" A and B: the primary + one tick
+        t.Db.LibraryEntities.Add(new LibraryEntity { Kind = LibraryKinds.Workflow, ItemId = wf.Id, EntityId = b.Id, CreatedAt = DateTime.UtcNow });
+        t.Db.SaveChanges();
+        var ca = AddContact(t, "Aisha", "+60111111111");
+        var cb = AddContact(t, "Ben", "+60122222222");
+        var cc = AddContact(t, "Chen", "+60133333333");
+        var inA = Book(t, ca, 20, entityId: a.Id);
+        var inB = Book(t, cb, 25, entityId: b.Id);
+        Book(t, cc, 30, entityId: c.Id);
+
+        Assert.Equal(2, Engine(t.Db).EvaluateTriggers());
+        Assert.Equal(new HashSet<string> { inA.Id.ToString(), inB.Id.ToString() },
+            Runs(t, wf).Select(r => CtxOf(r, "booking_id")).ToHashSet());
+    }
+
+    [Fact]
+    public void A_journey_for_two_companies_sends_into_each_customers_own_company()
+    {
+        using var t = new TestDb();
+        t.Db.Tenants.Add(new Tenant { Id = 1, Name = "T", Slug = "t" });
+        var a = new Entity { Name = "Co A", Slug = "co-a", TenantId = 1, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        var b = new Entity { Name = "Co B", Slug = "co-b", TenantId = 1, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        var other = new Entity { Name = "Co C", Slug = "co-c", TenantId = 1, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        t.Db.Entities.AddRange(a, b, other);
+        t.Db.SaveChanges();
+        var wf = Journey(t, trigger: new Dictionary<string, object?> { ["when"] = "Tag added", ["tag"] = "vip", ["repeat"] = "Once" },
+            send: new { channels = new[] { "WhatsApp" }, waMode = "text", script = "Hello {{first_name}}" }, entityId: a.Id);
+        t.Db.LibraryEntities.Add(new LibraryEntity { Kind = LibraryKinds.Workflow, ItemId = wf.Id, EntityId = b.Id, CreatedAt = DateTime.UtcNow });
+        var cb = AddContact(t, "Ben", "+60122222222");
+        var cc = AddContact(t, "Chen", "+60133333333");
+        cb.Tags = new List<string> { "vip" };
+        cc.Tags = new List<string> { "vip" };
+        t.Db.ContactEntities.Add(new ContactEntity { ContactId = cb.Id, EntityId = b.Id, CreatedAt = DateTime.UtcNow });
+        t.Db.ContactEntities.Add(new ContactEntity { ContactId = cc.Id, EntityId = other.Id, CreatedAt = DateTime.UtcNow });
+        t.Db.SaveChanges();
+        // the same customer number in two companies: B's conversation is the one
+        AddThread(t, cb, "60122222222", entityId: other.Id);
+        var inB = AddThread(t, cb, "60122222222", entityId: b.Id);
+
+        Assert.Equal(1, Engine(t.Db).EvaluateTriggers());     // Ben (B), never Chen (C)
+        var run = Assert.Single(Runs(t, wf));
+        Assert.Equal(cb.Id, run.ContactId);
+        var job = Assert.Single(Jobs(t, run));
+        Assert.Equal(inB.Id, new ThreadStore(t.Db, new ScopingService(t.Db)).FindForJob(job)!.Id);
+    }
+
     // ---- where it goes + what it says ----------------------------------------------------------
 
     [Fact]

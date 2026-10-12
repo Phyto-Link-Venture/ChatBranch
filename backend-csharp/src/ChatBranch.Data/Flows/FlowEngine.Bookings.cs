@@ -111,7 +111,8 @@ public partial class FlowEngine
 
         // the journey's entity scope: the booking's own entity decides; a booking
         // with none (an unassigned conversation) falls back to its contact's links
-        HashSet<int>? subtree = wf.EntityId is int eid ? _scoping.EntitySubtreeIds(eid).ToHashSet() : null;
+        var runsFor = JourneyEntities(wf);
+        HashSet<int>? subtree = runsFor.Count > 0 ? _scoping.EntitySubtreeIds(runsFor).ToHashSet() : null;
         HashSet<int>? entityContacts = null;
         bool InScope(Booking b) =>
             subtree == null

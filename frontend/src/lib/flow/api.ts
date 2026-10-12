@@ -31,6 +31,7 @@ interface WireWorkflow {
   edges?: FlowEdge[]
   entity?: string | null
   entity_name?: string | null
+  entities?: { slug: string; name: string }[]
   editable?: boolean
 }
 
@@ -47,8 +48,11 @@ export async function fetchFlowLibrary(): Promise<{ workflows: WorkflowDef[] } |
     // nodes with no position — give them one so the canvas and the next save work
     nodes: Array.isArray(w.nodes) ? w.nodes.map((n, i) => (n.position ? n : { ...n, position: { x: 0, y: i * 120 } })) : [],
     edges: Array.isArray(w.edges) ? w.edges : [],
-    entity: w.entity ?? null,
-    entityName: w.entity_name ?? undefined,
+    entities: Array.isArray(w.entities)
+      ? w.entities.map((e) => ({ slug: e.slug, name: e.name }))
+      : w.entity
+        ? [{ slug: w.entity, name: w.entity_name ?? w.entity }]
+        : [],
     editable: w.editable !== false,
   }))
   return { workflows }
@@ -98,8 +102,8 @@ export async function pushFlowLibrary(workflows: WorkflowDef[]): Promise<PushRes
           position: i,
           nodes: cleanNodes(w.nodes),
           edges: cleanEdges(w.edges),
-          // "" = the whole organization; omitted (undefined) = leave it where it is
-          entity: w.entity === undefined ? undefined : (w.entity ?? ''),
+          // [] = the whole organization; omitted (undefined) = leave it where it is
+          entities: w.entities?.map((e) => e.slug),
         })),
       }),
     })

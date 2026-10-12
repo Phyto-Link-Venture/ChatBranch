@@ -388,8 +388,9 @@ public partial class FlowEngine
 
     private HashSet<int>? EntityContacts(Workflow wf)
     {
-        if (wf.EntityId is not int eid) return null;
-        var ids = _scoping.EntitySubtreeIds(eid);
+        var entities = JourneyEntities(wf);
+        if (entities.Count == 0) return null;
+        var ids = _scoping.EntitySubtreeIds(entities);
         return _db.ContactEntities.AsNoTracking().Where(l => ids.Contains(l.EntityId))
             .Select(l => l.ContactId).ToHashSet();
     }
@@ -1810,8 +1811,30 @@ public partial class FlowEngine
     /// <summary>A journey serves a conversation of <paramref name="company"/>: an
     /// organization-wide journey, or one of that company (an unattributed
     /// conversation is served by organization-wide journeys only).</summary>
-    private bool Serves(Workflow? wf, int? company) =>
-        wf != null && (wf.EntityId == null || (company != null && _scoping.CompanyOf(wf.EntityId) == company));
+    private bool Serves(Workflow? wf, int? company)
+    {
+        if (wf == null) return false;
+        var companies = JourneyCompanies(wf);
+        return companies.Count == 0 || (company != null && companies.Contains(company.Value));
+    }
+
+    private readonly Dictionary<int, List<int>> _journeyEntities = new();
+
+    /// <summary>"Runs for": the entities a journey serves, primary first (its
+    /// <c>EntityId</c> + its <see cref="LibraryKinds.Workflow"/> ticks), each with its
+    /// branches; empty = the whole organization.</summary>
+    internal List<int> JourneyEntities(Workflow wf)
+    {
+        if (_journeyEntities.TryGetValue(wf.Id, out var ids)) return ids;
+        ids = LibraryEntities.Ids(_db, LibraryKinds.Workflow, wf.Id, wf.EntityId);
+        _journeyEntities[wf.Id] = ids;
+        return ids;
+    }
+
+    /// <summary>The companies (top-level entities) a journey serves, in "Runs for"
+    /// order; empty = the whole organization.</summary>
+    private List<int> JourneyCompanies(Workflow wf) =>
+        JourneyEntities(wf).Select(e => _scoping.CompanyOf(e)).OfType<int>().Distinct().ToList();
 
     public object Tick()
     {

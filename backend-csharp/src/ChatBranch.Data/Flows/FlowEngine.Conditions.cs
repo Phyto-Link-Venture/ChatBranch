@@ -289,12 +289,12 @@ public partial class FlowEngine
 
     /// <summary>The run's conversation: the one that started it, else the one
     /// the latest reply came in on, else the contact's most recent one — always one
-    /// of the journey's own company (an organization-wide journey: any).</summary>
+    /// of the journey's own companies (an organization-wide journey: any).</summary>
     private Thread? RunThread(FlowRun run, Contact? contact, ConditionFacts? facts = null)
     {
         if (facts is { ThreadLoaded: true }) return facts.Thread;
-        var (scoped, company) = WorkflowCompany(run);
-        bool Fits(Thread x) => !scoped || _scoping.ThreadCompany(x) == company;
+        var (scoped, companies) = WorkflowCompanies(run);
+        bool Fits(Thread x) => !scoped || _scoping.ThreadCompany(x) is int c && companies.Contains(c);
         Thread? t = null;
         foreach (var idKey in new[] { "trigger_thread_id", "last_reply_thread_id" })
             if (int.TryParse(Ctx(run, idKey), out var tid)
@@ -321,23 +321,36 @@ public partial class FlowEngine
         return t;
     }
 
-    /// <summary>The company a run's journey belongs to (Scoped = it has an entity).</summary>
-    private (bool Scoped, int? Company) WorkflowCompany(FlowRun run)
+    /// <summary>The companies a run's journey serves ("Runs for"; Scoped = it has entities).</summary>
+    private (bool Scoped, List<int> Companies) WorkflowCompanies(FlowRun run)
     {
-        var entity = _db.Workflows.AsNoTracking().Where(w => w.Id == run.WorkflowId)
-            .Select(w => w.EntityId).FirstOrDefault();
-        return entity is int e ? (true, _scoping.CompanyOf(e)) : (false, null);
+        var wf = _db.Workflows.AsNoTracking().FirstOrDefault(w => w.Id == run.WorkflowId);
+        if (wf == null) return (false, new());
+        var companies = JourneyCompanies(wf);
+        return (companies.Count > 0, companies);
     }
 
     /// <summary>
-    /// The company a run's messages and history belong to: its journey's, else its
-    /// conversation's, else the contact's one company — null = the unattributed
+    /// The company a run's messages and history belong to: its journey's (one of
+    /// them when it runs for several — its conversation's, else the contact's), else
+    /// its conversation's, else the contact's one company — null = the unattributed
     /// conversations only. A journey never reads another company's conversations.
     /// </summary>
     private int? RunCompany(FlowRun run, Contact? contact, Thread? thread)
     {
-        var (scoped, company) = WorkflowCompany(run);
-        if (scoped) return company;
+        var (scoped, companies) = WorkflowCompanies(run);
+        if (scoped)
+        {
+            if (companies.Count == 1) return companies[0];
+            if (thread != null && _scoping.ThreadCompany(thread) is int tc && companies.Contains(tc)) return tc;
+            if (contact != null)
+            {
+                var mine = ContactCompanies.LinkCompanies(_db, _scoping, contact.Id);
+                foreach (var c in companies)
+                    if (mine.Contains(c)) return c;
+            }
+            return companies[0];
+        }
         if (thread != null) return _scoping.ThreadCompany(thread);
         if (contact == null) return null;
         var links = ContactCompanies.LinkCompanies(_db, _scoping, contact.Id);

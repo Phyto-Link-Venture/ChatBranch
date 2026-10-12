@@ -101,6 +101,7 @@ public static class LibraryEntities
         Promote(db.AgentSkills, LibraryKinds.Skill);
         Promote(db.AutomationRules, LibraryKinds.Automation);
         Promote(db.AiTasks, LibraryKinds.AiTask);
+        Promote(db.Workflows, LibraryKinds.Workflow);
     }
 
     /// <summary>

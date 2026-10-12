@@ -18,9 +18,8 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react'
-import { AvailabilityChips, useDefaultAvailability } from '@/components/ui/AvailabilityPicker'
+import { AvailabilityChips, AvailabilityPicker, useDefaultAvailability } from '@/components/ui/AvailabilityPicker'
 import { Button } from '@/components/ui/Button'
-import { EntityPicker } from '@/components/ui/EntityPicker'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
 import { useFormat, useT, type MessageKey } from '@/i18n'
@@ -125,11 +124,17 @@ export default function FlowBuilder() {
   readOnlyRef.current = readOnly
   const libraryReadOnlyRef = useRef(false)
   libraryReadOnlyRef.current = libraryReadOnly
-  const { entities, bound } = useEntity()
+  const { entities } = useEntity()
   // a NEW journey runs for: the whole organization for an unbound person, else
   // their single ticked entity (else their first) — the same default as every library
-  const defaultEntity = useDefaultAvailability()[0] ?? null
-  const entityName = (slug: string | null | undefined) => (slug ? entities.find((e) => e.slug === slug)?.name : undefined)
+  const defaultSlugs = useDefaultAvailability()
+  const refsOf = useCallback(
+    (slugs: string[]) => slugs.map((slug) => ({ slug, name: entities.find((e) => e.slug === slug)?.name ?? slug })),
+    [entities],
+  )
+  const defaultEntities = refsOf(defaultSlugs)
+  /** the "Runs for" dialog's draft (null = closed) */
+  const [runsForDraft, setRunsForDraft] = useState<string[] | null>(null)
   const [sync, setSync] = useState<SyncState>('loading')
   const [view, setView] = useState<'steps' | 'canvas'>('steps')
   const [period, setPeriod] = useState(7)
@@ -282,8 +287,7 @@ export default function FlowBuilder() {
   const createFromTemplate = (tpl: StarterTemplate | null) => {
     const wf: WorkflowDef = {
       ...workflowFromTemplate(tpl, freshId('wf'), t),
-      entity: defaultEntity,
-      entityName: entityName(defaultEntity),
+      entities: defaultEntities,
     }
     mutate((wfs) => [...wfs, wf])
     const first = tpl ? null : (wf.nodes[0]?.id ?? null)
@@ -303,8 +307,7 @@ export default function FlowBuilder() {
       name: t('flows.builder.copyName', { name: active.name }),
       active: false,
       editable: true,
-      entity: keep ? active.entity : defaultEntity,
-      entityName: keep ? active.entityName : entityName(defaultEntity),
+      entities: keep ? active.entities : defaultEntities,
     }
     mutate((wfs) => [...wfs, copy])
     openFlow(copy.id)
@@ -330,10 +333,11 @@ export default function FlowBuilder() {
   const issues = useMemo(() => flowIssues(graph.nodes, graph.edges, fieldKinds), [graph, fieldKinds])
   const nIssues = issueCount(issues)
 
-  /** "Runs for": move the open journey to another level (the server checks it too). */
-  const setRunsFor = (slug: string | null) => {
+  /** "Runs for": who the open journey serves — [] = the whole organization (the server checks it too). */
+  const setRunsFor = (slugs: string[]) => {
     if (!active || readOnly) return
-    mutate((wfs) => wfs.map((w) => (w.id === active.id ? { ...w, entity: slug, entityName: entityName(slug) } : w)))
+    mutate((wfs) => wfs.map((w) => (w.id === active.id ? { ...w, entities: refsOf(slugs) } : w)))
+    setRunsForDraft(null)
   }
 
   const setLive = (on: boolean) => {
@@ -369,8 +373,7 @@ export default function FlowBuilder() {
           name: flow.name || file.name.replace(/\.json$/i, ''),
           hint: flow.hint ?? '',
           active: false,
-          entity: defaultEntity,
-          entityName: entityName(defaultEntity),
+          entities: defaultEntities,
           ...g,
         }
         mutate((wfs) => [...wfs, wf])
@@ -574,22 +577,16 @@ export default function FlowBuilder() {
           {active && (
             <div data-tour="journeys-runs-for" className="flex min-w-0 items-center gap-2">
               <span className="eyebrow shrink-0 whitespace-nowrap">{t('flows.builder.runsFor')}</span>
-              {readOnly ? (
-                <AvailabilityChips
-                  global={!active.entity}
-                  entities={active.entity ? [{ slug: active.entity, name: active.entityName ?? active.entity }] : []}
-                />
-              ) : (
-                <div className="min-w-[180px] max-w-[260px]">
-                  <EntityPicker
-                    value={active.entity ?? null}
-                    onChange={setRunsFor}
-                    allowGlobal={!bound || !active.entity}
-                    globalLabel={t('flows.builder.runsForEveryone')}
-                    size="sm"
-                    ariaLabel={t('flows.builder.runsFor')}
-                  />
-                </div>
+              <AvailabilityChips global={!active.entities?.length} entities={active.entities ?? []} max={3} />
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => setRunsForDraft((active.entities ?? []).map((e) => e.slug))}
+                  aria-label={t('flows.builder.runsForChange')}
+                  className="inline-flex h-7 items-center rounded-md px-1.5 text-[12px] font-semibold text-text-mid hover:bg-fill-hover hover:text-text-high"
+                >
+                  {t('flows.builder.runsForChange')}
+                </button>
               )}
             </div>
           )}
@@ -705,7 +702,9 @@ export default function FlowBuilder() {
             {libraryReadOnly
               ? t('flows.builder.viewOnly')
               : t('flows.builder.outsideYourEntities', {
-                  name: active?.entity ? (active.entityName ?? active.entity) : t('flows.builder.wholeOrganization'),
+                  name: active?.entities?.length
+                    ? active.entities.map((e) => e.name).join(', ')
+                    : t('flows.builder.wholeOrganization'),
                 })}
           </div>
         )}
@@ -901,6 +900,29 @@ export default function FlowBuilder() {
             </Button>
           </div>
         </form>
+      </Modal>
+      <Modal
+        open={runsForDraft !== null}
+        onClose={() => setRunsForDraft(null)}
+        title={t('flows.builder.runsForTitle', { name: active?.name ?? '' })}
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setRunsForDraft(null)}>
+              {t('common.actions.cancel')}
+            </Button>
+            <Button size="sm" onClick={() => runsForDraft && setRunsFor(runsForDraft)}>
+              {t('common.actions.save')}
+            </Button>
+          </>
+        }
+      >
+        <AvailabilityPicker
+          value={runsForDraft ?? []}
+          onChange={setRunsForDraft}
+          label={t('flows.builder.runsFor')}
+          hint={t('flows.builder.runsForHint')}
+        />
       </Modal>
       <Modal open={!!importError} onClose={() => setImportError(null)} title={t('flows.builder.importFailed')} size="sm">
         <div role="alert" className="text-[13px] text-[color:var(--red-ink)]">

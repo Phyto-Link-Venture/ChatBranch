@@ -247,6 +247,77 @@ public class JourneyEntityTests : IClassFixture<ApiFactory>
         Assert.Null(Row($"je-co-{w.Sfx}"));
     }
 
+    private static object NewJourneyFor(string flowId, params string[] entities) => new
+    {
+        flowId, name = flowId, hint = "", active = false, position = 99,
+        nodes = new object[] { new { id = "t1", type = "trigger", position = new { x = 0, y = 0 }, data = new { label = "", config = new { when = "Tag added", tag = "x" } } } },
+        edges = Array.Empty<object>(), entities,
+    };
+
+    private List<int> RunsFor(string flowId) => WithDb(db =>
+    {
+        var w = db.Workflows.AsNoTracking().Single(x => x.FlowId == flowId);
+        return ChatBranch.Data.LibraryEntities.Ids(db, LibraryKinds.Workflow, w.Id, w.EntityId);
+    });
+
+    [Fact]
+    public async Task A_journey_can_run_for_several_entities_and_be_moved_between_them()
+    {
+        var w = Seed();
+        var admin = await Platform.As(_f, "admin", "admin123");
+        var res = await SaveAll(admin, await Library(admin), new[] { NewJourneyFor($"je-two-{w.Sfx}", w.SlugA, w.SlugB) });
+        Assert.True(res.IsSuccessStatusCode, await res.Content.ReadAsStringAsync());
+        Assert.Equal(new List<int> { w.A, w.B }, RunsFor($"je-two-{w.Sfx}"));
+
+        var row = (await Library(admin)).Single(x => x.GetProperty("flowId").GetString() == $"je-two-{w.Sfx}");
+        Assert.False(row.GetProperty("global").GetBoolean());
+        Assert.Equal(new[] { w.SlugA, w.SlugB }, row.GetProperty("entities").EnumerateArray().Select(e => e.GetProperty("slug").GetString()).ToArray());
+
+        // down to B alone, then the whole organization: the ticks follow
+        res = await SaveAll(admin, await Library(admin), edit: x => x.GetProperty("flowId").GetString() == $"je-two-{w.Sfx}"
+            ? new { flowId = $"je-two-{w.Sfx}", name = "two", hint = "", active = false, position = 0, nodes = x.GetProperty("nodes"), edges = x.GetProperty("edges"), entities = new[] { w.SlugB } }
+            : null!);
+        Assert.True(res.IsSuccessStatusCode, await res.Content.ReadAsStringAsync());
+        Assert.Equal(new List<int> { w.B }, RunsFor($"je-two-{w.Sfx}"));
+        res = await SaveAll(admin, await Library(admin), edit: x => x.GetProperty("flowId").GetString() == $"je-two-{w.Sfx}"
+            ? new { flowId = $"je-two-{w.Sfx}", name = "two", hint = "", active = false, position = 0, nodes = x.GetProperty("nodes"), edges = x.GetProperty("edges"), entities = Array.Empty<string>() }
+            : null!);
+        Assert.True(res.IsSuccessStatusCode, await res.Content.ReadAsStringAsync());
+        Assert.Empty(RunsFor($"je-two-{w.Sfx}"));
+
+        // deleting it forgets its ticks
+        res = await SaveAll(admin, await Library(admin), new[] { NewJourneyFor($"je-gone-{w.Sfx}", w.SlugA, w.SlugB) });
+        Assert.True(res.IsSuccessStatusCode);
+        var goneId = WithDb(db => db.Workflows.Single(x => x.FlowId == $"je-gone-{w.Sfx}").Id);
+        res = await SaveAll(admin, await Library(admin), drop: $"je-gone-{w.Sfx}");
+        Assert.True(res.IsSuccessStatusCode);
+        Assert.False(WithDb(db => db.LibraryEntities.Any(l => l.Kind == LibraryKinds.Workflow && l.ItemId == goneId)));
+    }
+
+    [Fact]
+    public async Task A_company_admin_picks_several_of_their_own_entities_never_another_company()
+    {
+        var w = Seed();
+        var co = await CompanyAdmin(w);
+        var res = await SaveAll(co, await Library(co), new[] { NewJourneyFor($"je-co-two-{w.Sfx}", w.SlugA, w.SlugBranch) });
+        Assert.True(res.IsSuccessStatusCode, await res.Content.ReadAsStringAsync());
+        Assert.Equal(new List<int> { w.A, w.ABranch }, RunsFor($"je-co-two-{w.Sfx}"));
+
+        res = await SaveAll(co, await Library(co), new[] { NewJourneyFor($"je-co-ab-{w.Sfx}", w.SlugA, w.SlugB) });
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+        Assert.Null(Row($"je-co-ab-{w.Sfx}"));
+
+        // a journey an org-wide admin shared between A and B: visible to A's admin, read-only, never removed
+        var admin = await Platform.As(_f, "admin", "admin123");
+        (await SaveAll(admin, await Library(admin), new[] { NewJourneyFor($"je-shared-{w.Sfx}", w.SlugA, w.SlugB) })).EnsureSuccessStatusCode();
+        var mine = await Library(co);
+        var shared = mine.Single(x => x.GetProperty("flowId").GetString() == $"je-shared-{w.Sfx}");
+        Assert.False(shared.GetProperty("editable").GetBoolean());
+        res = await SaveAll(co, mine, drop: $"je-shared-{w.Sfx}");
+        Assert.True(res.IsSuccessStatusCode);
+        Assert.Equal(new List<int> { w.A, w.B }, RunsFor($"je-shared-{w.Sfx}"));
+    }
+
     [Fact]
     public async Task Saving_one_journey_over_MCP_never_removes_another_levels_journeys()
     {

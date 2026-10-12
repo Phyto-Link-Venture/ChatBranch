@@ -22,9 +22,8 @@ interface Row {
   hint: string
   active: boolean
   trigger: string
-  /** "Runs for": null = the whole organization */
-  entity: string | null
-  entityName: string
+  /** "Runs for": [] = the whole organization */
+  entities: { slug: string; name: string }[]
   steps: number
   entered: number | null
   inProgress: number | null
@@ -92,8 +91,7 @@ export default function JourneyList({
           hint: w.hint ?? '',
           active: !!w.active,
           trigger,
-          entity: w.entity ?? null,
-          entityName: w.entityName ?? w.entity ?? '',
+          entities: w.entities ?? [],
           steps: w.nodes.filter((n) => n.type !== 'trigger').length,
           entered: overview ? (o?.entered ?? 0) : null,
           inProgress: overview ? (o?.inProgress ?? 0) : null,
@@ -126,10 +124,8 @@ export default function JourneyList({
       key: 'entity',
       header: t('flows.builder.runsFor'),
       sortable: true,
-      value: (r) => (r.entity ? r.entityName.toLowerCase() : ''),
-      render: (r) => (
-        <AvailabilityChips global={!r.entity} entities={r.entity ? [{ slug: r.entity, name: r.entityName }] : []} />
-      ),
+      value: (r) => r.entities.map((e) => e.name.toLowerCase()).join(', '),
+      render: (r) => <AvailabilityChips global={r.entities.length === 0} entities={r.entities} />,
     },
     {
       key: 'active',

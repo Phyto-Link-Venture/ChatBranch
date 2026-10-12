@@ -109,7 +109,7 @@ export const automate = {
       t2: 'Turn on “Send like a person” on a message step for a short typing pause and long text split into a few messages.',
       t3: 'Pause the journey (click “Live”) before big changes, so nobody gets a half-finished version.',
       t4: 'A “Set chatbot on/off” step turns the AI on or off for that contact’s chats — handy after a hand-over.',
-      t5: '“Runs for” at the top decides whose customers the journey reaches: “The whole organization”, or one entity and its branches. Company admins pick from their own entities only; a journey that runs for the whole organization is view-only to them.',
+      t5: '“Runs for” at the top decides whose customers the journey reaches: everyone in the organization, or one or several entities and their branches — click “Change” to pick. Company admins pick from their own entities only; a journey that reaches beyond them is view-only to them.',
     },
     trouble:
       '“End” is greyed out: End can only go where a path already stops — click the + under “Path ends”. Some cards sit under “Not connected”: no path reaches them, so they never run; delete them or connect them in the Advanced canvas. Changes disappeared: if the header says “Offline — saved in this browser”, the server could not be reached; reload once the connection is back.',

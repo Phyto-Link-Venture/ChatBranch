@@ -2086,19 +2086,26 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   /api/flows/library` (GET `flows.view`, PUT `flows.manage`); localStorage is
   only the offline fallback. Both sides use the library rule
   (`ShellScope.ScopeLibrary`: an entity-bound agent reads their subtrees +
-  ancestors + global). **"Runs for"** = `Workflow.EntityId` (null = the whole
-  organization, else that entity + its branches — the engine's audience, its
-  booking scope and its sends' company): each GET row carries `entity` (slug),
-  `entity_name` and `editable` (`flows.manage` AND `ShellScope.MayActAt`); each
-  PUT row may carry `entity` ("" = organization, a slug, absent = unchanged; a
-  new row without one = the save's level, else organization for an unbound
-  caller / their first entity for a bound one). A bound person never creates or
-  moves a journey to the organization or outside their subtrees (403, nothing
-  saved) and never writes or prunes one above them (an unchanged copy is
-  skipped, a changed one listed in `read_only`); a move of a live journey
-  restarts `LiveSince`. The editor's header picker (`EntityPicker`) + the list's
-  "Runs for" column; a read-only journey opens view-only (Duplicate makes your
-  own). The PUT matches an existing flow by `flowId` across every scope the
+  ancestors + global). **"Runs for"** = one or SEVERAL entities, each with its
+  branches, or the whole organization: `Workflow` is a multi-entity library kind
+  (`LibraryKinds.Workflow` — `EntityId` = the primary + `crm_libraryentity`
+  ticks), read by the engine through `FlowEngine.JourneyEntities` /
+  `JourneyCompanies` (the audience `EntityContacts`, the booking trigger's scope,
+  `Serves`, `RunThread` / `RunCompany`) and `ThreadStore.JobCompany` (a journey
+  of several companies sends into the run's conversation's company, else the
+  contact's own one among them). Each GET row carries `entities` [{id, slug,
+  name}], `global`, `editable` (`flows.manage` AND every entity
+  `ShellScope.MayActAt`) and the primary as `entity` / `entity_name`; each PUT row
+  may carry `entities` ([] = organization; or the single `entity`, "" =
+  organization; absent = unchanged; a new row without one = the save's level,
+  else organization for an unbound caller / their first entity for a bound one).
+  A bound person never creates or moves a journey to the organization or outside
+  their subtrees (403, nothing saved) and never writes or prunes one that reaches
+  beyond them (an unchanged copy is skipped, a changed one listed in
+  `read_only`); changing a live journey's entities restarts `LiveSince`. The
+  editor's header chips + "Change" (`AvailabilityPicker` in a dialog) and the
+  list's "Runs for" column; a read-only journey opens view-only (Duplicate makes
+  your own). The PUT matches an existing flow by `flowId` across every scope the
   caller reads and updates it IN PLACE. ⚠ **The PUT PRUNES** the rows the same
   GET would have loaded, the caller may write and the payload lacks — a body
   `entity` ("" or a slug, what the MCP flow tools send) saves ONE level and
