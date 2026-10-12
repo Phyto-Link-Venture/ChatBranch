@@ -907,7 +907,20 @@ When you fix one of these, update this table, `README.md` and
   `BookingAvailability.CheckTime`) + the 3 nearest free times (that day, else the next
   7 — the same `AlternativesAsync` the book tool's refusal uses); its notes tell the
   model a time missing from a sample may still be free and that earlier results were
-  real. A slot is RESERVED while
+  real. **Booking length:** `duration_minutes` is the DEFAULT length; with
+  `duration_unit_minutes` (15 | 30 | 60, default = the length) and `max_units`
+  (1–16, default 1) a customer books N × unit as ONE appointment
+  (`CalendarAppConfig.Lengths`; the default must be a whole number of units ≤ the
+  longest; `max_units` 1 = one fixed length, a stale unit ignored — an older config
+  behaves exactly as before). `_availability` / `_book` then take an optional
+  `duration_minutes` (any other length → `{ok:false, error, advice,
+  allowed_lengths}`), `FreeSlots` / `CheckTime` measure the requested length (free only
+  when the WHOLE span is, buffer included), the tools and the SKILLS how-to tell the
+  model to ask how long and restate a time RANGE ("Mon 12 Oct, 2:00–3:00 PM"), and the
+  booking is one `crm_booking` row + one Google event start → start + length — make,
+  cancel and `_my_bookings` (`end`, `duration_minutes`, `range`) read the stored
+  span; `max_active_per_contact` counts bookings, not units. Form: "Length unit" +
+  "Longest booking" under Advanced (`AppSkillForm.tsx` `LengthFields`). A slot is RESERVED while
   the reply is written (`crm_booking` pending / cancelling) and MADE at delivery:
   `AiReplyResult.PendingActions` → the draft's `pending_actions`; `AiGate`
   delivery runs `BookingService.ConfirmAsync` BEFORE the text goes out (books

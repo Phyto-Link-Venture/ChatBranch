@@ -363,7 +363,7 @@ included) ·
 |---|---|
 | `entity_id`, `skill_id` (the unique key), `name`, `use_when`, `instructions`, `position` | the original prompt-skill fields |
 | **`kind`** | `prompt` (default) \| `tool` (JS `run(args, ctx)`) \| `check` (JS `check(reply, ctx)`) \| `app` (a connected app — `config`) |
-| **`config`** | JSON (default `{}`), app skills only: `{app: "calendar", source google\|chatbranch, calendar assignee\|shared\|<integration id>, calendar_id, actions [availability, book, cancel], timezone, hours {mon: [["09:00","17:00"]], …}, duration_minutes, slot_step_minutes, buffer_minutes, min_notice_minutes, max_days_ahead, max_active_per_contact, event_title, event_description}` — validated by `Bookings/CalendarAppConfig.cs` |
+| **`config`** | JSON (default `{}`), app skills only: `{app: "calendar", source google\|chatbranch, calendar assignee\|shared\|<integration id>, calendar_id, actions [availability, book, cancel], timezone, hours {mon: [["09:00","17:00"]], …}, duration_minutes (the default length), duration_unit_minutes (15\|30\|60), max_units (1–16: a booking may be N × unit long), slot_step_minutes, buffer_minutes, min_notice_minutes, max_days_ahead, max_active_per_contact, event_title, event_description}` — validated by `Bookings/CalendarAppConfig.cs` |
 | **`description`** | what the operator described, in their words |
 | **`code`** | JavaScript for tool/check skills (Jint sandbox) |
 | **`parameters`** | JSON-schema text of a tool's arguments |

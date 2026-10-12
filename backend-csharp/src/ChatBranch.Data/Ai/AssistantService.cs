@@ -256,9 +256,15 @@ public partial class AssistantService
         var lines = new List<string>
         {
             $"  Connected calendar ({(cfg.Source == "google" ? "Google Calendar" : "ChatBranch bookings")}): "
-            + $"{cfg.DurationMinutes}-minute appointments, times in {tz.Id} "
-            + $"(there it is now {local.ToString("dddd d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture)}).",
+            + (cfg.VariableLength
+                ? $"appointments of {string.Join(", ", cfg.Lengths)} minutes (default {cfg.DurationMinutes})"
+                : $"{cfg.DurationMinutes}-minute appointments")
+            + $", times in {tz.Id} (there it is now {local.ToString("dddd d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture)}).",
         };
+        if (cfg.VariableLength)
+            lines.Add("  How long: if the customer hasn't said how long they want, ask before looking for times; pass "
+                      + $"that length as duration_minutes to {b}_availability and {b}_book, and confirm with the time "
+                      + "range (e.g. \"Mon 12 Oct, 2:00–3:00 PM\"). One booking covers the whole length.");
         if (cfg.Allows("book"))
             lines.Add($"  To book: 1) call {b}_availability for the day(s) the customer wants — work out \"today\", "
                       + "\"tomorrow\" or a weekday from the current date; 2) offer two or three of the returned times, "

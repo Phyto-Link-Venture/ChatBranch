@@ -18,6 +18,10 @@ public sealed class CalendarAppConfig
     public static readonly string[] Days = { "mon", "tue", "wed", "thu", "fri", "sat", "sun" };
     public static readonly string[] Actions = { "availability", "book", "cancel" };
     public static readonly string[] Sources = { "google", "chatbranch" };
+    /// <summary>The length units a calendar may grow by (a config whose unit equals its
+    /// default length — every config written before units existed — is valid too).</summary>
+    public static readonly int[] Units = { 15, 30, 60 };
+    public const int MaxUnitsLimit = 16;
 
     public string App { get; init; } = AppId;
     public string Source { get; init; } = "chatbranch";
@@ -29,7 +33,12 @@ public sealed class CalendarAppConfig
     public string Timezone { get; init; } = "";
     /// <summary>Working windows per weekday (local wall-clock), sorted, non-overlapping.</summary>
     public Dictionary<DayOfWeek, List<(TimeSpan From, TimeSpan To)>> Hours { get; init; } = DefaultHours();
+    /// <summary>The DEFAULT appointment length (what a tool call without <c>duration_minutes</c> books).</summary>
     public int DurationMinutes { get; init; } = 30;
+    /// <summary>The step a booking's length grows by (15 | 30 | 60; = <see cref="DurationMinutes"/> when not set).</summary>
+    public int DurationUnitMinutes { get; init; } = 30;
+    /// <summary>The longest booking, in units (1–16; 1 = one fixed length, as before).</summary>
+    public int MaxUnits { get; init; } = 1;
     public int SlotStepMinutes { get; init; } = 30;
     public int BufferMinutes { get; init; }
     public int MinNoticeMinutes { get; init; } = 120;
@@ -39,6 +48,18 @@ public sealed class CalendarAppConfig
     public string EventDescription { get; init; } = "";
 
     public bool Allows(string action) => AllowedActions.Contains(action);
+
+    /// <summary>Every length a booking may have, shortest first: unit × 1 … max_units (plus the
+    /// default length, which validation keeps among them).</summary>
+    public IReadOnlyList<int> Lengths => MaxUnits <= 1
+        ? new[] { DurationMinutes }
+        : Enumerable.Range(1, Math.Min(MaxUnits, MaxUnitsLimit)).Select(i => i * Math.Max(5, DurationUnitMinutes))
+            .Append(DurationMinutes).Distinct().OrderBy(m => m).ToList();
+
+    /// <summary>More than one length — the customer picks how long (N × unit).</summary>
+    public bool VariableLength => Lengths.Count > 1;
+
+    public bool AllowsLength(int minutes) => Lengths.Contains(minutes);
 
     /// <summary>The numeric integration id when <see cref="Calendar"/> names one.</summary>
     public int? IntegrationId => int.TryParse(Calendar, NumberStyles.None, CultureInfo.InvariantCulture, out var id)
@@ -78,6 +99,8 @@ public sealed class CalendarAppConfig
             ["timezone"] = Timezone,
             ["hours"] = hours,
             ["duration_minutes"] = DurationMinutes,
+            ["duration_unit_minutes"] = DurationUnitMinutes,
+            ["max_units"] = MaxUnits,
             ["slot_step_minutes"] = SlotStepMinutes,
             ["buffer_minutes"] = BufferMinutes,
             ["min_notice_minutes"] = MinNoticeMinutes,
@@ -174,6 +197,29 @@ public sealed class CalendarAppConfig
         }
 
         var duration = Int("duration_minutes", d.DurationMinutes, 5, 480, "duration_minutes");
+        // variable length: one booking of N × unit, N = 1 … max_units; duration_minutes stays the
+        // default length. max_units 1 (or absent) = one fixed length and the unit IS that length —
+        // a stale unit is ignored, so an older config behaves exactly as before.
+        var unit = Int("duration_unit_minutes", duration, 5, 480, "duration_unit_minutes");
+        var maxUnits = Int("max_units", 1, 1, MaxUnitsLimit, "max_units");
+        if (maxUnits <= 1) unit = duration;
+        else if (unit != duration && !Units.Contains(unit))
+        {
+            errors.Add("duration_unit_minutes must be 15, 30 or 60.");
+            unit = duration;
+        }
+        else if (duration % unit != 0)
+        {
+            errors.Add($"duration_minutes ({duration}) must be a whole number of {unit}-minute units.");
+            unit = duration;
+            maxUnits = 1;
+        }
+        else if (duration / unit > maxUnits)
+        {
+            errors.Add($"the default length ({duration} minutes) is longer than the longest booking "
+                       + $"({unit * maxUnits} minutes): raise max_units or shorten duration_minutes.");
+            maxUnits = duration / unit;
+        }
         var step = Int("slot_step_minutes", duration, 5, 480, "slot_step_minutes");
         var buffer = Int("buffer_minutes", d.BufferMinutes, 0, 240, "buffer_minutes");
         var notice = Int("min_notice_minutes", d.MinNoticeMinutes, 0, 60 * 24 * 30, "min_notice_minutes");
@@ -200,6 +246,7 @@ public sealed class CalendarAppConfig
         {
             App = AppId, Source = source, Calendar = calendar, CalendarId = calendarId.Length > 0 ? calendarId : "primary",
             AllowedActions = actions, Timezone = tz, Hours = hours, DurationMinutes = duration,
+            DurationUnitMinutes = unit, MaxUnits = maxUnits,
             SlotStepMinutes = step, BufferMinutes = buffer, MinNoticeMinutes = notice, MaxDaysAhead = ahead,
             MaxActivePerContact = maxActive, EventTitle = title, EventDescription = description,
         };

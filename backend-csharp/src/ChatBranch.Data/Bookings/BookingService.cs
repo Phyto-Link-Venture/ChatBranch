@@ -147,9 +147,11 @@ public class BookingService
     public sealed record AvailabilityResult(bool Ok, string Error, IReadOnlyList<BookingAvailability.Slot> Free,
         DateOnly From, DateOnly To);
 
-    /// <summary>Every free slot on [from, to] for this calendar (working hours − busy − holds).</summary>
+    /// <summary>Every free slot on [from, to] for this calendar (working hours − busy − holds), each
+    /// <paramref name="durationMinutes"/> long (default: the skill's default length).</summary>
     public async Task<AvailabilityResult> FreeSlotsAsync(CalendarAppConfig cfg, CalendarTarget target,
-        TimeZoneInfo tz, DateOnly from, DateOnly to, int? ignoreBookingId = null, CancellationToken ct = default)
+        TimeZoneInfo tz, DateOnly from, DateOnly to, int? ignoreBookingId = null, CancellationToken ct = default,
+        int? durationMinutes = null)
     {
         var now = UtcNow;
         var today = BookingAvailability.Today(now, tz);
@@ -176,7 +178,7 @@ public class BookingService
                     Array.Empty<BookingAvailability.Slot>(), from, to);
             busy.AddRange(fb.Busy);
         }
-        var free = BookingAvailability.FreeSlots(cfg, tz, now, from, to, busy);
+        var free = BookingAvailability.FreeSlots(cfg, tz, now, from, to, busy, durationMinutes);
         return new AvailabilityResult(true, "", free, from, to);
     }
 
@@ -223,7 +225,17 @@ public class BookingService
         CalendarAppConfig cfg, string tzId)
     {
         var calendar = cfg.Source == BookingSources.Google ? "the business's Google Calendar" : "the business's booking calendar";
-        var dur = $"{cfg.DurationMinutes}-minute";
+        var dur = cfg.VariableLength ? LengthsText(cfg) + "-long" : $"{cfg.DurationMinutes}-minute";
+        // more than one length: ask how long, pass duration_minutes, restate the time range
+        var lengthHowTo = cfg.VariableLength
+            ? $" Appointments can be {LengthsText(cfg)} long (default {cfg.DurationMinutes}). If the customer hasn't "
+              + "said how long they want, ask them first; then pass that length as duration_minutes to this tool and "
+              + $"to {b}_book, so the free times returned fit the whole appointment."
+            : "";
+        var lengthSchema = cfg.VariableLength
+            ? ",\"duration_minutes\":{\"type\":\"integer\",\"enum\":[" + string.Join(",", cfg.Lengths)
+              + $"],\"description\":\"Length of the appointment in minutes (default {cfg.DurationMinutes})\"}}"
+            : "";
         if (cfg.Allows("availability"))
             yield return (b + "_availability", "availability", new LlmTool(b + "_availability",
                 $"Check open appointment times ({dur}) on {calendar}, in {tzId} local time, each with a ready-made "
@@ -237,11 +249,12 @@ public class BookingService
                 + "BEFORE suggesting any time and offer the customer two or three of the returned options, each with "
                 + "weekday, date, time and timezone — never invent, guess or round a time. Dates are YYYY-MM-DD in "
                 + "the business's local time: work out 'today', 'tomorrow' or 'next Tuesday' from the current date "
-                + $"in the system prompt. Bookings are possible up to {cfg.MaxDaysAhead} days ahead.",
+                + $"in the system prompt. Bookings are possible up to {cfg.MaxDaysAhead} days ahead." + lengthHowTo,
                 Schema("{\"type\":\"object\",\"properties\":{"
                        + "\"from_date\":{\"type\":\"string\",\"description\":\"First day to search, YYYY-MM-DD (default: today)\"},"
                        + "\"to_date\":{\"type\":\"string\",\"description\":\"Last day to search, YYYY-MM-DD (default: 7 days after from_date). Use the same date as from_date to list every free time that day.\"},"
                        + "\"time\":{\"type\":\"string\",\"description\":\"Exact start to check, HH:mm local time (24-hour, e.g. 14:00 for 2 PM), with a single from_date\"}"
+                       + lengthSchema
                        + "}}")));
         if (cfg.Allows("book"))
             yield return (b + "_book", "book", new LlmTool(b + "_book",
@@ -251,10 +264,15 @@ public class BookingService
                 + $"`start` is the local start time as YYYY-MM-DDTHH:mm ({tzId}). The time is held for them and "
                 + "confirmed when your reply is sent: in that reply, confirm the booking and restate the weekday, "
                 + "date, time and timezone exactly as this tool returns them. If it fails, apologise and offer the "
-                + "alternatives it returns.",
+                + "alternatives it returns."
+                + (cfg.VariableLength
+                    ? " Pass the length the customer chose as duration_minutes (the same one you checked availability "
+                      + "with) and restate it as a time range when you confirm, e.g. \"Mon 12 Oct, 2:00–3:00 PM\"."
+                    : ""),
                 Schema("{\"type\":\"object\",\"properties\":{"
                        + "\"start\":{\"type\":\"string\",\"description\":\"Chosen start, YYYY-MM-DDTHH:mm in the calendar's local time, exactly as returned by the availability tool\"},"
                        + "\"note\":{\"type\":\"string\",\"description\":\"Optional short note for the booking (what the appointment is about)\"}"
+                       + lengthSchema
                        + "},\"required\":[\"start\"]}")));
         if (cfg.Allows("cancel"))
         {
@@ -309,8 +327,9 @@ public class BookingService
         var now = UtcNow;
         var today = BookingAvailability.Today(now, tz);
         var last = BookingAvailability.LastDay(cfg, now, tz);
+        if (LengthOf(args, cfg, out var length) is { } badLength) return badLength;
         var timeRaw = (Arg(args, "time") ?? "").Trim();
-        if (timeRaw.Length > 0) return await CheckTimeToolAsync(b, args, timeRaw, ctx, target, tz, today, last, ct);
+        if (timeRaw.Length > 0) return await CheckTimeToolAsync(b, args, timeRaw, ctx, target, tz, today, last, length, ct);
         var from = ParseDate(Arg(args, "from_date"), today) ?? today;
         var to = ParseDate(Arg(args, "to_date"), today) ?? from.AddDays(7);
         if (to < from) (from, to) = (to, from);
@@ -318,7 +337,7 @@ public class BookingService
             return Refused($"Bookings can only be made up to {last:yyyy-MM-dd} ({cfg.MaxDaysAhead} days ahead).",
                 $"Offer times on or before {last:dddd d MMMM}.", new() { ["last_bookable_date"] = last.ToString("yyyy-MM-dd") });
 
-        var r = await FreeSlotsAsync(cfg, target, tz, from, to, ct: ct);
+        var r = await FreeSlotsAsync(cfg, target, tz, from, to, ct: ct, durationMinutes: length);
         if (!r.Ok) return Unavailable(r.Error);
         // one day = every free time (the "is 2 PM open?" answer is in the list); several days =
         // a spread, which is a SAMPLE — a time missing from it may still be free
@@ -326,7 +345,7 @@ public class BookingService
         var offered = singleDay
             ? r.Free.Take(BookingAvailability.MaxSingleDay).ToList()
             : BookingAvailability.Spread(r.Free);
-        var payload = AvailabilityPayload(cfg, target, tz, last, r.From, r.To);
+        var payload = AvailabilityPayload(cfg, target, tz, last, r.From, r.To, length);
         payload["free_slots_in_range"] = r.Free.Count;
         AddUpcoming(payload, b, target, ctx);
 
@@ -336,7 +355,7 @@ public class BookingService
         while (true)
         {
             var complete = offered.Count == r.Free.Count;
-            payload["slots"] = offered.Select(s => shortSlots ? ShortSlotJson(s) : SlotJson(s)).ToList();
+            payload["slots"] = offered.Select(s => shortSlots ? ShortSlotJson(s, cfg.VariableLength) : SlotJson(s, cfg.VariableLength)).ToList();
             payload["complete"] = complete;
             payload["note"] = (offered.Count == 0
                 ? $"No free times between {r.From:yyyy-MM-dd} and {r.To:yyyy-MM-dd}. Try other dates (up to {last:yyyy-MM-dd}) — don't offer a time that wasn't returned."
@@ -367,7 +386,7 @@ public class BookingService
     /// 7 days. Bad input comes back as <c>{ok:false, error, advice}</c>.
     /// </summary>
     private async Task<ToolOutcome> CheckTimeToolAsync(ToolBinding b, JsonElement args, string timeRaw, SkillContext ctx,
-        CalendarTarget target, TimeZoneInfo tz, DateOnly today, DateOnly last, CancellationToken ct)
+        CalendarTarget target, TimeZoneInfo tz, DateOnly today, DateOnly last, int length, CancellationToken ct)
     {
         var cfg = b.Config;
         if (!TimeOnly.TryParseExact(timeRaw, new[] { "H:mm", "HH:mm" }, CultureInfo.InvariantCulture,
@@ -383,17 +402,19 @@ public class BookingService
             return Refused("`time` checks one day only.",
                 "Pass the day as from_date and leave to_date empty (or the same date). To see several days, call without `time`.");
 
-        var r = await FreeSlotsAsync(cfg, target, tz, day, day, ct: ct);
+        var r = await FreeSlotsAsync(cfg, target, tz, day, day, ct: ct, durationMinutes: length);
         if (!r.Ok) return Unavailable(r.Error);
-        var check = BookingAvailability.CheckTime(cfg, tz, UtcNow, day, time, r.Free);
-        var label = BookingAvailability.StartLabel(check.LocalStart);
+        var check = BookingAvailability.CheckTime(cfg, tz, UtcNow, day, time, r.Free, length);
+        var label = cfg.VariableLength
+            ? BookingAvailability.RangeLabel(check.LocalStart, check.LocalStart.AddMinutes(length))
+            : BookingAvailability.StartLabel(check.LocalStart);
         var requested = new Dictionary<string, object?>
         {
             ["start"] = BookingAvailability.LocalIso(check.LocalStart),
             ["label"] = label,
             ["available"] = check.Available,
         };
-        var payload = AvailabilityPayload(cfg, target, tz, last, day, day);
+        var payload = AvailabilityPayload(cfg, target, tz, last, day, day, length);
         payload["requested"] = requested;
         if (check.Available)
         {
@@ -403,8 +424,8 @@ public class BookingService
         else
         {
             requested["reason"] = check.Reason;
-            var alternatives = await AlternativesAsync(cfg, target, tz, day, r.Free, check.LocalStart, ct);
-            payload["alternatives"] = alternatives.Select(SlotJson).ToList();
+            var alternatives = await AlternativesAsync(cfg, target, tz, day, r.Free, check.LocalStart, length, ct);
+            payload["alternatives"] = alternatives.Select(s => SlotJson(s, cfg.VariableLength)).ToList();
             payload["note"] = $"{label} ({tz.Id}) is not available — {ReasonText(check.Reason, cfg, last)}. "
                               + (alternatives.Count > 0
                                   ? "Say so and offer these free alternatives instead."
@@ -429,16 +450,50 @@ public class BookingService
 
     /// <summary>The fields every availability answer starts with.</summary>
     private static Dictionary<string, object?> AvailabilityPayload(CalendarAppConfig cfg, CalendarTarget target,
-        TimeZoneInfo tz, DateOnly last, DateOnly from, DateOnly to) => new()
+        TimeZoneInfo tz, DateOnly last, DateOnly from, DateOnly to, int length)
     {
-        ["ok"] = true,
-        ["timezone"] = tz.Id,
-        ["calendar"] = target.Label,
-        ["duration_minutes"] = cfg.DurationMinutes,
-        ["from_date"] = from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-        ["to_date"] = to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-        ["last_bookable_date"] = last.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-    };
+        var payload = new Dictionary<string, object?>
+        {
+            ["ok"] = true,
+            ["timezone"] = tz.Id,
+            ["calendar"] = target.Label,
+            ["duration_minutes"] = length,
+            ["from_date"] = from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            ["to_date"] = to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            ["last_bookable_date"] = last.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+        };
+        if (cfg.VariableLength) payload["allowed_lengths"] = cfg.Lengths.ToList();
+        return payload;
+    }
+
+    /// <summary>"30, 60 or 90 minutes" — the lengths a variable-length calendar books.</summary>
+    private static string LengthsText(CalendarAppConfig cfg)
+    {
+        var all = cfg.Lengths.Select(m => m.ToString(CultureInfo.InvariantCulture)).ToList();
+        return (all.Count == 1 ? all[0] : string.Join(", ", all.Take(all.Count - 1)) + " or " + all[^1]) + " minutes";
+    }
+
+    /// <summary>
+    /// The appointment length a tool call asks for: <c>duration_minutes</c> when given — one of the
+    /// skill's lengths (unit × 1 … max_units) — else the default length. A length the calendar
+    /// doesn't book is an <c>{ok:false, error, advice}</c> refusal naming the allowed ones.
+    /// </summary>
+    private static ToolOutcome? LengthOf(JsonElement args, CalendarAppConfig cfg, out int minutes)
+    {
+        minutes = cfg.DurationMinutes;
+        var raw = (Arg(args, "duration_minutes") ?? "").Trim();
+        if (raw.Length == 0) return null;
+        if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var m) && cfg.AllowsLength(m))
+        {
+            minutes = m;
+            return null;
+        }
+        return Refused($"{raw} minutes is not a length this calendar books.",
+            cfg.VariableLength
+                ? $"Use duration_minutes = {string.Join(", ", cfg.Lengths)} (minutes) — ask the customer which length they want."
+                : $"Appointments here are always {cfg.DurationMinutes} minutes: leave duration_minutes out.",
+            new() { ["allowed_lengths"] = cfg.Lengths.ToList() });
+    }
 
     private void AddUpcoming(Dictionary<string, object?> payload, ToolBinding b, CalendarTarget target, SkillContext ctx)
     {
@@ -453,14 +508,15 @@ public class BookingService
     /// spread of the next 7 days. ONE rule for the book tool's refusal and the exact-time check.
     /// </summary>
     private async Task<List<BookingAvailability.Slot>> AlternativesAsync(CalendarAppConfig cfg, CalendarTarget target,
-        TimeZoneInfo tz, DateOnly day, IReadOnlyList<BookingAvailability.Slot> dayFree, DateTime? near, CancellationToken ct)
+        TimeZoneInfo tz, DateOnly day, IReadOnlyList<BookingAvailability.Slot> dayFree, DateTime? near, int length,
+        CancellationToken ct)
     {
         var picks = near is DateTime at
             ? dayFree.OrderBy(s => Math.Abs((s.LocalStart - at).Ticks)).ThenBy(s => s.StartUtc).Take(3)
                 .OrderBy(s => s.StartUtc).ToList()
             : BookingAvailability.Spread(dayFree, 3);
         if (picks.Count > 0) return picks;
-        var more = await FreeSlotsAsync(cfg, target, tz, day.AddDays(1), day.AddDays(7), ct: ct);
+        var more = await FreeSlotsAsync(cfg, target, tz, day.AddDays(1), day.AddDays(7), ct: ct, durationMinutes: length);
         return more.Ok ? BookingAvailability.Spread(more.Free, 3) : new();
     }
 
@@ -482,6 +538,7 @@ public class BookingService
         var tz = TimeZoneFor(cfg);
         var target = ResolveTarget(b.Skill, cfg, ctx.EntityId, UserIdOf(ctx.Assignee));
         if (!target.Ok) return Unavailable(target.Error!);
+        if (LengthOf(args, cfg, out var length) is { } badLength) return badLength;
         var when = SkillService.ParseInstant(startRaw, tz);
         if (when == null)
             return Refused($"'{startRaw}' is not a start time.",
@@ -507,18 +564,26 @@ public class BookingService
                 new() { ["existing_booking"] = BookingJson(first) });
         }
 
-        var r = await FreeSlotsAsync(cfg, target, tz, day, day, ct: ct);
+        // ONE booking covering the whole length: free only when every minute of it is
+        var r = await FreeSlotsAsync(cfg, target, tz, day, day, ct: ct, durationMinutes: length);
         if (!r.Ok) return Unavailable(r.Error);
         var slot = r.Free.FirstOrDefault(s => s.LocalStart == localStart);
         if (slot == null)
         {
-            var alternatives = await AlternativesAsync(cfg, target, tz, day, r.Free, near: null, ct);
-            return Refused($"{BookingAvailability.StartLabel(localStart)} ({tz.Id}) is not an available time.",
+            var alternatives = await AlternativesAsync(cfg, target, tz, day, r.Free, near: null, length, ct);
+            var asked = cfg.VariableLength
+                ? BookingAvailability.RangeLabel(localStart, localStart.AddMinutes(length))
+                : BookingAvailability.StartLabel(localStart);
+            return Refused($"{asked} ({tz.Id}) is not an available time.",
                 alternatives.Count > 0
                     ? "Apologise, and offer the alternatives below (or check other dates with the availability tool). Book only after they choose."
                     : "Apologise and check other dates with the availability tool.",
-                new() { ["alternatives"] = alternatives.Select(SlotJson).ToList() });
+                new() { ["alternatives"] = alternatives.Select(s => SlotJson(s, cfg.VariableLength)).ToList() });
         }
+        var slotLabel = SlotLabel(slot, cfg.VariableLength);
+        var restate = cfg.VariableLength
+            ? "In your reply, confirm the booking and restate the weekday, date, time range (start–end) and timezone."
+            : "In your reply, confirm the booking and restate the weekday, date, time and timezone.";
 
         if (session.Preview)
         {
@@ -530,13 +595,13 @@ public class BookingService
                 ["booking_id"] = 0,
                 ["start"] = BookingAvailability.LocalIso(slot.LocalStart),
                 ["end"] = BookingAvailability.LocalIso(slot.LocalEnd),
-                ["label"] = BookingAvailability.StartLabel(slot.LocalStart),
+                ["duration_minutes"] = length,
+                ["label"] = slotLabel,
                 ["timezone"] = tz.Id,
                 ["calendar"] = target.Label,
-                ["instructions"] = "The time is held for this customer and is confirmed when your reply is sent. "
-                                   + "In your reply, confirm the booking and restate the weekday, date, time and timezone.",
+                ["instructions"] = "The time is held for this customer and is confirmed when your reply is sent. " + restate,
             };
-            session.Previews.Add(new BookingPreview(AiPendingAction.Book, BookingAvailability.StartLabel(slot.LocalStart),
+            session.Previews.Add(new BookingPreview(AiPendingAction.Book, slotLabel,
                 BookingAvailability.LocalIso(slot.LocalStart), tz.Id, target.Label, null));
             session.BookedId = 0;
             session.BookedStart = startRaw;
@@ -577,11 +642,11 @@ public class BookingService
             ["booking_id"] = row.Id,
             ["start"] = BookingAvailability.LocalIso(slot.LocalStart),
             ["end"] = BookingAvailability.LocalIso(slot.LocalEnd),
-            ["label"] = BookingAvailability.StartLabel(slot.LocalStart),
+            ["duration_minutes"] = length,
+            ["label"] = slotLabel,
             ["timezone"] = tz.Id,
             ["calendar"] = target.Label,
-            ["instructions"] = "The time is held for this customer and is confirmed when your reply is sent. "
-                               + "In your reply, confirm the booking and restate the weekday, date, time and timezone.",
+            ["instructions"] = "The time is held for this customer and is confirmed when your reply is sent. " + restate,
         };
         session.BookedId = row.Id;
         session.BookedStart = startRaw;
@@ -642,6 +707,7 @@ public class BookingService
             ["status"] = "cancel_pending",
             ["booking_id"] = row.Id,
             ["start"] = BookingAvailability.LocalIso(local),
+            ["end"] = BookingAvailability.LocalIso(BookingAvailability.ToLocal(row.EndUtc, TimeZoneFor(row.Timezone, tz))),
             ["label"] = BookingAvailability.StartLabel(local),
             ["timezone"] = row.Timezone,
             ["instructions"] = "The cancellation takes effect when your reply is sent. Confirm to the customer that "
@@ -1020,29 +1086,40 @@ public class BookingService
 
     public static string LabelWithZone(Booking b) => $"{LabelOf(b)} ({(b.Timezone.Length > 0 ? b.Timezone : "UTC")})";
 
-    private static Dictionary<string, object?> SlotJson(BookingAvailability.Slot s) => new()
+    /// <summary>A slot for the model; <paramref name="range"/> (a variable-length calendar) labels the
+    /// whole span — "Mon 12 Oct, 2:00–3:00 PM" — so the length is restated with the time.</summary>
+    private static Dictionary<string, object?> SlotJson(BookingAvailability.Slot s, bool range) => new()
     {
         ["start"] = BookingAvailability.LocalIso(s.LocalStart),
         ["end"] = BookingAvailability.LocalIso(s.LocalEnd),
-        ["label"] = BookingAvailability.StartLabel(s.LocalStart),
+        ["label"] = SlotLabel(s, range),
     };
 
+    private static string SlotLabel(BookingAvailability.Slot s, bool range) => range
+        ? BookingAvailability.RangeLabel(s.LocalStart, s.LocalEnd)
+        : BookingAvailability.StartLabel(s.LocalStart);
+
     /// <summary>A slot without its end — what a full day's list shrinks to when it would not fit the result cap.</summary>
-    private static Dictionary<string, object?> ShortSlotJson(BookingAvailability.Slot s) => new()
+    private static Dictionary<string, object?> ShortSlotJson(BookingAvailability.Slot s, bool range) => new()
     {
         ["start"] = BookingAvailability.LocalIso(s.LocalStart),
-        ["label"] = BookingAvailability.StartLabel(s.LocalStart),
+        ["label"] = SlotLabel(s, range),
     };
 
     private static Dictionary<string, object?> BookingJson(Booking b)
     {
         var tz = TimeZoneFor(b.Timezone, TimeZoneInfo.Utc);
         var local = BookingAvailability.ToLocal(b.StartUtc, tz);
+        var end = BookingAvailability.ToLocal(b.EndUtc, tz);
         return new()
         {
             ["booking_id"] = b.Id,
             ["start"] = BookingAvailability.LocalIso(local),
+            // the STORED span — a booking may be longer than the calendar's default length
+            ["end"] = BookingAvailability.LocalIso(end),
+            ["duration_minutes"] = (int)Math.Round((end - local).TotalMinutes),
             ["label"] = BookingAvailability.StartLabel(local),
+            ["range"] = BookingAvailability.RangeLabel(local, end),
             ["timezone"] = b.Timezone,
             ["status"] = b.Status,
         };

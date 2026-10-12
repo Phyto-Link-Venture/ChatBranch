@@ -47,7 +47,12 @@ export interface CalendarAppConfig {
   /** "" = the organisation's timezone. */
   timezone: string
   hours: Record<Weekday, HoursWindow[]>
+  /** The DEFAULT length (a whole number of units). */
   duration_minutes: number
+  /** Lengths are booked in units of this many minutes (15 | 30 | 60). */
+  duration_unit_minutes: number
+  /** The longest booking, in units (1 = always `duration_minutes`). */
+  max_units: number
   slot_step_minutes: number
   buffer_minutes: number
   min_notice_minutes: number
@@ -88,6 +93,8 @@ export const CALENDAR_DEFAULTS: CalendarAppConfig = {
     sun: [],
   },
   duration_minutes: 30,
+  duration_unit_minutes: 30,
+  max_units: 1,
   slot_step_minutes: 30,
   buffer_minutes: 0,
   min_notice_minutes: 120,
@@ -125,6 +132,7 @@ export function calendarConfig(raw: unknown, defaults: Partial<CalendarAppConfig
           .map((w) => [String(w[0]), String(w[1])] as HoursWindow)
       : []
   }
+  const duration = num('duration_minutes')
   const actions = Array.isArray(r.actions)
     ? (r.actions.filter((a) => a === 'availability' || a === 'book' || a === 'cancel') as AppAction[])
     : [...base.actions]
@@ -136,7 +144,12 @@ export function calendarConfig(raw: unknown, defaults: Partial<CalendarAppConfig
     actions,
     timezone: str('timezone'),
     hours,
-    duration_minutes: num('duration_minutes'),
+    duration_minutes: duration,
+    // an older config without a unit books its one length — the unit IS that length
+    duration_unit_minutes: has('duration_unit_minutes') && Number.isFinite(Number(r.duration_unit_minutes))
+      ? Number(r.duration_unit_minutes)
+      : has('duration_minutes') ? duration : base.duration_unit_minutes,
+    max_units: num('max_units'),
     slot_step_minutes: num('slot_step_minutes'),
     buffer_minutes: num('buffer_minutes'),
     min_notice_minutes: num('min_notice_minutes'),

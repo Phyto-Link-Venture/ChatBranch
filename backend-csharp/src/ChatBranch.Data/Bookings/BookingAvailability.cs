@@ -33,9 +33,11 @@ public static class BookingAvailability
         (ToUtc(from.ToDateTime(TimeOnly.MinValue), tz).AddHours(-1),
          ToUtc(to.AddDays(1).ToDateTime(TimeOnly.MinValue), tz).AddHours(1));
 
-    /// <summary>Every free slot on the local dates [from, to], clamped to today … last day.</summary>
+    /// <summary>Every free slot on the local dates [from, to], clamped to today … last day,
+    /// each <paramref name="durationMinutes"/> long (default: the config's default length) — a
+    /// longer booking is only free when the WHOLE span is (busy spans + buffer, working hours).</summary>
     public static List<Slot> FreeSlots(CalendarAppConfig cfg, TimeZoneInfo tz, DateTime nowUtc,
-        DateOnly from, DateOnly to, IEnumerable<(DateTime Start, DateTime End)> busyUtc)
+        DateOnly from, DateOnly to, IEnumerable<(DateTime Start, DateTime End)> busyUtc, int? durationMinutes = null)
     {
         nowUtc = Utc(nowUtc);
         var today = Today(nowUtc, tz);
@@ -49,7 +51,7 @@ public static class BookingAvailability
         var buffer = TimeSpan.FromMinutes(cfg.BufferMinutes);
         var busy = busyUtc.Select(b => (Start: Utc(b.Start) - buffer, End: Utc(b.End) + buffer))
             .Where(b => b.End > b.Start).OrderBy(b => b.Start).ToList();
-        var duration = TimeSpan.FromMinutes(cfg.DurationMinutes);
+        var duration = TimeSpan.FromMinutes(durationMinutes ?? cfg.DurationMinutes);
         var step = TimeSpan.FromMinutes(Math.Max(5, cfg.SlotStepMinutes));
 
         for (var day = from; day <= to; day = day.AddDays(1))
@@ -94,7 +96,7 @@ public static class BookingAvailability
     /// on its window's step), too_soon (inside the minimum notice), else the calendar was busy.
     /// </summary>
     public static TimeCheck CheckTime(CalendarAppConfig cfg, TimeZoneInfo tz, DateTime nowUtc, DateOnly day,
-        TimeOnly time, IReadOnlyList<Slot> free)
+        TimeOnly time, IReadOnlyList<Slot> free, int? durationMinutes = null)
     {
         nowUtc = Utc(nowUtc);
         var localStart = day.ToDateTime(time);
@@ -105,7 +107,7 @@ public static class BookingAvailability
         if (day > LastDay(cfg, nowUtc, tz)) return No(Reasons.BeyondLastDay);
         if (day < Today(nowUtc, tz)) return No(Reasons.TooSoon);
         var start = time.ToTimeSpan();
-        var duration = TimeSpan.FromMinutes(cfg.DurationMinutes);
+        var duration = TimeSpan.FromMinutes(durationMinutes ?? cfg.DurationMinutes);
         var step = TimeSpan.FromMinutes(Math.Max(5, cfg.SlotStepMinutes));
         var holding = (cfg.Hours.TryGetValue(day.DayOfWeek, out var windows) ? windows : new())
             .Where(w => start >= w.From && start + duration <= w.To).ToList();

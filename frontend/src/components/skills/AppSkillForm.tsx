@@ -109,6 +109,13 @@ export function calendarConfigProblem(c: CalendarAppConfig, t: TFunction): strin
   if (!WEEKDAYS.some((d) => (c.hours[d.key] ?? []).length > 0)) return t('ai.app.problems.openDay')
   const int = (v: number) => Number.isInteger(v)
   if (!int(c.duration_minutes) || c.duration_minutes < 5 || c.duration_minutes > 480) return t('ai.app.problems.length')
+  if (c.max_units > 1) {
+    // one booking of N × unit — the default length must be one of them
+    const unit = c.duration_unit_minutes
+    if (c.duration_minutes % unit !== 0) return t('ai.app.problems.unitMultiple', { unit })
+    if (c.duration_minutes > unit * c.max_units)
+      return t('ai.app.problems.longest', { length: c.duration_minutes, longest: unit * c.max_units })
+  }
   if (!int(c.slot_step_minutes) || c.slot_step_minutes < 5 || c.slot_step_minutes > 480) return t('ai.app.problems.step')
   if (!int(c.buffer_minutes) || c.buffer_minutes < 0 || c.buffer_minutes > 240) return t('ai.app.problems.buffer')
   if (!int(c.min_notice_minutes) || c.min_notice_minutes < 0 || c.min_notice_minutes > 60 * 24 * 30)
@@ -207,6 +214,8 @@ export function AppSkillForm({
     Boolean,
   ).length
   const rulesCustom = [
+    c.max_units > 1,
+    c.max_units > 1 && c.duration_unit_minutes !== c.duration_minutes,
     c.slot_step_minutes !== c.duration_minutes && c.slot_step_minutes !== defs.slot_step_minutes,
     c.buffer_minutes !== defs.buffer_minutes,
     c.min_notice_minutes !== defs.min_notice_minutes,
@@ -457,11 +466,15 @@ export function AppSkillForm({
             min={5}
             max={480}
             disabled={readOnly}
+            hint={c.max_units > 1 ? t('ai.app.lengthDefaultHint') : undefined}
             onChange={(v) =>
               set({
                 duration_minutes: v,
                 // a step that tracked the length keeps tracking it
                 slot_step_minutes: c.slot_step_minutes === c.duration_minutes ? v : c.slot_step_minutes,
+                // one fixed length: the unit IS the length (the server ignores it then)
+                duration_unit_minutes:
+                  c.max_units <= 1 && c.duration_unit_minutes === c.duration_minutes ? v : c.duration_unit_minutes,
               })
             }
           />
@@ -469,6 +482,7 @@ export function AppSkillForm({
         {/* the rest has working defaults; the event is part of it */}
         <Advanced className="mt-3" count={rulesCustom} forceOpen={rulesCustom > 0}>
           <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+            <LengthFields config={c} disabled={readOnly} onChange={set} />
             <NumField
               label={t('ai.app.startEvery')}
               suffix={t('ai.units.min')}
@@ -627,6 +641,56 @@ function SourceCard({
         <span className="mt-0.5 block text-[11.5px] leading-snug">{body}</span>
       </span>
     </div>
+  )
+}
+
+const LENGTH_UNITS = [15, 30, 60]
+
+/** "Length unit" + "Longest booking": a customer may book N × unit (N = 1 … max_units) as ONE
+ *  appointment. max_units 1 = one fixed length (the unit is then that length). */
+function LengthFields({
+  config: c,
+  disabled,
+  onChange,
+}: {
+  config: CalendarAppConfig
+  disabled?: boolean
+  onChange: (patch: Partial<CalendarAppConfig>) => void
+}) {
+  const t = useT()
+  const unit = c.duration_unit_minutes
+  const units = LENGTH_UNITS.includes(unit) ? LENGTH_UNITS : [...LENGTH_UNITS, unit].sort((a, b) => a - b)
+  const unitOptions: SelectOption[] = units.map((u) => ({ value: String(u), label: `${u} ${t('ai.units.min')}` }))
+  const longestOptions: SelectOption[] = Array.from({ length: 16 }, (_, i) => i + 1).map((n) => ({
+    value: String(n),
+    label:
+      n === 1
+        ? t('ai.app.longestFixed', { length: c.duration_minutes })
+        : t('ai.app.longestOption', { n, unit, total: n * unit }),
+  }))
+  return (
+    <>
+      <Field label={t('ai.app.lengthUnit')} hint={t('ai.app.lengthUnitHint')}>
+        <Select
+          value={String(unit)}
+          disabled={disabled}
+          onChange={(v) => onChange({ duration_unit_minutes: Number(v) })}
+          options={unitOptions}
+          size="md"
+          ariaLabel={t('ai.app.lengthUnit')}
+        />
+      </Field>
+      <Field label={t('ai.app.longest')} hint={t('ai.app.longestHint')}>
+        <Select
+          value={String(Math.max(1, c.max_units))}
+          disabled={disabled}
+          onChange={(v) => onChange({ max_units: Number(v) })}
+          options={longestOptions}
+          size="md"
+          ariaLabel={t('ai.app.longest')}
+        />
+      </Field>
+    </>
   )
 }
 

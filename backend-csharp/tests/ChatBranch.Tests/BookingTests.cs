@@ -435,6 +435,252 @@ public class BookingTests
         Assert.Equal("2026-10-13T16:50", slots[^1].GetProperty("start").GetString());
     }
 
+    // ---- variable booking length (one booking, N × unit) ------------------------------
+
+    /// <summary>30-minute units up to 2 hours: 30, 60, 90 or 120 minutes, 30 by default.</summary>
+    private static readonly object Hourly = new
+    {
+        source = "google", calendar = "shared", min_notice_minutes = 0,
+        duration_minutes = 30, duration_unit_minutes = 30, max_units = 4,
+    };
+
+    private static async Task<JsonElement> Tool(BookingRig r, AgentSkill skill, string action, object args,
+        SkillContext? ctx = null)
+    {
+        var binding = new BookingService.ToolBinding(skill, CalendarAppConfig.From(skill.Config), action, "calendar");
+        var outcome = await r.Bookings.ExecuteToolAsync(binding, JsonSerializer.Serialize(args), ctx ?? new SkillContext());
+        return JsonDocument.Parse(outcome.Json).RootElement.Clone();
+    }
+
+    [Fact]
+    public async Task A_longer_booking_is_only_offered_where_the_whole_span_is_free()
+    {
+        using var r = new BookingRig();
+        r.GoogleRow();
+        var skill = r.Skill(Hourly);
+        r.Google.Busy.Add((BookingRig.Kul(13, 10, 30), BookingRig.Kul(13, 11)));   // Tue 10:30–11:00 taken
+
+        // the default length: 10:00–10:30 is still free
+        var halfHour = await Availability(r, skill, new { from_date = "2026-10-13", to_date = "2026-10-13" });
+        Assert.Contains("2026-10-13T10:00", Starts(halfHour));
+        Assert.Equal(30, halfHour.GetProperty("duration_minutes").GetInt32());
+
+        // an hour: 10:00 would run into the busy half hour, 10:30 starts in it; 09:30–10:30 just fits
+        var hour = await Availability(r, skill,
+            new { from_date = "2026-10-13", to_date = "2026-10-13", duration_minutes = 60 });
+        Assert.True(hour.GetProperty("ok").GetBoolean(), hour.ToString());
+        Assert.Equal(60, hour.GetProperty("duration_minutes").GetInt32());
+        var starts = Starts(hour);
+        Assert.DoesNotContain("2026-10-13T10:00", starts);
+        Assert.DoesNotContain("2026-10-13T10:30", starts);
+        Assert.Contains("2026-10-13T09:30", starts);
+        Assert.Contains("2026-10-13T11:00", starts);
+        Assert.Equal("2026-10-13T16:00", starts[^1]);                    // 16:00–17:00 still inside the hours
+        var first = hour.GetProperty("slots")[0];
+        Assert.Equal("2026-10-13T10:00", first.GetProperty("end").GetString());
+        Assert.Equal("Tue 13 Oct, 9:00–10:00 AM", first.GetProperty("label").GetString());   // a range, not a start
+        Assert.Equal(new[] { 30, 60, 90, 120 },
+            hour.GetProperty("allowed_lengths").EnumerateArray().Select(e => e.GetInt32()));
+
+        // the exact-time check measures the requested length too
+        var ten = await Availability(r, skill, new { from_date = "2026-10-13", time = "10:00", duration_minutes = 60 });
+        var asked = ten.GetProperty("requested");
+        Assert.False(asked.GetProperty("available").GetBoolean());
+        Assert.Equal(BookingAvailability.Reasons.Busy, asked.GetProperty("reason").GetString());
+        var nine = await Availability(r, skill, new { from_date = "2026-10-13", time = "09:30", duration_minutes = 60 });
+        Assert.True(nine.GetProperty("requested").GetProperty("available").GetBoolean(), nine.ToString());
+
+        // the pure math: two hours fit only where the whole span is free and inside the window
+        var cfg = CalendarAppConfig.From(skill.Config);
+        var twoHours = BookingAvailability.FreeSlots(cfg, BookingRig.Kl, BookingRig.Start.UtcDateTime,
+            new DateOnly(2026, 10, 13), new DateOnly(2026, 10, 13),
+            new[] { (BookingRig.Kul(13, 10, 30), BookingRig.Kul(13, 11)) }, durationMinutes: 120);
+        // 09:00–10:30 would all run into the busy half hour; 11:00 … 15:00 fit (15:00–17:00 the last)
+        Assert.Equal(9, twoHours.Count);
+        Assert.Equal(new TimeSpan(11, 0, 0), twoHours[0].LocalStart.TimeOfDay);
+        Assert.All(twoHours, s => Assert.Equal(TimeSpan.FromMinutes(120), s.EndUtc - s.StartUtc));
+        Assert.Equal(new TimeSpan(15, 0, 0), twoHours[^1].LocalStart.TimeOfDay);
+    }
+
+    [Fact]
+    public async Task A_length_the_calendar_does_not_book_is_refused_with_the_allowed_ones()
+    {
+        using var r = new BookingRig();
+        r.GoogleRow();
+        var c = r.Contact();
+        var skill = r.Skill(Hourly);
+
+        var odd = await Availability(r, skill, new { from_date = "2026-10-13", duration_minutes = 45 });
+        Assert.False(odd.GetProperty("ok").GetBoolean());
+        Assert.Contains("45 minutes is not a length", odd.GetProperty("error").GetString());
+        Assert.Contains("30, 60, 90, 120", odd.GetProperty("advice").GetString());
+        Assert.Equal(4, odd.GetProperty("allowed_lengths").GetArrayLength());
+
+        var words = await Availability(r, skill, new { from_date = "2026-10-13", duration_minutes = "an hour" });
+        Assert.False(words.GetProperty("ok").GetBoolean());                // a refusal, never an exception
+
+        var tooLong = await Tool(r, skill, "book", new { start = "2026-10-13T09:00", duration_minutes = 150 },
+            new SkillContext { ContactId = c.Id });
+        Assert.False(tooLong.GetProperty("ok").GetBoolean());
+        Assert.Contains("150 minutes", tooLong.GetProperty("error").GetString());
+        Assert.Empty(r.FreshBookings());
+
+        // a fixed-length calendar: its own length passes, any other is refused
+        var fixedSkill = r.Skill(new { source = "chatbranch", min_notice_minutes = 0 }, id: "cal-fixed");
+        Assert.True((await Availability(r, fixedSkill, new { from_date = "2026-10-13", duration_minutes = 30 }))
+            .GetProperty("ok").GetBoolean());
+        var notHere = await Availability(r, fixedSkill, new { from_date = "2026-10-13", duration_minutes = 60 });
+        Assert.False(notHere.GetProperty("ok").GetBoolean());
+        Assert.Contains("always 30 minutes", notHere.GetProperty("advice").GetString());
+    }
+
+    [Fact]
+    public void A_ninety_minute_booking_is_one_row_and_one_event_covering_the_whole_span()
+    {
+        using var r = new BookingRig();
+        r.Contact();
+        r.GoogleRow();
+        r.Skill(Hourly);                                                   // max_active_per_contact stays 1
+        IReadOnlyList<LlmTool>? offered = null;
+        r.Llm.Script = (msgs, tools) =>
+        {
+            offered ??= tools;
+            var last = msgs.LastOrDefault();
+            if (last?.Role != "tool")
+                return ToolScriptLlm.Calls(("calendar_availability", "{\"from_date\":\"2026-10-13\",\"to_date\":\"2026-10-13\",\"duration_minutes\":90}"));
+            var json = JsonDocument.Parse(last.Content!).RootElement;
+            if (json.TryGetProperty("slots", out var slots) && slots.GetArrayLength() > 0)
+                return ToolScriptLlm.Calls(("calendar_book",
+                    $"{{\"start\":\"{slots[0].GetProperty("start").GetString()}\",\"duration_minutes\":90}}"));
+            if (json.TryGetProperty("status", out var st) && st.GetString() == "reserved")
+                return ToolScriptLlm.Says($"You're booked for {json.GetProperty("label").GetString()} ({json.GetProperty("timezone").GetString()}).");
+            return ToolScriptLlm.Says("Sorry — a teammate will confirm a time with you.");
+        };
+
+        r.Say("60123000001", "Can I book a 90-minute session on Tuesday?");
+
+        // the model was told to ask how long, and both tools take the length
+        Assert.Contains("How long:", r.Llm.Seen[0].System);
+        var book = offered!.Single(t => t.Name == "calendar_book");
+        Assert.Contains("time range", book.Description);
+        var lengths = book.Parameters.GetProperty("properties").GetProperty("duration_minutes").GetProperty("enum");
+        Assert.Equal(new[] { 30, 60, 90, 120 }, lengths.EnumerateArray().Select(e => e.GetInt32()));
+        Assert.True(offered!.Single(t => t.Name == "calendar_availability").Parameters
+            .GetProperty("properties").TryGetProperty("duration_minutes", out _));
+
+        // ONE row covering 9:00–10:30, ONE Google event with the same end — three units, one booking
+        var booking = Assert.Single(r.FreshBookings());
+        Assert.Equal(BookingStatus.Booked, booking.Status);
+        Assert.Equal(BookingRig.Kul(13, 9), BookingAvailability.Utc(booking.StartUtc));
+        Assert.Equal(BookingRig.Kul(13, 10, 30), BookingAvailability.Utc(booking.EndUtc));
+        var ev = JsonDocument.Parse(Assert.Single(r.Google.Inserts).Body).RootElement;
+        Assert.Equal(GoogleCalendarClient.Iso(BookingRig.Kul(13, 9)), ev.GetProperty("start").GetProperty("dateTime").GetString());
+        Assert.Equal(GoogleCalendarClient.Iso(BookingRig.Kul(13, 10, 30)), ev.GetProperty("end").GetProperty("dateTime").GetString());
+
+        // the reply and the note both restate the range
+        var msgs = r.Messages("60123000001");
+        Assert.Contains("Tue 13 Oct, 9:00–10:30 AM", Assert.Single(msgs, m => m.Source == MessageSource.Ai).Text);
+        Assert.Contains("Tue 13 Oct, 9:00–10:30 AM", Assert.Single(msgs, m => m.Private).Text);
+    }
+
+    [Fact]
+    public async Task My_bookings_and_cancel_use_the_stored_length()
+    {
+        using var r = new BookingRig();
+        var c = r.Contact();
+        var skill = r.Skill(new { source = "chatbranch", min_notice_minutes = 0, duration_unit_minutes = 30, max_units = 4 });
+        var ctx = new SkillContext { ContactId = c.Id };
+        var reserved = await Tool(r, skill, "book", new { start = "2026-10-14T14:00", duration_minutes = 120 }, ctx);
+        Assert.True(reserved.GetProperty("ok").GetBoolean(), reserved.ToString());
+        Assert.Equal("2026-10-14T16:00", reserved.GetProperty("end").GetString());
+        Assert.Equal(120, reserved.GetProperty("duration_minutes").GetInt32());
+        var row = Assert.Single(r.FreshBookings());
+        Assert.Equal(TimeSpan.FromHours(2), row.EndUtc - row.StartUtc);
+
+        // another conversation's search sees the whole two hours taken (a pending row holds them)
+        var after = await Availability(r, skill, new { from_date = "2026-10-14", to_date = "2026-10-14" });
+        var starts = Starts(after);
+        Assert.Contains("2026-10-14T13:30", starts);
+        Assert.DoesNotContain("2026-10-14T15:30", starts);
+        Assert.Contains("2026-10-14T16:00", starts);
+
+        var mine = await Tool(r, skill, "my_bookings", new { }, new SkillContext { ContactId = c.Id });
+        var listed = mine.GetProperty("bookings")[0];
+        Assert.Equal("2026-10-14T16:00", listed.GetProperty("end").GetString());
+        Assert.Equal(120, listed.GetProperty("duration_minutes").GetInt32());
+        Assert.Equal("Wed 14 Oct, 2:00–4:00 PM", listed.GetProperty("range").GetString());
+
+        // once booked, a cancellation names the stored span too
+        var stored = r.Db.Bookings.Single(x => x.Id == row.Id);
+        stored.Status = BookingStatus.Booked;
+        r.Db.SaveChanges();
+        var cancel = await Tool(r, skill, "cancel", new { booking_id = row.Id }, new SkillContext { ContactId = c.Id });
+        Assert.True(cancel.GetProperty("ok").GetBoolean(), cancel.ToString());
+        Assert.Equal("2026-10-14T16:00", cancel.GetProperty("end").GetString());
+    }
+
+    [Fact]
+    public void An_older_config_without_the_length_keys_behaves_as_before()
+    {
+        var old = Cfg(new { duration_minutes = 45 });
+        Assert.Equal(45, old.DurationUnitMinutes);
+        Assert.Equal(1, old.MaxUnits);
+        Assert.Equal(new[] { 45 }, old.Lengths);
+        Assert.False(old.VariableLength);
+        Assert.Equal(45, old.ToDictionary()["duration_unit_minutes"]);
+        Assert.Equal(1, old.ToDictionary()["max_units"]);
+        // a stale unit on a fixed length is ignored, never an error
+        Assert.Equal(45, Cfg(new { duration_minutes = 45, duration_unit_minutes = 30 }).DurationUnitMinutes);
+        Assert.Equal(new[] { 30 }, Cfg(new { }).Lengths);
+
+        // the same tools as before: a fixed length, no duration_minutes argument
+        var tools = BookingService.ToolDefinitions("calendar", old, "Asia/Kuala_Lumpur").ToList();
+        var avail = tools.Single(t => t.Action == "availability").Tool;
+        Assert.Contains("45-minute", avail.Description);
+        Assert.DoesNotContain("duration_minutes", avail.Parameters.GetRawText());
+        Assert.DoesNotContain("duration_minutes", tools.Single(t => t.Action == "book").Tool.Parameters.GetRawText());
+
+        // the same slots with and without the default length passed explicitly
+        var day = new DateOnly(2026, 10, 13);
+        var implicitLength = BookingAvailability.FreeSlots(old, BookingRig.Kl, BookingRig.Start.UtcDateTime, day, day,
+            Array.Empty<(DateTime, DateTime)>());
+        var explicitLength = BookingAvailability.FreeSlots(old, BookingRig.Kl, BookingRig.Start.UtcDateTime, day, day,
+            Array.Empty<(DateTime, DateTime)>(), durationMinutes: 45);
+        Assert.Equal(implicitLength.Select(s => s.StartUtc), explicitLength.Select(s => s.StartUtc));
+
+        // variable lengths validate: whole units, a default within the longest, units of 15 / 30 / 60
+        string? Problem(object raw)
+        {
+            CalendarAppConfig.From(JsonSerializer.SerializeToElement(raw), out var error);
+            return error;
+        }
+        Assert.Contains("whole number of 30-minute units",
+            Problem(new { duration_minutes = 45, duration_unit_minutes = 30, max_units = 4 }));
+        Assert.Contains("longer than the longest booking",
+            Problem(new { duration_minutes = 120, duration_unit_minutes = 30, max_units = 2 }));
+        Assert.Contains("15, 30 or 60", Problem(new { duration_unit_minutes = 20, max_units = 3 }));
+        Assert.Contains("max_units", Problem(new { max_units = 17 }));
+        Assert.Null(Problem(new { duration_minutes = 60, duration_unit_minutes = 15, max_units = 16 }));
+        // a non-standard length may still grow by itself: 45 / 90 / 135
+        Assert.Equal(new[] { 45, 90, 135 }, Cfg(new { duration_minutes = 45, max_units = 3 }).Lengths);
+    }
+
+    [Fact]
+    public async Task A_playground_preview_of_a_longer_booking_holds_nothing()
+    {
+        using var r = new BookingRig();
+        var c = r.Contact();
+        var skill = r.Skill(new { source = "chatbranch", min_notice_minutes = 0, duration_unit_minutes = 60, max_units = 3, duration_minutes = 60 });
+        var ctx = new SkillContext { ContactId = c.Id, Apps = new BookingService.Session { Preview = true } };
+        var preview = await Tool(r, skill, "book", new { start = "2026-10-13T10:00", duration_minutes = 180 }, ctx);
+        Assert.True(preview.GetProperty("ok").GetBoolean(), preview.ToString());
+        Assert.Equal("2026-10-13T13:00", preview.GetProperty("end").GetString());
+        var shown = Assert.Single(ctx.Apps.Previews);
+        Assert.Equal("Tue 13 Oct, 10:00 AM–1:00 PM", shown.Label);
+        Assert.Empty(ctx.Apps.Actions);
+        Assert.Empty(r.FreshBookings());
+    }
+
     [Fact]
     public void Config_validation_names_the_problem()
     {
@@ -1196,6 +1442,19 @@ public class BookingApiTests : IClassFixture<ApiFactory>
         Assert.Equal(45, cfg.GetProperty("slot_step_minutes").GetInt32());   // step defaults to the duration
         Assert.Equal("09:00", cfg.GetProperty("hours").GetProperty("tue")[0][0].GetString());
         Assert.Equal(2, cfg.GetProperty("actions").GetArrayLength());
+        Assert.Equal(45, cfg.GetProperty("duration_unit_minutes").GetInt32());   // one fixed length, as before
+        Assert.Equal(1, cfg.GetProperty("max_units").GetInt32());
+
+        // variable length: validated, then stored canonically
+        Assert.Contains("whole number of 30-minute units",
+            await Detail(await Put(new { duration_minutes = 45, duration_unit_minutes = 30, max_units = 3 })));
+        var variable = await Put(new { source = "chatbranch", duration_minutes = 60, duration_unit_minutes = 30, max_units = 4 });
+        Assert.Equal(HttpStatusCode.OK, variable.StatusCode);
+        var vcfg = (await variable.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("skills").EnumerateArray()
+            .Single(s => s.GetProperty("id").GetString() == "cal-east").GetProperty("config");
+        Assert.Equal(30, vcfg.GetProperty("duration_unit_minutes").GetInt32());
+        Assert.Equal(4, vcfg.GetProperty("max_units").GetInt32());
+        Assert.Equal(60, vcfg.GetProperty("duration_minutes").GetInt32());
     }
 
     [Fact]
@@ -1275,6 +1534,21 @@ public class BookingApiTests : IClassFixture<ApiFactory>
         Assert.Equal(8, body.GetProperty("slots").GetArrayLength());
         Assert.Equal("chatbranch", body.GetProperty("source").GetString());
         Assert.Contains("Nothing was booked", body.GetProperty("detail").GetString());
+        Assert.Equal(before, Db(db => db.Bookings.Count()));
+        Assert.Equal(30, cal.GetProperty("defaults").GetProperty("duration_unit_minutes").GetInt32());
+        Assert.Equal(1, cal.GetProperty("defaults").GetProperty("max_units").GetInt32());
+
+        // a calendar that books 1–3 hours previews too (at its default length)
+        var longer = await (await admin.PostAsJsonAsync("/api/aicore/skills/test", new
+        {
+            kind = "app", app_action = "availability",
+            config = new { source = "chatbranch", hours = everyDay, min_notice_minutes = 0,
+                           duration_minutes = 60, duration_unit_minutes = 60, max_units = 3 },
+        })).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(longer.GetProperty("ok").GetBoolean(), longer.ToString());
+        var firstSlot = longer.GetProperty("slots")[0];
+        Assert.Equal(TimeSpan.FromHours(1),
+            DateTime.Parse(firstSlot.GetProperty("end").GetString()!) - DateTime.Parse(firstSlot.GetProperty("start").GetString()!));
         Assert.Equal(before, Db(db => db.Bookings.Count()));
 
         var invalid = await (await admin.PostAsJsonAsync("/api/aicore/skills/test",
