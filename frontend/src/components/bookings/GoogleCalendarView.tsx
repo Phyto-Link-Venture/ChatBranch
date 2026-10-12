@@ -122,7 +122,8 @@ export function GoogleCalendarView({ entityQuery }: { entityQuery: string }) {
 
   const tz = data?.timezone || undefined
   const today = todayYmd()
-  const scopeHint = (c: CalendarConnection) =>
+  // a short name: "Your calendar" / "Shared · Bangsar" / "Shared · Organization"
+  const connectionName = (c: CalendarConnection) =>
     c.scope === 'personal'
       ? t('bookings.calendar.yours')
       : c.scope === 'entity'
@@ -182,8 +183,7 @@ export function GoogleCalendarView({ entityQuery }: { entityQuery: string }) {
           }}
           options={connections.map((c) => ({
             value: String(c.id),
-            label: c.label,
-            hint: scopeHint(c),
+            label: connectionName(c),
           }))}
           ariaLabel={t('bookings.calendar.connectionAria')}
           className="w-full sm:w-[280px]"
@@ -338,39 +338,46 @@ function EventRow({ event: e, tz }: { event: CalendarEvent; tz?: string }) {
     : `${f.time(instant(e.start), tz)}${e.end ? ` – ${f.time(instant(e.end), tz)}` : ''}`
   return (
     <div
-      className={`flex flex-wrap items-start gap-x-3 gap-y-1 rounded-lg border px-3 py-2 ${
+      className={`flex items-start gap-3 rounded-lg border px-3 py-2 ${
         e.chatbranch ? 'border-brand-400/40 bg-brand-400/5' : 'border-line bg-card'
       }`}
     >
-      <span className="w-[112px] shrink-0 text-[12.5px] font-semibold tabular-nums text-text-high">{when}</span>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className={`truncate text-[13px] ${e.free ? 'text-text-mid' : 'font-semibold text-text-heading'}`}>
-          {e.title || t('bookings.calendar.noTitle')}
+      {/* phones: the time above the title; wider: a time column */}
+      <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:gap-3">
+        <span
+          className={`shrink-0 text-[12.5px] font-semibold text-text-high sm:w-[160px] sm:whitespace-nowrap ${e.all_day ? '' : 'tabular-nums'}`}
+        >
+          {when}
         </span>
-        {e.location && (
-          <span className="inline-flex items-center gap-1 truncate text-[11.5px] text-text-muted">
-            <MapPin size={11} aria-hidden /> {e.location}
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className={`break-words text-[13px] ${e.free ? 'text-text-mid' : 'font-semibold text-text-heading'}`}>
+            {e.title || t('bookings.calendar.noTitle')}
           </span>
-        )}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {e.free && (
-            <span className="rounded-full border border-line px-1.5 py-px text-[10.5px] font-semibold text-text-muted">
-              {t('bookings.calendar.free')}
+          {e.location && (
+            <span className="inline-flex items-center gap-1 truncate text-[11.5px] text-text-muted">
+              <MapPin size={11} aria-hidden /> {e.location}
             </span>
           )}
-          {e.chatbranch && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-brand-400/15 px-1.5 py-px text-[10.5px] font-semibold text-[color:var(--brand-ink)]">
-              {e.booking?.contact_name
-                ? t('bookings.calendar.bookedWith', {
-                    name: e.booking.contact_name,
-                  })
-                : t('bookings.calendar.bookedHere')}
-            </span>
-          )}
-          {e.booking && <BookingStatusChip booking={e.booking} />}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {e.free && (
+              <span className="rounded-full border border-line px-1.5 py-px text-[10.5px] font-semibold text-text-muted">
+                {t('bookings.calendar.free')}
+              </span>
+            )}
+            {e.chatbranch && (
+              <span className="max-w-full truncate rounded-full bg-brand-400/15 px-1.5 py-px text-[10.5px] font-semibold text-[color:var(--brand-ink)]">
+                {e.booking?.contact_name
+                  ? t('bookings.calendar.bookedWith', {
+                      name: e.booking.contact_name,
+                    })
+                  : t('bookings.calendar.bookedHere')}
+              </span>
+            )}
+            {e.booking && <BookingStatusChip booking={e.booking} />}
+          </div>
         </div>
       </div>
-      <div className="ml-auto flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         {e.booking?.thread && (
           <Link
             href={threadHref(e.booking.thread, e.booking.thread_id)}
