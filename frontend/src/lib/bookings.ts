@@ -53,6 +53,8 @@ export interface BookingQuery {
   to?: string
   /** Soonest-first future bookings; otherwise newest-first. */
   upcoming?: boolean
+  /** At most this many (the API's default 200, up to 500). */
+  limit?: number
   /** `entity=<slug>` from useEntityQuery() — '' for All entities. */
   entityQuery?: string
 }
@@ -85,6 +87,7 @@ export async function listBookings(q: BookingQuery = {}): Promise<Booking[]> {
   if (q.from) p.set('from', q.from)
   if (q.to) p.set('to', q.to)
   if (q.upcoming) p.set('upcoming', '1')
+  if (q.limit) p.set('limit', String(q.limit))
   const qs = [p.toString(), q.entityQuery ?? ''].filter(Boolean).join('&')
   const d = await call<{ bookings?: Booking[] }>(`bookings${qs ? `?${qs}` : ''}`)
   return Array.isArray(d.bookings) ? d.bookings : []

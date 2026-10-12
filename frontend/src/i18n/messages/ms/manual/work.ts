@@ -608,8 +608,8 @@ export const work: Dict<typeof source> = {
         body: 'Di bar sisi, di bawah Kerja, klik “Tempahan”.',
       },
       s2: {
-        title: 'Pilih Akan datang atau Lepas',
-        body: 'Tab “Akan datang” dibuka secara lalai. Klik “Lepas” untuk melihat janji temu yang sudah berlaku, atau “Kalendar” untuk melihat Google Calendar yang disambungkan mengikut minggu — setiap acara di dalamnya, dengan yang ditempah oleh ChatBranch ditanda dan dipautkan ke sembangnya.',
+        title: 'Pilih Kalendar, Akan datang atau Lepas',
+        body: 'Tempahan dibuka pada “Kalendar”: setiap janji temu pada harinya — tukar “Bulan”, “Minggu” atau “Hari” di bahagian atas kanan, bergerak dengan anak panah, dan “Hari ini” kembali ke masa kini. Klik janji temu untuk membuka sembangnya atau membatalkannya. Untuk langkah di bawah, klik “Akan datang” (belum berlaku) atau “Lepas” (sudah berlaku) untuk melihat tempahan yang sama sebagai jadual.',
       },
       s3: {
         title: 'Baca jadual',

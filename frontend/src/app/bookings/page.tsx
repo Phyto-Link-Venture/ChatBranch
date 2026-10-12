@@ -3,10 +3,11 @@
 /**
  * Bookings — every appointment the AI (through a "Connected app" calendar
  * skill) or the team booked, on Google Calendar or kept in ChatBranch.
- * Upcoming (soonest first) and Past (newest first) tabs, filters for status,
- * calendar and contact, a link into each conversation, and an operator cancel.
- * The Calendar tab shows the connected Google Calendar itself, week by week
- * (GoogleCalendarView — read-only; ChatBranch's bookings marked).
+ * Opens on the Calendar (BookingsCalendar — Month · Week · Day, a click opens a
+ * booking's card; a connected Google Calendar can be laid over, read-only). The
+ * Upcoming (soonest first) and Past (newest first) tabs list the same bookings
+ * with filters for status, calendar and contact (a contact link — `?contact=` —
+ * opens on Upcoming), a link into each conversation, and an operator cancel.
  *
  * Reads GET /api/bookings (chats.view, scoped like conversations; the top
  * bar's entity narrows it via useEntityQuery). Refreshes live off the inbox
@@ -29,7 +30,7 @@ import {
   calendarName,
   useBookingLabel,
 } from '@/components/bookings/BookingBits'
-import { GoogleCalendarView } from '@/components/bookings/GoogleCalendarView'
+import { BookingsCalendar } from '@/components/bookings/BookingsCalendar'
 import { Trans, useFormat, useT, type MessageKey } from '@/i18n'
 import { useAccess } from '@/lib/useAccess'
 import { useEntityQuery } from '@/lib/EntityContext'
@@ -47,11 +48,11 @@ import {
   type BookingStatus,
 } from '@/lib/bookings'
 
-type Tab = 'upcoming' | 'past' | 'calendar'
+type Tab = 'calendar' | 'upcoming' | 'past'
 const TABS: { id: Tab; label: MessageKey }[] = [
+  { id: 'calendar', label: 'bookings.page.calendarTab' },
   { id: 'upcoming', label: 'bookings.page.upcoming' },
   { id: 'past', label: 'bookings.page.past' },
-  { id: 'calendar', label: 'bookings.page.calendarTab' },
 ]
 
 const STATUS_OPTIONS: { value: string; label: MessageKey }[] = [
@@ -68,7 +69,8 @@ export default function BookingsPage() {
   const bookingLabel = useBookingLabel()
   const entityQ = useEntityQuery()
   const { ready, can } = useAccess()
-  const [tab, setTab] = useState<Tab>('upcoming')
+  const [tab, setTab] = useState<Tab>('calendar')
+  const [refreshKey, setRefreshKey] = useState(0)
   const [status, setStatus] = useState('active')
   const [calendar, setCalendar] = useState('')
   const [contactId, setContactId] = useState<number | null>(null)
@@ -82,18 +84,22 @@ export default function BookingsPage() {
   useEffect(() => {
     const p = new URLSearchParams(window.location.search)
     const fromUrl = p.get('tab') as Tab | null
-    if (fromUrl && TABS.some((x) => x.id === fromUrl)) {
-      setTab(fromUrl)
-      setStatus(defaultStatus(fromUrl))
-    }
     const c = Number(p.get('contact'))
-    if (Number.isFinite(c) && c > 0) setContactId(c)
+    const contact = Number.isFinite(c) && c > 0 ? c : null
+    // a contact's bookings ("All bookings" on a contact) open as the list
+    const initial = fromUrl && TABS.some((x) => x.id === fromUrl) ? fromUrl : contact ? 'upcoming' : null
+    if (initial) {
+      setTab(initial)
+      setStatus(defaultStatus(initial))
+    }
+    if (contact) setContactId(contact)
   }, [])
 
   const syncUrl = (t: Tab, contact: number | null) => {
     const url = new URL(window.location.href)
-    if (t === 'upcoming') url.searchParams.delete('tab')
+    if (t === 'calendar') url.searchParams.delete('tab')
     else url.searchParams.set('tab', t)
+    if (t !== 'calendar') url.searchParams.delete('view')
     if (contact) url.searchParams.set('contact', String(contact))
     else url.searchParams.delete('contact')
     window.history.replaceState(null, '', url.toString())
@@ -124,7 +130,7 @@ export default function BookingsPage() {
     }
   }, [tab, contactId, entityQ, t])
 
-  // the Calendar tab reads Google, not the bookings list
+  // the Calendar loads its own period (BookingsCalendar)
   const listTab = tab !== 'calendar'
 
   useEffect(() => {
@@ -342,10 +348,6 @@ export default function BookingsPage() {
             </div>
           </div>
 
-          {tab === 'calendar' ? (
-            <GoogleCalendarView entityQuery={entityQ} />
-          ) : (
-            <>
             {contactId != null && (
               <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-text-mid">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-card py-0.5 pl-2.5 pr-1">
@@ -373,6 +375,15 @@ export default function BookingsPage() {
                 {notice}
               </div>
             )}
+          {tab === 'calendar' ? (
+            <BookingsCalendar
+              entityQuery={entityQ}
+              contactId={contactId}
+              refreshKey={refreshKey}
+              onCancel={setConfirm}
+            />
+          ) : (
+            <>
             {loadNote && <div className="rounded-lg border border-line bg-fill-subtle px-3 py-2 text-[12.5px] text-text-muted">{loadNote}</div>}
 
             {rows === null ? (
@@ -456,7 +467,8 @@ export default function BookingsPage() {
               ? t('bookings.page.cancelledWith', { label: bookingLabel(b), name: b.contact_name })
               : t('bookings.card.cancelled', { label: bookingLabel(b) }),
           )
-          void load()
+          if (listTab) void load()
+          else setRefreshKey((k) => k + 1)
         }}
       />
     </AreaPage>

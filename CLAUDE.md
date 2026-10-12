@@ -955,11 +955,20 @@ When you fix one of these, update this table, `README.md` and
   book, then restate weekday/date/time/timezone; the voice SKILLS block omits app
   skills. Pages: `/bookings` (Work; `GET /api/bookings`, `chats.view`, scoped
   like conversations; `POST /api/bookings/{id}/cancel`, `chats.send`), the
-  `BookingsCard` on the contact and the chat info panel. **The Bookings page's
-  Calendar tab** (`?tab=calendar`, `components/bookings/GoogleCalendarView.tsx`) shows
-  the connected Google Calendar ITSELF, read-only, week by week — every event on it
-  (made in Google or by ChatBranch), all-day and "free" ones marked, ChatBranch's
-  bookings linked to their chat — through `GET /api/bookings/calendars` +
+  `BookingsCard` on the contact and the chat info panel. **The Bookings page opens on
+  its Calendar** (`components/bookings/BookingsCalendar.tsx`; `?view=month|week|day`,
+  remembered in localStorage `bookings-view`; `?tab=upcoming|past` = the lists, and a
+  `?contact=` link opens on Upcoming): ChatBranch's own bookings on a Month / Week /
+  Day grid in the zone times are shown in (Settings → Time zone) from `GET
+  /api/bookings?from=&to=&limit=500` (a day either side, placed by `useFormat`'s zone) —
+  booked solid, reserved / cancelling dashed, cancelled behind "Show cancelled"; a click
+  opens the booking's card (Open the conversation, Cancel booking → the page's
+  `CancelBookingModal`); week / day = a time grid (8 AM–8 PM stretched to what is
+  booked, overlaps side by side, a now line); phones get dots + the tapped day's list.
+  **Google layer**: pick a connected Google Calendar and its OTHER events are laid over
+  in grey, read-only (all-day ones in their own row; the events ChatBranch made are
+  skipped — they are bookings already) — every event on it (made in Google or by
+  ChatBranch), all-day and "free" ones marked, through `GET /api/bookings/calendars` +
   `GET /api/bookings/calendar-events?connection=&calendar=&from=&to=` (`chats.view`,
   ≤62 days; `GoogleCalendarClient.ListEventsAsync` = `events.list`, recurring events
   expanded, only id / title / times / location / link / transparency — never a

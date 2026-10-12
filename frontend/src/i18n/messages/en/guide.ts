@@ -263,20 +263,24 @@ export const guide = {
           body: 'Appointments booked in chats — on Google Calendar or kept inside ChatBranch — for the outlet you picked.',
         },
         s2: {
-          title: 'Upcoming, past or the calendar',
-          body: 'Upcoming shows what is still to come, soonest first. Past shows what has already happened. Calendar shows your connected Google Calendar week by week — everything on it, with ChatBranch’s bookings marked.',
+          title: 'Calendar, Upcoming or Past',
+          body: 'Bookings opens on the calendar. Upcoming and Past show the same appointments as a list you can search and filter.',
         },
         s3: {
-          title: 'The list',
-          body: 'When it is, who it is with, which calendar, and who booked it (the AI or a person). Search by contact or title above the list.',
+          title: 'Your appointments on a calendar',
+          body: 'Every booking sits on its day and time: solid = booked, dashed = reserved for an AI reply not sent yet. Click one to see who it is with, open the chat or cancel it.',
         },
         s4: {
-          title: 'Filters and refresh',
-          body: 'Next to the search box you can show only one status or one calendar. This button reloads the list.',
+          title: 'Month, week or day',
+          body: 'Switch the view here. The arrows move back and forward, “Today” jumps back to now, and clicking a date opens that day.',
         },
         s5: {
+          title: 'Your Google Calendar too',
+          body: 'Pick a connected Google Calendar to lay its other events over the bookings in grey — meetings, leave, holidays — so you see when you are really free. They are read-only here.',
+        },
+        s6: {
           title: 'Cancel or follow up',
-          body: 'Click Cancel on an upcoming booking to free the time — you are asked first. The chat icon opens the conversation with that customer.',
+          body: 'An appointment’s card has “Open the conversation” and, for a booked one still to come, “Cancel booking” — you are asked first, and the customer isn’t messaged automatically.',
         },
       },
     },

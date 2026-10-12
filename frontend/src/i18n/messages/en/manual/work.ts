@@ -606,8 +606,8 @@ export const work = {
         body: 'In the sidebar, under Work, click “Bookings”.',
       },
       s2: {
-        title: 'Choose Upcoming or Past',
-        body: 'The “Upcoming” tab is open by default. Click “Past” to see appointments that have already happened, or “Calendar” to see your connected Google Calendar week by week — every event on it, with the ones ChatBranch booked marked and linked to their chat.',
+        title: 'Choose Calendar, Upcoming or Past',
+        body: 'Bookings opens on “Calendar”: every appointment on its day — switch “Month”, “Week” or “Day” at the top right, move with the arrows, and “Today” jumps back. Click an appointment to open its chat or cancel it. For the steps below, click “Upcoming” (still to come) or “Past” (already happened) to see the same bookings as a table.',
       },
       s3: {
         title: 'Read the table',

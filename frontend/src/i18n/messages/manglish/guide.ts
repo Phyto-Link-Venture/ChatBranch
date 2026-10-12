@@ -190,16 +190,19 @@ export const guide: Overlay<Messages['guide']> = {
           body: 'Appointments booked in chats — on Google Calendar or kept inside ChatBranch itself — for the outlet you picked.',
         },
         s2: {
-          body: 'Upcoming shows what’s still coming, soonest first. Past shows what already happened. Calendar shows your connected Google Calendar week by week — everything on it, with ChatBranch’s bookings marked out.',
+          body: 'Bookings opens on the calendar straight away. Upcoming and Past show the same appointments as a list — can search and filter there.',
         },
         s3: {
-          body: 'When it is, who it’s with, which calendar, and who booked it (the AI or a person). Search by contact or title above the list.',
+          body: 'Every booking sits on its own day and time: solid = booked, dashed = held for an AI reply that hasn’t gone out yet. Click one to see who it’s with, open the chat or cancel it.',
         },
         s4: {
-          body: 'Beside the search box you can show only one status or one calendar. This button reloads the list.',
+          body: 'Switch the view here lah. The arrows go back and forward, “Today” brings you back to now, and click a date to open that day.',
         },
         s5: {
-          body: 'Click Cancel on an upcoming booking to free up the time — it asks you first, no worries. The chat icon opens the conversation with that customer.',
+          body: 'Pick a connected Google Calendar and its other events show in grey on top — meetings, leave, public holidays — so you can see when you’re really free. Read-only here ah.',
+        },
+        s6: {
+          body: 'An appointment’s card got “Open the conversation” and, for a booked one still coming, “Cancel booking” — we ask you first, and the customer won’t get any message automatically.',
         },
       },
     },

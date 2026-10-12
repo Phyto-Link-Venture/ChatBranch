@@ -106,7 +106,7 @@ export const TOURS: TourDef[] = [
     href: '/bookings',
     group: 'work',
     match: exact('/bookings'),
-    steps: steps('page-header', 'bookings-tabs', 'bookings-table', 'bookings-refresh', ''),
+    steps: steps('page-header', 'bookings-tabs', 'bookings-calendar', 'bookings-views', 'bookings-google-layer', ''),
   },
   {
     id: 'assignments',

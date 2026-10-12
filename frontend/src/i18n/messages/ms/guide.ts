@@ -266,20 +266,24 @@ export const guide: Dict<typeof source> = {
           body: 'Janji temu yang ditempah dalam sembang — di Google Calendar atau disimpan dalam ChatBranch — bagi cawangan yang anda pilih.',
         },
         s2: {
-          title: 'Akan datang, lepas atau kalendar',
-          body: 'Akan datang menunjukkan apa yang masih belum berlaku, yang terdekat dahulu. Lepas menunjukkan apa yang sudah berlaku. Kalendar menunjukkan Google Calendar yang disambungkan mengikut minggu — semua acaranya, dengan tempahan ChatBranch ditanda.',
+          title: 'Kalendar, Akan datang atau Lepas',
+          body: 'Tempahan dibuka pada kalendar. Akan datang dan Lepas menunjukkan janji temu yang sama sebagai senarai yang boleh dicari dan ditapis.',
         },
         s3: {
-          title: 'Senarai',
-          body: 'Bila, dengan siapa, kalendar mana, dan siapa yang menempah (AI atau seseorang). Cari mengikut kenalan atau tajuk di atas senarai.',
+          title: 'Janji temu anda pada kalendar',
+          body: 'Setiap tempahan berada pada hari dan masanya: padu = ditempah, bergaris putus = ditahan untuk balasan AI yang belum dihantar. Klik satu untuk melihat dengan siapa, membuka sembang atau membatalkannya.',
         },
         s4: {
-          title: 'Penapis dan muat semula',
-          body: 'Di sebelah kotak carian anda boleh menunjukkan satu status atau satu kalendar sahaja. Butang ini memuat semula senarai.',
+          title: 'Bulan, minggu atau hari',
+          body: 'Tukar paparan di sini. Anak panah bergerak ke belakang dan ke hadapan, “Hari ini” kembali ke masa kini, dan mengklik tarikh membuka hari itu.',
         },
         s5: {
+          title: 'Google Calendar anda juga',
+          body: 'Pilih Google Calendar yang disambungkan untuk menindih acara lainnya di atas tempahan dalam warna kelabu — mesyuarat, cuti, hari kelepasan — supaya anda nampak bila anda benar-benar lapang. Ia baca sahaja di sini.',
+        },
+        s6: {
           title: 'Batal atau susulan',
-          body: 'Klik Batal pada tempahan akan datang untuk mengosongkan masa itu — anda ditanya dahulu. Ikon sembang membuka perbualan dengan pelanggan itu.',
+          body: 'Kad janji temu mempunyai “Buka perbualan” dan, bagi tempahan yang belum berlaku, “Batalkan tempahan” — anda ditanya dahulu, dan pelanggan tidak dimesej secara automatik.',
         },
       },
     },

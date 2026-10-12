@@ -92,8 +92,12 @@ export function useFormat() {
       date: (d: DateInput, timeZone?: string) => fmt(d, { day: 'numeric', month: 'short', year: 'numeric' }, timeZone),
       /** Oct 2026 — billing months */
       monthYear: (d: DateInput, timeZone?: string) => fmt(d, { month: 'short', year: 'numeric' }, timeZone),
+      /** October 2026 — a calendar's month title */
+      monthYearLong: (d: DateInput, timeZone?: string) => fmt(d, { month: 'long', year: 'numeric' }, timeZone),
       /** 9 Oct — chart axes, lists within one year */
       dayMonth: (d: DateInput, timeZone?: string) => fmt(d, { day: 'numeric', month: 'short' }, timeZone),
+      /** 9 am / 14 — a time grid's hour labels */
+      hour: (d: DateInput, timeZone?: string) => fmt(d, { hour: 'numeric' }, timeZone),
       /** 14:05 */
       time: (d: DateInput, timeZone?: string) => fmt(d, { hour: '2-digit', minute: '2-digit' }, timeZone),
       /** 14:05:09 — transcripts, logs */
