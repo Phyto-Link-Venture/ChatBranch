@@ -132,7 +132,9 @@ public static partial class ToolCatalog
 
     // ---- the flow library: read-modify-write through the builder's own endpoint ----
 
-    private sealed record FlowLibrary(string? Entity, int? EntityId, List<JsonObject> Flows);
+    /// <param name="ReadOnly">flow ids of this level the caller may read but not change
+    /// (an organization-wide journey, or one above their entities, for a bound person)</param>
+    private sealed record FlowLibrary(string? Entity, int? EntityId, List<JsonObject> Flows, HashSet<string> ReadOnly);
 
     /// <summary>The flows of exactly one scope, shaped as the PUT takes them.</summary>
     private static async Task<FlowLibrary> FlowScopeAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
@@ -142,6 +144,7 @@ public static partial class ToolCatalog
         var r = ToolContext.Require(await ctx.CallAsync("GET", "/api/flows/library",
             query: new Dictionary<string, string?> { ["entity"] = ent?.Slug }, ct: ct));
         var flows = new List<JsonObject>();
+        var readOnly = new HashSet<string>();
         if (r.Body.TryGetProperty("workflows", out var arr) && arr.ValueKind == JsonValueKind.Array)
             foreach (var w in arr.EnumerateArray())
             {
@@ -151,15 +154,19 @@ public static partial class ToolCatalog
                 foreach (var key in new[] { "flowId", "name", "hint", "nodes", "edges", "active", "position" })
                     if (w.TryGetProperty(key, out var v)) o[key] = JsonNode.Parse(v.GetRawText());
                 flows.Add(o);
+                if (w.TryGetProperty("editable", out var ed) && ed.ValueKind == JsonValueKind.False
+                    && w.TryGetProperty("flowId", out var fid))
+                    readOnly.Add(fid.GetString() ?? "");
             }
-        return new FlowLibrary(ent?.Slug, ent?.Id, flows);
+        return new FlowLibrary(ent?.Slug, ent?.Id, flows, readOnly);
     }
 
     private static async Task SaveLibraryAsync(ToolContext ctx, FlowLibrary lib, CancellationToken ct)
     {
         var payload = new JsonObject
         {
-            ["entity"] = lib.Entity,
+            // one level only: "" = the organization-wide journeys (never the whole library)
+            ["entity"] = lib.Entity ?? "",
             ["workflows"] = new JsonArray(lib.Flows.Select(x => (JsonNode)x).ToArray()),
         };
         ToolContext.Require(await ctx.CallAsync("PUT", "/api/flows/library", body: payload, ct: ct));
@@ -170,6 +177,18 @@ public static partial class ToolCatalog
         lib.Flows.FirstOrDefault(x => x["flowId"]?.GetValue<string>() == id)
         ?? throw new ToolException($"No flow '{id}' in {(lib.Entity ?? "the organisation-wide library")} " +
                                    "(pass entity for an outlet's flow).", 404);
+
+    /// <summary>The flow, when the caller may change it (a bound person never changes an
+    /// organization-wide journey or one of an entity above theirs).</summary>
+    private static JsonObject FindWritableFlow(FlowLibrary lib, string id)
+    {
+        var flow = FindFlow(lib, id);
+        if (lib.ReadOnly.Contains(id))
+            throw new ToolException(lib.Entity == null
+                ? $"Flow '{id}' runs for the whole organization — only an organization-wide admin can change it."
+                : $"Flow '{id}' belongs to an entity above yours — only an admin of that entity can change it.", 403);
+        return flow;
+    }
 
     private static async Task<object?> GetFlowAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
     {
@@ -194,7 +213,7 @@ public static partial class ToolCatalog
             };
             lib.Flows.Add(flow);
         }
-        else flow = FindFlow(lib, id);
+        else flow = FindWritableFlow(lib, id);
         if (S(a, "name") is { Length: > 0 } name) flow["name"] = name;
         if (S(a, "hint") is { } hint) flow["hint"] = hint;
         if (El(a, "nodes") is { ValueKind: JsonValueKind.Array } nodes) flow["nodes"] = JsonNode.Parse(nodes.GetRawText());
@@ -209,7 +228,7 @@ public static partial class ToolCatalog
         var lib = await FlowScopeAsync(ctx, a, ct);
         var id = Need(a, "flow_id");
         var live = B(a, "live") ?? throw new ToolException("'live' is required (true or false).");
-        FindFlow(lib, id)["active"] = live;
+        FindWritableFlow(lib, id)["active"] = live;
         await SaveLibraryAsync(ctx, lib, ct);
         return new { flow_id = id, live };
     }
@@ -218,7 +237,7 @@ public static partial class ToolCatalog
     {
         var lib = await FlowScopeAsync(ctx, a, ct);
         var id = Need(a, "flow_id");
-        lib.Flows.Remove(FindFlow(lib, id));
+        lib.Flows.Remove(FindWritableFlow(lib, id));
         await SaveLibraryAsync(ctx, lib, ct);
         return new { deleted = true, flow_id = id };
     }

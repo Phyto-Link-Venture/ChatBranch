@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowRight, Plus, Upload } from 'lucide-react'
+import { AvailabilityChips } from '@/components/ui/AvailabilityPicker'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -21,6 +22,9 @@ interface Row {
   hint: string
   active: boolean
   trigger: string
+  /** "Runs for": null = the whole organization */
+  entity: string | null
+  entityName: string
   steps: number
   entered: number | null
   inProgress: number | null
@@ -29,7 +33,7 @@ interface Row {
 /**
  * The Journeys landing page: every journey in the library as one table —
  * name, what starts it (the same plain-language summary the Steps view uses),
- * live / paused, how many people entered in the chosen period and how many
+ * who it runs for (the whole organization or one entity + its branches), live / paused, how many people entered in the chosen period and how many
  * are in it now (GET /api/analytics/flows, the same `flows.view` gate). A row
  * or its Open button opens the editor (`/journeys?flow=<id>`).
  */
@@ -88,6 +92,8 @@ export default function JourneyList({
           hint: w.hint ?? '',
           active: !!w.active,
           trigger,
+          entity: w.entity ?? null,
+          entityName: w.entityName ?? w.entity ?? '',
           steps: w.nodes.filter((n) => n.type !== 'trigger').length,
           entered: overview ? (o?.entered ?? 0) : null,
           inProgress: overview ? (o?.inProgress ?? 0) : null,
@@ -115,6 +121,15 @@ export default function JourneyList({
       header: t('flows.builder.listStartsWhen'),
       sortable: true,
       render: (r) => <span className="line-clamp-2 min-w-[180px] text-[12.5px] text-text-mid">{r.trigger}</span>,
+    },
+    {
+      key: 'entity',
+      header: t('flows.builder.runsFor'),
+      sortable: true,
+      value: (r) => (r.entity ? r.entityName.toLowerCase() : ''),
+      render: (r) => (
+        <AvailabilityChips global={!r.entity} entities={r.entity ? [{ slug: r.entity, name: r.entityName }] : []} />
+      ),
     },
     {
       key: 'active',

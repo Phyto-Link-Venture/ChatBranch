@@ -441,7 +441,10 @@ records), the reports and the journeys card count only their conversations
 (`/api/whatsapp/accounts`, `/api/messaging/accounts`, `/channels/health`) list
 only the accounts their outlets may use (their subtrees, those above them and
 the org-wide ones — `ShellScope.BoundInheritedIds`); journeys (`/api/flows/library`,
-stats) and teams follow the library rule (`ShellScope.ScopeLibrary`);
+stats) and teams follow the library rule (`ShellScope.ScopeLibrary`) — a
+journey's "Runs for" is one level, and a bound person creates or moves journeys
+only inside their own subtrees, while organization-wide journeys and those above
+them stay read-only (never written, never pruned by their saves);
 `/api/ai/controls?entity=<another outlet>` is a 404; contact bindings
 (`/api/bindings/contact-entities|entity-contacts`) are scoped like contacts.
 Admins keep the tenant-wide view. Tests: `QaScopeFixesTests`.

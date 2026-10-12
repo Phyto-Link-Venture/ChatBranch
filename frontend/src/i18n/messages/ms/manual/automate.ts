@@ -111,6 +111,7 @@ export const automate: Dict<typeof source> = {
       t2: 'Hidupkan “Hantar seperti manusia” pada langkah mesej untuk jeda menaip yang singkat dan teks panjang dipecahkan kepada beberapa mesej.',
       t3: 'Jeda perjalanan (klik “Aktif”) sebelum perubahan besar, supaya tiada sesiapa menerima versi yang separuh siap.',
       t4: 'Langkah “Hidupkan/matikan chatbot” menghidupkan atau mematikan AI untuk sembang kenalan itu — berguna selepas serahan.',
+      t5: '“Berjalan untuk” di bahagian atas menentukan pelanggan siapa yang dicapai oleh perjalanan: “Seluruh organisasi”, atau satu entiti dan cawangannya. Pentadbir syarikat hanya boleh memilih entiti mereka sendiri; perjalanan untuk seluruh organisasi adalah lihat sahaja bagi mereka.',
     },
     trouble:
       '“Tamat” tidak boleh dipilih: Tamat hanya boleh diletakkan di tempat laluan sudah berhenti — klik + di bawah “Laluan tamat”. Ada kad di bawah “Tidak bersambung”: tiada laluan sampai kepadanya, jadi ia tidak akan berjalan; padamkannya atau sambungkannya dalam Kanvas lanjutan. Perubahan hilang: jika pengepala menunjukkan “Luar talian — disimpan dalam pelayar ini”, pelayan tidak dapat dihubungi; muat semula apabila sambungan pulih.',

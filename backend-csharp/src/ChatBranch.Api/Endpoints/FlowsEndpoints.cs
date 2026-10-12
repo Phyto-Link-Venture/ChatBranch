@@ -23,8 +23,14 @@ namespace ChatBranch.Api.Endpoints;
 /// </summary>
 public static class FlowsEndpoints
 {
+    /// <param name="Entity">"Runs for": an entity slug (or id) = that entity and its branches,
+    /// "" = the whole organization, absent = unchanged (a new journey: the save's level, else
+    /// the organization for an unbound caller and their own entity for a bound one).</param>
     public record WorkflowDto(string? FlowId, string? Id, string Name, string? Hint,
-        List<object?>? Nodes, List<object?>? Edges, bool Active, int Position);
+        List<object?>? Nodes, List<object?>? Edges, bool Active, int Position, string? Entity = null);
+    /// <param name="Entity">absent = the whole library (the builder); "" = only the
+    /// organization-wide journeys; a slug = only that entity's own journeys (the MCP tools) —
+    /// a save never removes a journey of another level than the one it names.</param>
     public record LibraryWrite(string? Entity, List<WorkflowDto> Workflows);
     public record EnqueueRequest(string Channel, string Kind, string ToAddress,
         Dictionary<string, object?>? Payload, int? ContactId, int? AccountId);
@@ -43,61 +49,131 @@ public static class FlowsEndpoints
             // their subtrees + ancestors + the global flows, never another outlet's
             var rows = ShellScope.ScopeLibrary(db.Workflows.AsNoTracking(), db, sc, me, entityId)
                 .OrderBy(w => w.Position).ThenBy(w => w.CreatedAt).ToList();
-            return Results.Ok(new { workflows = rows.Select(WorkflowOut) });
+            // who it runs for, and whether this caller may change it: flows.manage AND the
+            // journey inside their entities (an organization-wide journey, or one of an
+            // entity above theirs, is read-only to a bound person)
+            var ids = rows.Where(w => w.EntityId != null).Select(w => w.EntityId!.Value).Distinct().ToList();
+            var ents = await db.Entities.AsNoTracking().Where(e => ids.Contains(e.Id))
+                .ToDictionaryAsync(e => e.Id, e => (e.Slug, e.Name));
+            var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
+            var manage = await AdminEndpoints.HasCapabilityAsync(db, role, "flows.manage");
+            return Results.Ok(new
+            {
+                workflows = rows.Select(w => WorkflowOut(w, ents,
+                    manage && ShellScope.MayActAt(db, sc, me, w.EntityId))),
+            });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.view");
 
         app.MapPut("/api/flows/library", async (LibraryWrite body, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me, HttpContext http) =>
         {
             if (await Denied(db, me, "flows.manage") is IResult no) return no;
-            // The builder GETs the library through ScopeLibrary (entity or "All") and
-            // PUTs the whole copy back. So: the rows it LOADED are exactly what the
-            // same rule returns for the same ?entity — only those may be pruned —
-            // and an existing flow is matched by flowId across every scope the
-            // caller may write and updated IN PLACE (its EntityId kept), so a save
-            // from "All entities" never duplicates an outlet's flow as a global one.
+            // The builder GETs the whole library and PUTs the whole copy back (no
+            // `entity`); the MCP tools save ONE level ("" = organization-wide, a slug =
+            // that entity's own journeys). Every journey runs for one level — its
+            // entity and the branches under it, or the whole organization — and a
+            // bound person (company admin, assigned agent) writes only inside their
+            // own entities: never an organization-wide journey, never one of an
+            // entity above theirs (those are read-only to them, kept as they are).
             var bound = ShellScope.BoundEntityIds(db, sc, me);
-            var entityId = ShellScope.ClampPick(bound, await InboxEndpoints.EntityId(db, body.Entity));
-            if (bound != null && entityId == null && !string.IsNullOrWhiteSpace(body.Entity)
-                && body.Entity is not ("all" or "__all__"))
-                return Results.Json(new { detail = "No such entity." }, statusCode: 404);
-            var writable = await ShellScope.ScopeLibrary(db.Workflows, db, sc, me, null).ToListAsync();
-            var loadedIds = (await ShellScope.ScopeLibrary(db.Workflows.AsNoTracking(), db, sc, me, entityId)
+            bool MayWrite(int? entityId) => ShellScope.MayActAt(db, sc, me, entityId);
+            var scoped = body.Entity != null && body.Entity is not ("all" or "__all__");
+            int? level = null;
+            if (scoped && body.Entity!.Trim() != "")
+            {
+                level = ShellScope.ClampPick(bound, await InboxEndpoints.EntityId(db, body.Entity));
+                if (level == null) return Results.Json(new { detail = "No such entity." }, statusCode: 404);
+            }
+            var readable = await ShellScope.ScopeLibrary(db.Workflows, db, sc, me, null).ToListAsync();
+            // the rows the same GET would have loaded — only those may be pruned
+            var loadedIds = (await ShellScope.ScopeLibrary(db.Workflows.AsNoTracking(), db, sc, me, level)
                 .Select(w => w.Id).ToListAsync()).ToHashSet();
-            var existing = writable.Where(w => loadedIds.Contains(w.Id)).ToList();
+            var loaded = readable.Where(w => loadedIds.Contains(w.Id)).ToList();
+            // a new journey with no "Runs for": the level being saved, else the
+            // organization for an unbound caller and their own (first) entity for a bound one
+            int? defaultLevel = scoped ? level
+                : bound == null ? null
+                : ShellScope.ScopeRoots(db, me).Select(r => (int?)r).FirstOrDefault();
+
+            // ---- plan + check every journey first: a refused one changes nothing ----
+            var plan = new List<(WorkflowDto Dto, string FlowId, Workflow? Row, int? Target)>();
             var keep = new HashSet<string>();
-            var actor = me.Identity?.Name ?? "system";
-            var created = new List<string>();
-            var edited = new List<string>();
-            var wentLive = new List<string>();
-            var paused = new List<string>();
-            var now = DateTime.UtcNow;
+            var entityIds = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
             foreach (var w in body.Workflows)
             {
                 // the builder's string id travels as flowId (older builds sent it as id)
                 var flowId = (w.FlowId ?? w.Id ?? "").Trim();
                 if (flowId.Length == 0 || !keep.Add(flowId)) continue;
-                // the row at the level being edited first, then any loaded row, then
-                // any row the caller may write (a flow that lives at another level)
-                var row = existing.FirstOrDefault(e => e.FlowId == flowId && e.EntityId == entityId)
-                          ?? existing.FirstOrDefault(e => e.FlowId == flowId)
-                          ?? writable.FirstOrDefault(e => e.FlowId == flowId && e.EntityId == entityId)
-                          ?? writable.FirstOrDefault(e => e.FlowId == flowId);
+                // the row at the level being saved first, then any loaded row, then any
+                // row the caller reads (a journey that lives at another level)
+                var row = loaded.FirstOrDefault(e => e.FlowId == flowId && e.EntityId == level)
+                          ?? loaded.FirstOrDefault(e => e.FlowId == flowId)
+                          ?? readable.FirstOrDefault(e => e.FlowId == flowId && e.EntityId == level)
+                          ?? readable.FirstOrDefault(e => e.FlowId == flowId);
+                int? target;
+                if (w.Entity != null)
+                {
+                    var raw = w.Entity.Trim();
+                    if (!entityIds.TryGetValue(raw, out target))
+                    {
+                        target = raw == "" ? null : await EntityRef(db, raw);
+                        if (raw != "" && target == null)
+                            return Results.Json(new { detail = $"No such entity: {raw}." }, statusCode: 404);
+                        entityIds[raw] = target;
+                    }
+                }
+                else target = row != null ? row.EntityId : defaultLevel;
+                if (row == null && !MayWrite(target))
+                    return Results.Json(new { detail = OutsideScope(w.Name, target) }, statusCode: 403);
+                if (row != null && target != row.EntityId && (!MayWrite(row.EntityId) || !MayWrite(target)))
+                    return Results.Json(new { detail = OutsideScope(w.Name, MayWrite(row.EntityId) ? target : row.EntityId) },
+                        statusCode: 403);
+                plan.Add((w, flowId, row, target));
+            }
+
+            var actor = me.Identity?.Name ?? "system";
+            var created = new List<string>();
+            var edited = new List<string>();
+            var wentLive = new List<string>();
+            var paused = new List<string>();
+            var moved = new List<string>();
+            var readOnly = new List<string>();
+            var now = DateTime.UtcNow;
+            foreach (var (w, flowId, existingRow, target) in plan)
+            {
+                var row = existingRow;
+                var nodes = w.Nodes ?? new();
+                var edges = w.Edges ?? new();
+                if (row != null && !MayWrite(row.EntityId))
+                {
+                    // read-only to this caller: never written (its order on screen
+                    // aside, any difference is reported, not applied)
+                    if (row.Name != w.Name || row.Hint != (w.Hint ?? "") || row.Active != w.Active
+                        || Json(row.Nodes) != Json(nodes) || Json(row.Edges) != Json(edges))
+                        readOnly.Add(w.Name);
+                    continue;
+                }
                 var isNew = row == null;
                 if (row == null)
                 {
-                    row = new Workflow { FlowId = flowId, EntityId = entityId, CreatedAt = now };
+                    row = new Workflow { FlowId = flowId, EntityId = target, CreatedAt = now };
                     db.Workflows.Add(row);
                     created.Add(w.Name);
                 }
-                var nodes = w.Nodes ?? new();
-                var edges = w.Edges ?? new();
-                var changed = isNew || row.Name != w.Name || row.Hint != (w.Hint ?? "")
+                var move = !isNew && row.EntityId != target;
+                var changed = isNew || move || row.Name != w.Name || row.Hint != (w.Hint ?? "")
                               || row.Position != w.Position || row.Active != w.Active
                               || Json(row.Nodes) != Json(nodes) || Json(row.Edges) != Json(edges);
                 if (!changed) continue;
                 if (w.Active && !row.Active) { row.LiveSince = now; wentLive.Add(w.Name); }
                 if (!w.Active && row.Active) { row.LiveSince = null; paused.Add(w.Name); }
+                if (move)
+                {
+                    // a new audience: its clock starts now, so nothing back-fires on it
+                    row.EntityId = target;
+                    if (w.Active && row.Active) row.LiveSince = now;
+                    moved.Add(w.Name);
+                }
                 if (!isNew && (row.Name != w.Name || Json(row.Nodes) != Json(nodes) || Json(row.Edges) != Json(edges)))
                     edited.Add(w.Name);
                 row.Name = w.Name; row.Hint = w.Hint ?? "";
@@ -105,24 +181,26 @@ public static class FlowsEndpoints
                 row.Active = w.Active; row.Position = w.Position;
                 row.UpdatedAt = now; row.UpdatedBy = actor;
             }
-            // PRUNE within the loaded scope only, and never a row whose flowId the
-            // payload still carries (another level's twin of a kept flow).
-            var removed = existing.Where(e => !keep.Contains(e.FlowId)).ToList();
+            // PRUNE what was loaded, the caller may write and the payload no longer
+            // carries — and, for a one-level save, only that level's own journeys
+            var removed = loaded.Where(e => !keep.Contains(e.FlowId) && MayWrite(e.EntityId)
+                                            && (!scoped || e.EntityId == level)).ToList();
             db.Workflows.RemoveRange(removed);
             await db.SaveChangesAsync();
 
-            var target = body.Entity is { Length: > 0 } slug ? $"entity:{slug}" : "global";
+            var auditTarget = body.Entity is { Length: > 0 } slug && scoped ? $"entity:{slug}" : "global";
             void Event(string action, IEnumerable<string> names)
             {
                 var list = names.ToList();
-                if (list.Count > 0) Audit(db, me, http, action, target, string.Join(", ", list));
+                if (list.Count > 0) Audit(db, me, http, action, auditTarget, string.Join(", ", list));
             }
             Event("flow.create", created);
             Event("flow.delete", removed.Select(r => r.Name));
             Event("flow.live", wentLive);
             Event("flow.pause", paused);
-            if (edited.Count > 0) AuditEdit(db, me, http, target, edited);
-            return Results.Ok(new { count = keep.Count });
+            Event("flow.move", moved);
+            if (edited.Count > 0) AuditEdit(db, me, http, auditTarget, edited);
+            return Results.Ok(new { count = keep.Count, read_only = readOnly });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- runs: paged list + one run's path ---------------------------------
@@ -630,11 +708,27 @@ public static class FlowsEndpoints
         catch { }
     }
 
-    private static object WorkflowOut(Workflow w) => new
+    private static object WorkflowOut(Workflow w, Dictionary<int, (string Slug, string Name)> entities, bool editable)
     {
-        id = w.Id, flowId = w.FlowId, name = w.Name, hint = w.Hint,
-        nodes = w.Nodes, edges = w.Edges, active = w.Active, position = w.Position,
-        entityId = w.EntityId, liveSince = Utc(w.LiveSince), updatedAt = Utc(w.UpdatedAt),
-        updatedBy = w.UpdatedBy,
-    };
+        (string Slug, string Name)? ent = w.EntityId is int e && entities.TryGetValue(e, out var x) ? x : null;
+        return new
+        {
+            id = w.Id, flowId = w.FlowId, name = w.Name, hint = w.Hint,
+            nodes = w.Nodes, edges = w.Edges, active = w.Active, position = w.Position,
+            entityId = w.EntityId, liveSince = Utc(w.LiveSince), updatedAt = Utc(w.UpdatedAt),
+            updatedBy = w.UpdatedBy,
+            // "Runs for": null = the whole organization
+            entity = ent?.Slug, entity_name = ent?.Name, editable,
+        };
+    }
+
+    /// <summary>An entity named by slug or id (null when there is none).</summary>
+    private static async Task<int?> EntityRef(AppDbContext db, string raw) =>
+        int.TryParse(raw, out var id)
+            ? await db.Entities.AsNoTracking().Where(e => e.Id == id).Select(e => (int?)e.Id).FirstOrDefaultAsync()
+            : await db.Entities.AsNoTracking().Where(e => e.Slug == raw).Select(e => (int?)e.Id).FirstOrDefaultAsync();
+
+    private static string OutsideScope(string name, int? entityId) => entityId == null
+        ? $"“{name}” runs for the whole organization — only an organization-wide admin can create or change such a journey."
+        : $"“{name}” runs for an entity outside yours — choose one of your own entities.";
 }

@@ -18,11 +18,14 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react'
+import { AvailabilityChips, useDefaultAvailability } from '@/components/ui/AvailabilityPicker'
 import { Button } from '@/components/ui/Button'
+import { EntityPicker } from '@/components/ui/EntityPicker'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 import { getAuth } from '@/lib/auth'
+import { useEntity } from '@/lib/EntityContext'
 import { useAccess } from '@/lib/useAccess'
 import { fetchCustomFields } from '@/lib/customFields'
 import {
@@ -109,13 +112,24 @@ export default function FlowBuilder() {
   // flows.view without flows.manage opens Journeys read-only: nothing edits,
   // nothing saves (the library PUT would refuse — and it prunes)
   const access = useAccess()
-  const readOnly = access.ready && !access.can('flows.manage')
-  const readOnlyRef = useRef(false)
-  readOnlyRef.current = readOnly
+  const libraryReadOnly = access.ready && !access.can('flows.manage')
   const [workflows, setWorkflows] = useState<WorkflowDef[]>([])
   const flowParam = searchParams?.get('flow') ?? null
   // the open journey lives in the URL; an unknown id shows the list
   const activeId = flowParam && workflows.some((w) => w.id === flowParam) ? flowParam : null
+  // "Runs for": a journey outside the caller's entities (an organization-wide one for a
+  // company admin) opens read-only too — the server never writes it for them
+  const activeEditable = workflows.find((w) => w.id === activeId)?.editable !== false
+  const readOnly = libraryReadOnly || !activeEditable
+  const readOnlyRef = useRef(false)
+  readOnlyRef.current = readOnly
+  const libraryReadOnlyRef = useRef(false)
+  libraryReadOnlyRef.current = libraryReadOnly
+  const { entities, bound } = useEntity()
+  // a NEW journey runs for: the whole organization for an unbound person, else
+  // their single ticked entity (else their first) — the same default as every library
+  const defaultEntity = useDefaultAvailability()[0] ?? null
+  const entityName = (slug: string | null | undefined) => (slug ? entities.find((e) => e.slug === slug)?.name : undefined)
   const [sync, setSync] = useState<SyncState>('loading')
   const [view, setView] = useState<'steps' | 'canvas'>('steps')
   const [period, setPeriod] = useState(7)
@@ -153,7 +167,7 @@ export default function FlowBuilder() {
 
   /** Mutate the library and schedule an autosave. */
   const mutate = useCallback((fn: (wfs: WorkflowDef[]) => WorkflowDef[]) => {
-    if (readOnlyRef.current) return
+    if (libraryReadOnlyRef.current) return
     setWorkflows(fn)
     setVersion((v) => v + 1)
   }, [])
@@ -161,6 +175,7 @@ export default function FlowBuilder() {
   /** Rewrite the active workflow's graph (optionally re-laid out). */
   const updateGraph = useCallback(
     (fn: (g: Graph) => Graph | null, relayout = false) => {
+      if (readOnlyRef.current) return
       mutate((wfs) =>
         wfs.map((w) => {
           if (w.id !== activeId) return w
@@ -265,7 +280,11 @@ export default function FlowBuilder() {
 
   // ---- library operations -------------------------------------------------------------
   const createFromTemplate = (tpl: StarterTemplate | null) => {
-    const wf = workflowFromTemplate(tpl, freshId('wf'), t)
+    const wf: WorkflowDef = {
+      ...workflowFromTemplate(tpl, freshId('wf'), t),
+      entity: defaultEntity,
+      entityName: entityName(defaultEntity),
+    }
     mutate((wfs) => [...wfs, wf])
     const first = tpl ? null : (wf.nodes[0]?.id ?? null)
     pendingPanel.current = first
@@ -276,11 +295,16 @@ export default function FlowBuilder() {
 
   const duplicateFlow = () => {
     if (!active) return
+    // a copy of a journey you cannot change becomes your own, at your default level
+    const keep = active.editable !== false
     const copy: WorkflowDef = {
       ...structuredClone(active),
       id: freshId('wf'),
       name: t('flows.builder.copyName', { name: active.name }),
       active: false,
+      editable: true,
+      entity: keep ? active.entity : defaultEntity,
+      entityName: keep ? active.entityName : entityName(defaultEntity),
     }
     mutate((wfs) => [...wfs, copy])
     openFlow(copy.id)
@@ -288,7 +312,7 @@ export default function FlowBuilder() {
   }
 
   const deleteFlow = () => {
-    if (!active) return
+    if (!active || readOnly) return
     const rest = workflows.filter((w) => w.id !== active.id)
     mutate(() => rest)
     openFlow(null, true)
@@ -298,7 +322,7 @@ export default function FlowBuilder() {
 
   const rename = (name: string) => {
     const clean = name.trim()
-    if (clean && active) mutate((wfs) => wfs.map((w) => (w.id === active.id ? { ...w, name: clean } : w)))
+    if (clean && active && !readOnly) mutate((wfs) => wfs.map((w) => (w.id === active.id ? { ...w, name: clean } : w)))
     setRenaming(false)
   }
 
@@ -306,8 +330,14 @@ export default function FlowBuilder() {
   const issues = useMemo(() => flowIssues(graph.nodes, graph.edges, fieldKinds), [graph, fieldKinds])
   const nIssues = issueCount(issues)
 
+  /** "Runs for": move the open journey to another level (the server checks it too). */
+  const setRunsFor = (slug: string | null) => {
+    if (!active || readOnly) return
+    mutate((wfs) => wfs.map((w) => (w.id === active.id ? { ...w, entity: slug, entityName: entityName(slug) } : w)))
+  }
+
   const setLive = (on: boolean) => {
-    if (!active) return
+    if (!active || readOnly) return
     mutate((wfs) => wfs.map((w) => (w.id === active.id ? { ...w, active: on } : w)))
     setConfirmLive(false)
   }
@@ -334,7 +364,15 @@ export default function FlowBuilder() {
         if (!Array.isArray(flow.nodes)) throw new Error('no nodes')
         const id = freshId('wf')
         const g = autoLayout({ nodes: flow.nodes, edges: Array.isArray(flow.edges) ? flow.edges : [] })
-        const wf: WorkflowDef = { id, name: flow.name || file.name.replace(/\.json$/i, ''), hint: flow.hint ?? '', active: false, ...g }
+        const wf: WorkflowDef = {
+          id,
+          name: flow.name || file.name.replace(/\.json$/i, ''),
+          hint: flow.hint ?? '',
+          active: false,
+          entity: defaultEntity,
+          entityName: entityName(defaultEntity),
+          ...g,
+        }
         mutate((wfs) => [...wfs, wf])
         openFlow(id)
         setPanel(null)
@@ -489,7 +527,7 @@ export default function FlowBuilder() {
             onNew={() => setGallery(true)}
             onImport={() => fileInput.current?.click()}
             onPickTemplate={createFromTemplate}
-            readOnly={readOnly}
+            readOnly={libraryReadOnly}
           />
         </div>
       ) : (
@@ -532,6 +570,29 @@ export default function FlowBuilder() {
             )}
             <span className="hidden shrink-0 md:inline-flex">{syncNote}</span>
           </div>
+
+          {active && (
+            <div data-tour="journeys-runs-for" className="flex min-w-0 items-center gap-2">
+              <span className="eyebrow shrink-0 whitespace-nowrap">{t('flows.builder.runsFor')}</span>
+              {readOnly ? (
+                <AvailabilityChips
+                  global={!active.entity}
+                  entities={active.entity ? [{ slug: active.entity, name: active.entityName ?? active.entity }] : []}
+                />
+              ) : (
+                <div className="min-w-[180px] max-w-[260px]">
+                  <EntityPicker
+                    value={active.entity ?? null}
+                    onChange={setRunsFor}
+                    allowGlobal={!bound || !active.entity}
+                    globalLabel={t('flows.builder.runsForEveryone')}
+                    size="sm"
+                    ariaLabel={t('flows.builder.runsFor')}
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           {active && (
             <div className="flex flex-wrap items-center gap-2">
@@ -588,7 +649,7 @@ export default function FlowBuilder() {
             </div>
           )}
           <div className="flex items-center gap-2">
-            {!readOnly && (
+            {!libraryReadOnly && (
               <Button data-tour="journeys-new" variant={active ? 'secondary' : 'primary'} size="sm" onClick={() => setGallery(true)}>
                 <Plus size={13} aria-hidden /> {t('flows.builder.newFlow')}
               </Button>
@@ -613,7 +674,8 @@ export default function FlowBuilder() {
                       { id: 'import', label: t('flows.builder.importJson'), Icon: Upload, run: () => fileInput.current?.click(), off: false },
                       { id: 'delete', label: t('flows.builder.deleteFlow'), Icon: Trash2, run: () => setConfirmFlowDelete(true), off: !active, danger: true },
                     ]
-                      .filter((it) => !readOnly || it.id === 'export')
+                      // duplicate / import make a NEW journey (the library's right); delete needs this one's
+                      .filter((it) => it.id === 'export' || (it.id === 'delete' ? !readOnly : !libraryReadOnly))
                       .map((it) => (
                       <button
                         key={it.id}
@@ -640,7 +702,11 @@ export default function FlowBuilder() {
 
         {readOnly && (
           <div role="status" className="border-b border-line bg-panel px-4 py-1.5 text-[12px] font-semibold text-text-mid">
-            {t('flows.builder.viewOnly')}
+            {libraryReadOnly
+              ? t('flows.builder.viewOnly')
+              : t('flows.builder.outsideYourEntities', {
+                  name: active?.entity ? (active.entityName ?? active.entity) : t('flows.builder.wholeOrganization'),
+                })}
           </div>
         )}
         {active && (active.hint || nIssues > 0) && (

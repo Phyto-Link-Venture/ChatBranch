@@ -2076,12 +2076,24 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   /api/flows/library` (GET `flows.view`, PUT `flows.manage`); localStorage is
   only the offline fallback. Both sides use the library rule
   (`ShellScope.ScopeLibrary`: an entity-bound agent reads their subtrees +
-  ancestors + global). The PUT matches an existing flow by `flowId` across every
-  scope the caller may write and updates it IN PLACE (its `EntityId` kept — a
-  save from "All entities" never duplicates an outlet's flow as a global one).
-  ⚠ **The PUT PRUNES** the rows the same GET would have loaded that are missing
-  from the browser's copy — after creating a Workflow row outside the UI,
-  refresh `/journeys` before its next sync. `flows.view` without
+  ancestors + global). **"Runs for"** = `Workflow.EntityId` (null = the whole
+  organization, else that entity + its branches — the engine's audience, its
+  booking scope and its sends' company): each GET row carries `entity` (slug),
+  `entity_name` and `editable` (`flows.manage` AND `ShellScope.MayActAt`); each
+  PUT row may carry `entity` ("" = organization, a slug, absent = unchanged; a
+  new row without one = the save's level, else organization for an unbound
+  caller / their first entity for a bound one). A bound person never creates or
+  moves a journey to the organization or outside their subtrees (403, nothing
+  saved) and never writes or prunes one above them (an unchanged copy is
+  skipped, a changed one listed in `read_only`); a move of a live journey
+  restarts `LiveSince`. The editor's header picker (`EntityPicker`) + the list's
+  "Runs for" column; a read-only journey opens view-only (Duplicate makes your
+  own). The PUT matches an existing flow by `flowId` across every scope the
+  caller reads and updates it IN PLACE. ⚠ **The PUT PRUNES** the rows the same
+  GET would have loaded, the caller may write and the payload lacks — a body
+  `entity` ("" or a slug, what the MCP flow tools send) saves ONE level and
+  prunes only that level's own journeys; after creating a Workflow row outside
+  the UI, refresh `/journeys` before its next sync. Tests: `JourneyEntityTests`. `flows.view` without
   `flows.manage` opens `/journeys` READ-ONLY (no New / Import / Go live / rename /
   step edits, and nothing is ever PUT).
 - **List first.** `/journeys` opens on the list of every journey

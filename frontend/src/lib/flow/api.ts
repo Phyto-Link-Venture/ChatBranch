@@ -29,6 +29,9 @@ interface WireWorkflow {
   active?: boolean
   nodes?: FlowNode[]
   edges?: FlowEdge[]
+  entity?: string | null
+  entity_name?: string | null
+  editable?: boolean
 }
 
 /** null = API unreachable or not allowed (caller falls back to local). */
@@ -44,6 +47,9 @@ export async function fetchFlowLibrary(): Promise<{ workflows: WorkflowDef[] } |
     // nodes with no position — give them one so the canvas and the next save work
     nodes: Array.isArray(w.nodes) ? w.nodes.map((n, i) => (n.position ? n : { ...n, position: { x: 0, y: i * 120 } })) : [],
     edges: Array.isArray(w.edges) ? w.edges : [],
+    entity: w.entity ?? null,
+    entityName: w.entity_name ?? undefined,
+    editable: w.editable !== false,
   }))
   return { workflows }
 }
@@ -92,6 +98,8 @@ export async function pushFlowLibrary(workflows: WorkflowDef[]): Promise<PushRes
           position: i,
           nodes: cleanNodes(w.nodes),
           edges: cleanEdges(w.edges),
+          // "" = the whole organization; omitted (undefined) = leave it where it is
+          entity: w.entity === undefined ? undefined : (w.entity ?? ''),
         })),
       }),
     })
