@@ -41,7 +41,8 @@ public static class AiResume
             if (!AiEligibility.Effective(db, scoping, thread, now)) return false;
 
             var last = db.Messages.AsNoTracking()
-                .Where(m => m.ThreadId == thread.Id && !m.Private)
+                .Where(m => m.ThreadId == thread.Id && !m.Private
+                            && !(m.Direction == MessageDirection.In && m.RecalledAt != null))   // recalled: nothing to answer
                 .OrderByDescending(m => m.Id).FirstOrDefault();
             if (last == null || last.Direction != MessageDirection.In) return false;
             if (now - DateTime.SpecifyKind(last.CreatedAt, DateTimeKind.Utc) > WaitingWindow) return false;

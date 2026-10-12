@@ -56,6 +56,10 @@ export type InboxKind =
   | 'douyin'
   | 'zalo'
 
+/** The inboxes whose channel tells us when a customer deletes ("unsends") a message —
+ *  they offer "Keep messages the customer deletes" (Channels/MessageRecalls.cs). */
+export const RECALL_KINDS: readonly InboxKind[] = ['wa_qr', 'line', 'messenger', 'instagram']
+
 /** The channels added with their own transports — their kind IS their channel id. */
 export const MORE_KINDS = ['line', 'viber', 'sms', 'wechat', 'tiktok', 'douyin', 'zalo'] as const
 export type MoreKind = (typeof MORE_KINDS)[number]
@@ -260,6 +264,10 @@ export interface WaAccount {
   ai_review_mode?: ReviewMode
   /** QR numbers: offline between sends so the phone keeps WhatsApp's notifications */
   keep_phone_notifications?: boolean
+  /** A message the customer deletes for everyone stays readable (true) or is erased (false). */
+  keep_recalled?: boolean
+  /** The channel tells us about deleted messages (QR numbers). */
+  recalls_supported?: boolean
 }
 
 export interface MessagingAccount {
@@ -287,6 +295,10 @@ export interface MessagingAccount {
   team_id?: number | null
   ai_default?: AiDefault
   ai_review_mode?: ReviewMode
+  /** A message the customer unsends stays readable (true) or is erased (false). */
+  keep_recalled?: boolean
+  /** The channel tells us about unsent messages (LINE, Messenger, Instagram). */
+  recalls_supported?: boolean
   config?: {
     host?: string
     port?: number | string

@@ -51,6 +51,7 @@ export const chats: Dict<typeof source> = {
     optedOut: '已退订',
     loadMore: '加载更多',
     noConversationYet: '尚无对话',
+    deletedMessage: '此消息已删除',
   },
   chips: {
     status: '状态：{list}',
@@ -486,6 +487,13 @@ export const chats: Dict<typeof source> = {
     privateNote: '内部备注——不会发送',
     fromPhone: '从手机发送',
     fromMailApp: '从邮件应用发送',
+    recalled: {
+      erased: '此消息已删除',
+      erasedOurs: '已从手机删除',
+      keptCustomer: '客户已删除',
+      keptOurs: '已从手机删除',
+      keptTitle: '删除于 {time}——已保留，因为此收件箱会保留被删除的消息',
+    },
     sentFrom: '发自 {account}',
     receivedOn: '收于 {account}',
     viaAccount: '经由 {account} ·',

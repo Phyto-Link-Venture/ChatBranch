@@ -14,7 +14,11 @@ namespace ChatBranch.Api.Endpoints;
 ///     media_type}</c> (text clipped), or <c>{id, missing: true}</c> when the provider
 ///     named a message older than our history;
 ///   * <c>reactions</c> — <c>[{emoji, actor, at}]</c>, actor <c>contact</c> or
-///     <c>user:&lt;username&gt;</c>.
+///     <c>user:&lt;username&gt;</c>;
+///   * <c>recalled</c> — <c>{at, by: customer|business, kept}</c> when the message was
+///     taken back on the channel ("delete for everyone" — <c>Channels/MessageRecalls.cs</c>);
+///     kept = its words are still here, else they were erased. A quote of it carries
+///     <c>recalled: true</c>.
 ///
 /// Two batched reads per page, never one per bubble.
 /// </summary>
@@ -46,9 +50,17 @@ public static class MessageExtras
                         ["source"] = q.Source,
                         ["text"] = q.Text.Length > QuoteChars ? q.Text[..QuoteChars] + "…" : q.Text,
                         ["media_type"] = q.MediaPath.Length > 0 ? (q.MediaType.Length > 0 ? q.MediaType : "document") : null,
+                        ["recalled"] = q.RecalledAt != null ? true : null,
                     };
                 else if (m.ReplyToExternalId.Length > 0)
                     p["reply_to"] = new Dictionary<string, object?> { ["id"] = m.ReplyToExternalId, ["missing"] = true };
+                if (m.RecalledAt is DateTime recalledAt)
+                    p["recalled"] = new Dictionary<string, object?>
+                    {
+                        ["at"] = DateTime.SpecifyKind(recalledAt, DateTimeKind.Utc).ToString("o"),
+                        ["by"] = m.RecalledBy.Length > 0 ? m.RecalledBy : MessageRecalls.ByCustomer,
+                        ["kept"] = m.Text.Length > 0 || m.MediaPath.Length > 0,
+                    };
                 if (reactions.TryGetValue(m.Id, out var rs))
                     p["reactions"] = rs.Select(r => new Dictionary<string, object?>
                     {

@@ -142,6 +142,14 @@ public class Message
     /// <summary>What a voice note / audio message SAYS — written once by the speech-to-text
     /// step (<c>Ai/Voice/VoiceTranscriber.cs</c>) so the AI reads words, not "[audio]". "" = none.</summary>
     public string Transcript { get; set; } = "";
+    /// <summary>When the message was RECALLED ("delete for everyone" / unsend) on the
+    /// channel — by the customer, or from our own number's phone. Null = never. What
+    /// is left depends on the inbox's <c>keep_recalled</c> switch: kept and marked, or
+    /// its words and file erased (<c>Channels/MessageRecalls.cs</c>). The AI never
+    /// answers or reads a recalled message.</summary>
+    public DateTime? RecalledAt { get; set; }
+    /// <summary>Who recalled it: <c>customer</c> or <c>business</c> ("" = not recalled).</summary>
+    public string RecalledBy { get; set; } = "";
     public DateTime CreatedAt { get; set; }
 }
 

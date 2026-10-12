@@ -91,7 +91,7 @@ public class AiFollowUpService
     {
         var now = Now;
         var msgs = _db.Messages.AsNoTracking()
-            .Where(m => m.ThreadId == t.Id && !m.Private)
+            .Where(m => m.ThreadId == t.Id && !m.Private && m.RecalledAt == null)
             .OrderByDescending(m => m.Id).Take(40).ToList();
         var lastIn = msgs.FirstOrDefault(m => m.Direction == MessageDirection.In);
         var state = State(t.Id);

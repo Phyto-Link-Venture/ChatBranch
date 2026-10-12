@@ -37,7 +37,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import pino from 'pino'
 import { buildMediaMessage, MediaRequestError, MAX_SEND_MEDIA_BODY, readJsonBodyCapped } from './media.js'
-import { buildQuoted, buildReact, KeyStore, mediaKind, messageSeconds, parseInbound, phoneSent, postWithRetry, setNormalizer, unwrap } from './messages.js'
+import { buildQuoted, buildReact, KeyStore, mediaKind, messageSeconds, parseInbound, phoneSent, postWithRetry, recallOf, setNormalizer, unwrap } from './messages.js'
 import { createPresence, DEFAULT_IDLE_MS } from './presence.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -339,6 +339,35 @@ async function pushFromPhone(id, m) {
   if (media) pushInboundMedia(id, m, waId, media, true)
 }
 
+/**
+ * "Delete for everyone" in a 1:1 chat — by the customer, or (fromMe) on this number's
+ * own phone. Pushed to /recall: the API keeps the message marked as deleted or erases
+ * it, per the inbox's "keep recalled messages" switch (Channels/MessageRecalls).
+ */
+async function pushRecall(id, m, recall) {
+  const jid = m.key?.remoteJid || ''
+  let waId = ''
+  if (jid.endsWith('@s.whatsapp.net')) {
+    waId = digits(jid.split('@')[0])
+  } else {
+    // a lid chat: the phone from the envelope (never senderPn on our own message — that is
+    // OUR number), else a mapping an earlier inbound taught us
+    const alt = String((recall.fromMe ? '' : m.key?.senderPn || m.key?.participantPn || '') || m.key?.remoteJidAlt || '')
+    waId = alt.includes('@s.whatsapp.net') ? digits(alt.split('@')[0]) : phoneForLid(jid) || ''
+  }
+  if (!waId) {
+    logEvent('recallSkip', { acct: id, id: recall.id, jid, why: 'unknown lid chat' })
+    return
+  }
+  const r = await postWithRetry(() => fetch(`${API_URL}/api/whatsapp/baileys/recall`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+    body: JSON.stringify({ account_id: id, wa_id: waId, msg_id: recall.id, from_me: recall.fromMe }),
+  }), { attempts: 3, baseDelayMs: 500 })
+  if (r.ok) logEvent('recall', { acct: id, id: recall.id, by: recall.fromMe ? 'us' : 'customer' })
+  else logEvent('recallPushFailed', { acct: id, id: recall.id, status: r.status, attempts: r.attempts, error: r.error })
+}
+
 /** Reverse DisconnectReason lookup: 401 -> "loggedOut", 403 -> "forbidden"… */
 function disconnectReasonName(code) {
   for (const [name, value] of Object.entries(DisconnectReason)) {
@@ -507,6 +536,12 @@ async function startAccount(id) {
     }
     if (type !== 'notify') return
     for (const m of messages) {
+      // "delete for everyone" (either side) — never a bubble, never "sent from the phone"
+      const recall = recallOf(m, type)
+      if (recall) {
+        pushRecall(id, m, recall)
+        continue
+      }
       if (m.key?.fromMe) {
         // typed on the phone / WhatsApp Web: the person's own reply (never our own sends)
         if (phoneSent(m, type, (mid) => !!ownSends.get(mid))) pushFromPhone(id, m)

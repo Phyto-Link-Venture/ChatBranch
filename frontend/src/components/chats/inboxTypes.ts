@@ -123,6 +123,15 @@ export interface UiMessage {
   reactions?: UiReaction[]
   /** What a voice note says (speech-to-text), when it was transcribed. */
   transcript?: string | null
+  /** Taken back on the channel ("delete for everyone"): kept = still readable here (the
+   *  inbox keeps deleted messages), else its words and file were erased. */
+  recalled?: UiRecall | null
+}
+
+export interface UiRecall {
+  at: string
+  by: 'customer' | 'business'
+  kept: boolean
 }
 
 /** A quoted message as the payload carries it; `missing` = older than our history. */
@@ -134,6 +143,8 @@ export interface UiQuote {
   text?: string
   media_type?: string | null
   missing?: boolean
+  /** The quoted message was deleted on the channel. */
+  recalled?: boolean
 }
 
 /** One reaction: `actor` is `contact`, `user:<username>` or `ai` (the AI's own, made with its reply). */

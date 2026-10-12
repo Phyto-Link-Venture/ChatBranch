@@ -66,7 +66,8 @@ public class SummaryService
     // Private notes (and any internal "note" row) are never part of the
     // conversation the customer had — not counted, not summarised.
     private IQueryable<Message> Visible(Thread thread) =>
-        _db.Messages.AsNoTracking().Where(m => m.ThreadId == thread.Id && !m.Private && m.Status != "note");
+        _db.Messages.AsNoTracking().Where(m => m.ThreadId == thread.Id && !m.Private && m.Status != "note"
+            && m.RecalledAt == null);
 
     /// <summary>
     /// A summary is stale once messages have arrived since it was generated —

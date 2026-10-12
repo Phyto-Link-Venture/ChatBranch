@@ -147,7 +147,20 @@ public static class MetaWebhookEndpoints
 
             foreach (var ev in MetaWebhook.MessagingEvents(root))
             {
-                try { await Handle(ev, db, processor, store, fetcher, meta); }
+                try
+                {
+                    if (ev.Kind == "deleted")
+                    {
+                        // unsent by the customer: kept or erased by the inbox's keep_recalled switch
+                        if (await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Channel == ev.Channel
+                                && a.ExternalId == ev.PageId) is { } page)
+                            ChatBranch.Data.Channels.MessageRecalls.Record(db, store, page, ev.SenderId, ev.Mid,
+                                ChatBranch.Data.Channels.MessageRecalls.ByCustomer,
+                                ctx.RequestServices.GetService<ChatBranch.Data.Ai.AiGate>());
+                        continue;
+                    }
+                    await Handle(ev, db, processor, store, fetcher, meta);
+                }
                 catch { /* one bad event never fails the batch */ }
             }
             return Results.Ok(new { ok = true });

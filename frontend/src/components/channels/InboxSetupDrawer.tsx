@@ -60,6 +60,7 @@ import {
   isMoreKind,
   isWaKind,
   WA_PROVIDER,
+  RECALL_KINDS,
   kindMeta,
   testInbox,
   type AiDefault,
@@ -263,6 +264,7 @@ export function InboxSetupDrawer({
   const [delivery, setDelivery] = useState<DeliveryState>(() => deliveryStateFrom(null))
   // QR numbers: stay offline between sends so the phone still rings (on for a new number)
   const [keepPhone, setKeepPhone] = useState(true)
+  const [keepRecalled, setKeepRecalled] = useState(false)
   // validation + status
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [touched, setTouched] = useState<Record<string, boolean>>({})
@@ -329,6 +331,7 @@ export function InboxSetupDrawer({
     setReviewMode(inbox?.reviewMode ?? '')
     setDelivery(deliveryStateFrom(inbox?.wa?.delivery))
     setKeepPhone(inbox?.wa ? !!inbox.wa.keep_phone_notifications : true)
+    setKeepRecalled(!!(inbox?.wa?.keep_recalled ?? inbox?.msg?.keep_recalled))
     setErrors({})
     setTouched({})
     setFormError(null)
@@ -444,6 +447,7 @@ export function InboxSetupDrawer({
   // ── payloads ───────────────────────────────────────────────────────────
   const who = () => {
     const o: Record<string, string> = { team_id: teamId, ai_default: aiDefault, ai_review_mode: reviewMode }
+    if (kind && RECALL_KINDS.includes(kind)) o.keep_recalled = keepRecalled ? 'true' : 'false'
     // only send the binding when it changes — a rebind re-files the inbox's
     // conversations and writes an audit row
     if (!saved || (saved.entity ?? null) !== entity) o.entity = entity ?? ''
@@ -982,9 +986,32 @@ export function InboxSetupDrawer({
       )}
 
       {kind === 'wa_qr' && (
-        <div data-tour="keep-phone-notifications">
+        <div
+          data-tour="keep-phone-notifications"
+          className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5"
+        >
+          <span>
+            <span className="block text-[12.5px] font-semibold text-text-high">{t('channels.drawer.who.keepPhone')}</span>
+            <span className="block text-[11.5px] text-text-muted">
+              {keepPhone ? t('channels.drawer.who.keepPhoneOnHelp') : t('channels.drawer.who.keepPhoneOffHelp')}
+            </span>
+          </span>
           <Toggle on={keepPhone} onChange={setKeepPhone} label={t('channels.drawer.who.keepPhone')} />
-          <Help>{keepPhone ? t('channels.drawer.who.keepPhoneOnHelp') : t('channels.drawer.who.keepPhoneOffHelp')}</Help>
+        </div>
+      )}
+
+      {kind && RECALL_KINDS.includes(kind) && (
+        <div
+          data-tour="keep-recalled"
+          className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5"
+        >
+          <span>
+            <span className="block text-[12.5px] font-semibold text-text-high">{t('channels.drawer.who.keepRecalled')}</span>
+            <span className="block text-[11.5px] text-text-muted">
+              {keepRecalled ? t('channels.drawer.who.keepRecalledOnHelp') : t('channels.drawer.who.keepRecalledOffHelp')}
+            </span>
+          </span>
+          <Toggle on={keepRecalled} onChange={setKeepRecalled} label={t('channels.drawer.who.keepRecalled')} />
         </div>
       )}
 

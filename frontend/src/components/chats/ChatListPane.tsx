@@ -324,7 +324,11 @@ export default function ChatListPane({
                     </span>
                   )}
                   <span className={`truncate ${row.pending ? 'italic text-text-muted' : ''}`}>
-                    {row.pending ? t('chats.list.noConversationYet') : row.last_message || '—'}
+                    {row.pending
+                      ? t('chats.list.noConversationYet')
+                      : row.last_message === '[deleted]'
+                        ? t('chats.list.deletedMessage')
+                        : row.last_message || '—'}
                   </span>
                   {row.waiting && <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-accent" title={t('chats.list.waitingDot')} />}
                 </span>

@@ -32,6 +32,7 @@ function useSnippet() {
     const placeholder = /^\[(image|video|audio|document)\]$/.exec(text)?.[1]
     if (placeholder) return t(`bubble.quote.media.${placeholder}` as MessageKey)
     if (!text && q.media_type && MEDIA.includes(q.media_type)) return t(`bubble.quote.media.${q.media_type}` as MessageKey)
+    if (!text && q.recalled) return t('bubble.quote.deleted')
     return text
   }
 }

@@ -24,6 +24,7 @@ export const bubble: Dict<typeof source> = {
     ai: 'AI',
     customer: '客户',
     missing: '一条较早的消息',
+    deleted: '已删除的消息',
     replyingTo: '回复 {who}',
     cancel: '取消回复',
     jump: '显示原消息',

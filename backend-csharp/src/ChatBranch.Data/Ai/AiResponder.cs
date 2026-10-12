@@ -112,8 +112,10 @@ public class AiResponder
                 .OrderByDescending(m => m.Id).Take(30).ToList();
             var lastReply = recent.FirstOrDefault(m => m.Direction == MessageDirection.Out
                 && (m.Source == MessageSource.Ai || MessageSource.IsPerson(m.Source)) && m.Status != "failed");
+            // a message the customer recalled ("delete for everyone") is never answered
             var unanswered = recent
-                .Where(m => m.Direction == MessageDirection.In && (lastReply == null || m.Id > lastReply.Id))
+                .Where(m => m.Direction == MessageDirection.In && m.RecalledAt == null
+                            && (lastReply == null || m.Id > lastReply.Id))
                 .ToList();
             if (unanswered.Count == 0) return Out(AiGateStatus.Skipped, "Nothing new to answer.");
 

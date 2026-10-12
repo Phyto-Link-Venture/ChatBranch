@@ -218,6 +218,14 @@ outbound queue are already channel-blind.
   a held AI draft — no AI, flows, automations or notifications run on it. A chat the
   person STARTED from the phone links the matching contact with the chatbot off. The
   chat labels these bubbles "Sent from the phone".
+- **"Delete for everyone"** reaches ChatBranch too (QR numbers here, plus LINE
+  `unsend` and Instagram / Messenger `is_deleted`; Cloud, YCloud, Twilio, Telegram
+  and the rest don't report it): the gateway pushes a live REVOKE in a 1:1 chat
+  (`messages.js recallOf`) to `POST /api/whatsapp/baileys/recall` (`from_me` = recalled
+  on the number's own phone). `Channels/MessageRecalls.cs` erases the message (words,
+  file, reactions, the notification preview) — or, with the inbox's "Keep messages the
+  customer deletes" (`keep_recalled`), keeps it marked "Deleted by the customer". The
+  AI never answers or reads a recalled message; a held reply to it expires.
 - No templates (rendered as text), no 24h window. The cold-text guard
   (`cold_text_guard`, default `block`) refuses free text — manual sends and
   queued text jobs alike — from a live conversation-role number to a contact who

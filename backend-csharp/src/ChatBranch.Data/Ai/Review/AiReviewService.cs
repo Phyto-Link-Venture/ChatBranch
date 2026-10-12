@@ -398,7 +398,7 @@ public sealed class AiReviewService
             if (d.ThreadId is int tid)
             {
                 var msgs = _db.Messages.AsNoTracking()
-                    .Where(m => m.ThreadId == tid && !m.Private && m.CreatedAt < d.CreatedAt)
+                    .Where(m => m.ThreadId == tid && !m.Private && m.RecalledAt == null && m.CreatedAt < d.CreatedAt)
                     .OrderByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id).Take(6).ToList();
                 msgs.Reverse();
                 foreach (var m in msgs)

@@ -316,6 +316,13 @@ public static class MetaWebhook
                 {
                     if (m.TryGetProperty("is_echo", out var echo) && echo.ValueKind == JsonValueKind.True) continue;
                     if (sender.Length == 0 || sender == pageId) continue;
+                    // the customer unsent it ("is_deleted": true, Instagram — Messenger the same shape)
+                    if (m.TryGetProperty("is_deleted", out var gone) && gone.ValueKind == JsonValueKind.True)
+                    {
+                        if (MetaGraph.Str(m, "mid") is { Length: > 0 } goneMid)
+                            outv.Add(new MessagingEvent(channel, pageId, sender, "deleted", goneMid, "", ts, new(), new(), null));
+                        continue;
+                    }
                     var attachments = new List<MessagingAttachment>();
                     if (m.TryGetProperty("attachments", out var atts) && atts.ValueKind == JsonValueKind.Array)
                         foreach (var a in atts.EnumerateArray())

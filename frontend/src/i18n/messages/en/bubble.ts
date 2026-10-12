@@ -25,6 +25,7 @@ export const bubble = {
     ai: 'AI',
     customer: 'Customer',
     missing: 'An earlier message',
+    deleted: 'Deleted message',
     replyingTo: 'Replying to {who}',
     cancel: 'Cancel reply',
     jump: 'Show the original message',

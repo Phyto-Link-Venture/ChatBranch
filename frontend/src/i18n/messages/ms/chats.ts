@@ -51,6 +51,7 @@ export const chats: Dict<typeof source> = {
     optedOut: 'Telah menarik diri',
     loadMore: 'Muat lagi',
     noConversationYet: 'Belum ada perbualan',
+    deletedMessage: 'Mesej ini telah dipadam',
   },
   chips: {
     status: 'Status: {list}',
@@ -490,6 +491,13 @@ export const chats: Dict<typeof source> = {
     privateNote: 'Nota peribadi — tidak dihantar',
     fromPhone: 'Dihantar dari telefon',
     fromMailApp: 'Dihantar dari aplikasi e-mel',
+    recalled: {
+      erased: 'Mesej ini telah dipadam',
+      erasedOurs: 'Dipadam dari telefon',
+      keptCustomer: 'Dipadam oleh pelanggan',
+      keptOurs: 'Dipadam dari telefon',
+      keptTitle: 'Dipadam {time} — disimpan kerana peti masuk ini menyimpan mesej yang dipadam',
+    },
     sentFrom: 'Dihantar dari {account}',
     receivedOn: 'Diterima di {account}',
     viaAccount: 'melalui {account} ·',

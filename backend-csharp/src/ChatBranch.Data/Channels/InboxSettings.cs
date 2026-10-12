@@ -19,12 +19,22 @@ namespace ChatBranch.Data.Channels;
 /// * <b>ai_review_mode</b> — who checks the AI before it sends on this inbox
 ///   (auto | review_flagged | review_all | shadow); blank = inherit the
 ///   entity/organization AI-behaviour setting (AiBehaviourSettings reads it).
+/// * <b>keep_recalled</b> — true: a message the customer recalls ("delete for
+///   everyone" / unsend) stays readable, marked as deleted; absent: its words and
+///   file are erased like on the customer's phone (<see cref="MessageRecalls"/>).
+///   Only the channels that report a recall offer it (<see cref="MessageRecalls.Supports"/>).
 /// </summary>
 public static class InboxSettings
 {
     public const string TeamKey = "team_id";
     public const string AiDefaultKey = "ai_default";
     public const string ReviewModeKey = ChatBranch.Data.Ai.AiBehaviourSettings.ReviewMode;
+    public const string KeepRecalledKey = "keep_recalled";
+
+    /// <summary>Does this inbox keep recalled messages (true) or erase them (false, the default)?</summary>
+    public static bool KeepRecalled(ChannelAccount? account) =>
+        account != null && account.Config.TryGetValue(KeepRecalledKey, out var raw) && raw != null
+        && (raw is bool b ? b : raw.ToString()?.Trim().ToLowerInvariant() is "true" or "on" or "1");
 
     /// <summary>The inbox's own review mode, or "" when it inherits.</summary>
     public static string ReviewModeWire(ChannelAccount? account) =>
@@ -67,7 +77,7 @@ public static class InboxSettings
     /// bad value, else null. The caller saves.
     /// </summary>
     public static string? Apply(AppDbContext db, ChannelAccount account, string? teamRaw, string? aiRaw,
-        string? reviewRaw = null)
+        string? reviewRaw = null, string? keepRecalledRaw = null)
     {
         var cfg = new Dictionary<string, object?>(account.Config);
         if (teamRaw != null)
@@ -103,6 +113,16 @@ public static class InboxSettings
                 cfg[ReviewModeKey] = r;
             else
                 return $"ai_review_mode must be one of {string.Join(", ", ChatBranch.Data.Ai.AiBehaviourSettings.ReviewModes)} or empty (inherit).";
+        }
+        if (keepRecalledRaw != null)
+        {
+            var k = keepRecalledRaw.Trim().ToLowerInvariant();
+            if (k is "true" or "on" or "1")
+                cfg[KeepRecalledKey] = true;
+            else if (k is "" or "false" or "off" or "0" or "null")
+                cfg.Remove(KeepRecalledKey);
+            else
+                return "keep_recalled must be true or false.";
         }
         account.Config = cfg;
         return null;

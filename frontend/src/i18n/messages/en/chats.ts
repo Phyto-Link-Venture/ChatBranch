@@ -51,6 +51,7 @@ export const chats = {
     optedOut: 'Opted out',
     loadMore: 'Load more',
     noConversationYet: 'No conversation yet',
+    deletedMessage: 'This message was deleted',
   },
   chips: {
     status: 'Status: {list}',
@@ -490,6 +491,13 @@ export const chats = {
     privateNote: 'Private note — not sent',
     fromPhone: 'Sent from the phone',
     fromMailApp: 'Sent from the mail app',
+    recalled: {
+      erased: 'This message was deleted',
+      erasedOurs: 'Deleted from the phone',
+      keptCustomer: 'Deleted by the customer',
+      keptOurs: 'Deleted from the phone',
+      keptTitle: 'Deleted {time} — kept because this inbox keeps deleted messages',
+    },
     sentFrom: 'Sent from {account}',
     receivedOn: 'Received on {account}',
     viaAccount: 'via {account} ·',

@@ -200,6 +200,28 @@ export function phoneSent(m, type, isOwn = () => false, nowS = Math.floor(Date.n
   return !parseInbound(m.message).reaction
 }
 
+/** proto.Message.ProtocolMessage.Type.REVOKE — WhatsApp's "delete for everyone". */
+export const REVOKE = 0
+
+/**
+ * "Delete for everyone": `{id, fromMe}` of the message taken back — fromMe = it was
+ * recalled from our own number (the phone / WhatsApp Web), else by the customer — or
+ * null. Only a live (`notify`) recall in a 1:1 chat counts; an old one is history
+ * replayed on connect. (A protocolMessage's type defaults to REVOKE = 0.)
+ */
+export function recallOf(m, type, nowS = Math.floor(Date.now() / 1000)) {
+  if (type !== 'notify') return null
+  const p = unwrap(m?.message)?.protocolMessage
+  if (!p || !(p.type == null || p.type === REVOKE || p.type === 'REVOKE')) return null
+  const id = p.key?.id
+  if (!id) return null
+  const jid = String(m.key?.remoteJid || '')
+  if (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid')) return null
+  const ts = messageSeconds(m)
+  if (ts > 0 && nowS - ts > PHONE_SYNC_WINDOW_S) return null
+  return { id, fromMe: !!m.key?.fromMe }
+}
+
 /** A bounded map of recent WAMessages by id (oldest evicted first). */
 export class KeyStore {
   constructor(max = 2000) {
@@ -319,6 +341,24 @@ export function selftest() {
     'a reaction from the phone is not a message')
   check(phoneSent({ ...mine('P7'), key: { id: 'P7', fromMe: true, remoteJid: '9988@lid' } }, 'notify', () => false, now),
     'a lid chat counts')
+  // "delete for everyone": the customer's, or one made on our own phone
+  const revoke = (by, extra = {}) => ({
+    key: { id: 'RV1', fromMe: by === 'us', remoteJid: '60123@s.whatsapp.net' }, messageTimestamp: now - 3,
+    message: { protocolMessage: { type: 0, key: { id: 'GONE1', remoteJid: '60123@s.whatsapp.net' } } }, ...extra,
+  })
+  const rc = recallOf(revoke('customer'), 'notify', now)
+  check(rc && rc.id === 'GONE1' && rc.fromMe === false, 'a customer recall names the message taken back')
+  check(recallOf(revoke('us'), 'notify', now)?.fromMe === true, 'a recall from our phone is ours')
+  check(recallOf({ ...revoke('customer'), message: { ephemeralMessage: { message: { protocolMessage: { type: 'REVOKE', key: { id: 'G2' } } } } } },
+    'notify', now)?.id === 'G2', 'a recall inside a disappearing-message wrapper')
+  check(recallOf(revoke('customer'), 'append', now) === null, 'history is not a recall')
+  check(recallOf({ ...revoke('customer'), message: { protocolMessage: { type: 14, key: { id: 'E1' } } } }, 'notify', now) === null,
+    'an edit (MESSAGE_EDIT) is not a recall')
+  check(recallOf({ ...revoke('customer'), message: { protocolMessage: { type: 5 } } }, 'notify', now) === null,
+    'a history-sync notice is not a recall')
+  check(recallOf({ ...revoke('customer'), key: { id: 'RV2', remoteJid: '1203@g.us' } }, 'notify', now) === null,
+    'a group recall is not ours to file')
+  check(recallOf(mine('P8'), 'notify', now) === null, 'an ordinary message is not a recall')
   return true
 }
 

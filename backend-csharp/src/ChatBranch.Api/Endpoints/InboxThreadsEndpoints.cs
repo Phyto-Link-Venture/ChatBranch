@@ -650,7 +650,7 @@ public static class InboxThreadsEndpoints
                 t.Id,
                 Count = t.Messages.Count(),
                 Last = t.Messages.OrderByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id)
-                    .Select(m => new { m.Text, m.Direction, m.Status, m.Source, m.Private, m.MediaType })
+                    .Select(m => new { m.Text, m.Direction, m.Status, m.Source, m.Private, m.MediaType, m.MediaPath, m.RecalledAt })
                     .FirstOrDefault(),
             }).ToDictionaryAsync(x => x.Id);
         var contactIds = threads.Values.Where(t => t.ContactId != null).Select(t => t.ContactId!.Value)
@@ -677,6 +677,8 @@ public static class InboxThreadsEndpoints
             var last = stat?.Last;
             var preview = last == null ? ""
                 : last.Private ? $"[note] {last.Text}"
+                // recalled ("delete for everyone") and erased by the inbox: nothing left to preview
+                : last.RecalledAt != null && last.Text.Length == 0 && last.MediaPath.Length == 0 ? "[deleted]"
                 : last.Text.Length == 0 && last.MediaType.Length > 0 ? $"[{last.MediaType}]"
                 : last.Text;
             var isWa = t.Channel == ChatBranch.Domain.Channels.WhatsApp;

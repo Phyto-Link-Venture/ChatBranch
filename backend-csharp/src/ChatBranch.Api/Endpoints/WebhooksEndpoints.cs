@@ -203,6 +203,27 @@ public static class WebhooksEndpoints
             return Results.Ok(new { ok = true, stored = msg != null });
         }).AllowAnonymous();
 
+        // "Delete for everyone" on a QR number: the customer's (or, from_me, a recall made on
+        // the number's own phone). Kept or erased by the inbox's keep_recalled switch
+        // (Channels/MessageRecalls). Unknown number / message: acked, nothing to do.
+        app.MapPost("/api/whatsapp/baileys/recall", async (HttpContext ctx, AppDbContext db,
+            ScopingService sc, ThreadStore store, ChatBranch.Data.Ai.AiGate gate) =>
+        {
+            if (!BaileysSecretOk(ctx, sc)) return Results.StatusCode(401);
+            JsonElement body;
+            try { body = await ctx.Request.ReadFromJsonAsync<JsonElement>(); }
+            catch { return Results.Ok(new { ok = true, recalled = 0 }); }
+            var account = await BaileysAccountByKey(db, Str(body, "account_id"));
+            if (account == null) return Results.Ok(new { ok = true, recalled = 0 });
+            var fromMe = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("from_me", out var fm)
+                         && (fm.ValueKind == JsonValueKind.True || (fm.ValueKind == JsonValueKind.String && fm.GetString() is "1" or "true"));
+            var rows = ChatBranch.Data.Channels.MessageRecalls.Record(db, store, account,
+                new string((Str(body, "wa_id") ?? "").Where(char.IsDigit).ToArray()), Str(body, "msg_id") ?? "",
+                fromMe ? ChatBranch.Data.Channels.MessageRecalls.ByBusiness : ChatBranch.Data.Channels.MessageRecalls.ByCustomer,
+                gate);
+            return Results.Ok(new { ok = true, recalled = rows.Count });
+        }).AllowAnonymous();
+
         app.MapPost("/api/whatsapp/baileys/status-event", async (HttpContext ctx, AppDbContext db,
             ScopingService sc) =>
         {

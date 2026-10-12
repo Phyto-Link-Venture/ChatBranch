@@ -812,6 +812,9 @@ public static class VoiceMessagingEndpoints
             ["team_id"] = ChatBranch.Data.Channels.InboxSettings.TeamId(a),
             ["ai_default"] = ChatBranch.Data.Channels.InboxSettings.AiDefaultWire(a),
             ["ai_review_mode"] = ChatBranch.Data.Channels.InboxSettings.ReviewModeWire(a),
+            // recalled messages (unsend): kept, or erased (default) — LINE / Messenger / Instagram report them
+            ["keep_recalled"] = ChatBranch.Data.Channels.InboxSettings.KeepRecalled(a),
+            ["recalls_supported"] = ChatBranch.Data.Channels.MessageRecalls.Supports(a),
         };
         var cfg = a.Config ?? new Dictionary<string, object?>();
         if (a.Channel == "email")
@@ -1025,7 +1028,8 @@ public static class VoiceMessagingEndpoints
 
             // Inbox settings (owning team, AI default) — editable on every channel.
             var inboxTouched = body.Has(ChatBranch.Data.Channels.InboxSettings.TeamKey)
-                               || body.Has(ChatBranch.Data.Channels.InboxSettings.AiDefaultKey);
+                               || body.Has(ChatBranch.Data.Channels.InboxSettings.AiDefaultKey)
+                               || body.Has(ChatBranch.Data.Channels.InboxSettings.KeepRecalledKey);
             if (inboxTouched && ApplyInbox(db, account, body) is IResult inboxErr) return inboxErr;
 
             if (MoreChannelAccounts.Handles(account.Channel))
@@ -1274,7 +1278,8 @@ public static class VoiceMessagingEndpoints
         var err = ChatBranch.Data.Channels.InboxSettings.Apply(db, account,
             Raw(ChatBranch.Data.Channels.InboxSettings.TeamKey),
             Raw(ChatBranch.Data.Channels.InboxSettings.AiDefaultKey),
-            Raw(ChatBranch.Data.Channels.InboxSettings.ReviewModeKey));
+            Raw(ChatBranch.Data.Channels.InboxSettings.ReviewModeKey),
+            Raw(ChatBranch.Data.Channels.InboxSettings.KeepRecalledKey));
         return err == null ? null : Results.Json(new { detail = err }, statusCode: 400);
     }
 

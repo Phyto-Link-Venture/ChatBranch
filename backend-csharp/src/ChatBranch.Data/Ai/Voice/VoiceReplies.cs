@@ -74,7 +74,7 @@ public class VoiceReplyService
         try
         {
             var last = _db.Messages.AsNoTracking()
-                .Where(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In && !m.Private)
+                .Where(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In && !m.Private && m.RecalledAt == null)
                 .OrderByDescending(m => m.Id).FirstOrDefault();
             return last != null && IsAudio(last);
         }

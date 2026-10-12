@@ -244,16 +244,17 @@ public class AiTaskService
             return false;
         }
 
-        var attachment = LoadAttachment(thread, msg);
+        var recalled = msg.RecalledAt != null;   // "delete for everyone" before the task ran
+        var attachment = recalled ? null : LoadAttachment(thread, msg);
         // the file is fetched off the webhook's ack: a task that needs one waits a little for it
-        if (task.Attachment.Length > 0 && attachment == null && now - msg.CreatedAt < MediaWait)
+        if (!recalled && task.Attachment.Length > 0 && attachment == null && now - msg.CreatedAt < MediaWait)
         {
             await _db.AiTaskRuns.Where(r => r.Id == id && r.Status == AiTaskRunStatus.Pending)
                 .ExecuteUpdateAsync(s => s.SetProperty(r => r.DueAt, now.AddSeconds(15)), ct);
             return false;
         }
         // conditions not met = not a run at all (no noise in the run history)
-        if (!AttachmentMatches(task, attachment) || !LinkedMatches(task, thread))
+        if (!recalled && (!AttachmentMatches(task, attachment) || !LinkedMatches(task, thread)))
         {
             await _db.AiTaskRuns.Where(r => r.Id == id && r.Status == AiTaskRunStatus.Pending).ExecuteDeleteAsync(ct);
             return false;
@@ -267,7 +268,8 @@ public class AiTaskService
 
         // switched off, or out of scope since it was queued → skipped, said plainly
         string? skip = null;
-        if (!task.Enabled) skip = "The task was switched off.";
+        if (recalled) skip = "The customer deleted the message before the task ran.";
+        else if (!task.Enabled) skip = "The task was switched off.";
         else if (!InScope(_db, _sc, thread.EntityId, thread.Channel).Any(t => t.Id == task.Id))
             skip = "The task is no longer available to this conversation.";
         else if (new AiControls(_db, _sc).Master(thread.EntityId).Mode == AiMasterModes.Off)

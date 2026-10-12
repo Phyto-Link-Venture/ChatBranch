@@ -358,6 +358,9 @@ public static class Seed
         AddIndexIfMissing(db, "ix_aitaskrun_thread", "crm_aitaskrun", "\"thread_id\"");
         // AI voice replies: what a customer's voice note said (Ai/Voice/VoiceTranscriber.cs)
         AddColumnIfMissing(db, "crm_message", "transcript", "TEXT NOT NULL DEFAULT ''");
+        // recalled messages ("delete for everyone" / unsend) — Channels/MessageRecalls.cs
+        AddColumnIfMissing(db, "crm_message", "recalled_at", "TEXT NULL");
+        AddColumnIfMissing(db, "crm_message", "recalled_by", "TEXT NOT NULL DEFAULT ''");
         // two-way email: the IMAP sync's UID cursor per (mailbox, folder) — Channels/ImapSync.cs
         AddTableIfMissing(db, "crm_mailboxcursor",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_mailboxcursor\" PRIMARY KEY AUTOINCREMENT, "

@@ -60,7 +60,7 @@ public class VoiceTranscriber
         {
             if (_media == null || _speech.SttProvider.Length == 0) return 0;
             var recent = await _db.Messages
-                .Where(m => m.ThreadId == thread.Id && !m.Private)
+                .Where(m => m.ThreadId == thread.Id && !m.Private && m.RecalledAt == null)
                 .OrderByDescending(m => m.Id).Take(Lookback).ToListAsync(ct);
             var todo = recent.Where(m => m.Direction == MessageDirection.In && m.MediaType == "audio"
                                          && m.MediaPath.Length > 0 && m.Transcript.Length == 0)

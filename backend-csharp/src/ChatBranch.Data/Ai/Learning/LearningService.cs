@@ -519,7 +519,7 @@ public class LearningService
             }
             int? threadId = msg?.ThreadId ?? draft?.ThreadId;
             if (threadId is not int tid) return "";
-            var q = _db.Messages.AsNoTracking().Where(m => m.ThreadId == tid && !m.Private);
+            var q = _db.Messages.AsNoTracking().Where(m => m.ThreadId == tid && !m.Private && m.RecalledAt == null);
             if (msg != null) q = q.Where(m => m.Id < msg.Id);
             else if (draft != null) { var at = draft.CreatedAt; q = q.Where(m => m.CreatedAt <= at); }
             var prior = q.OrderByDescending(m => m.Id).Take(30).ToList();

@@ -231,6 +231,10 @@ public static class MoreChannelWebhookEndpoints
                     case "unfollow":
                         OptState(db, threads, account, e.UserId, true, "blocked the account");
                         continue;
+                    case "unsend":
+                        ChatBranch.Data.Channels.MessageRecalls.Record(db, threads, account, e.UserId, e.MessageId,
+                            ChatBranch.Data.Channels.MessageRecalls.ByCustomer, ctx.RequestServices.GetService<ChatBranch.Data.Ai.AiGate>());
+                        continue;
                 }
                 // remembered first, so an instant AI answer replies for free
                 line?.RememberReplyToken(account.Id, e.UserId, e.ReplyToken);

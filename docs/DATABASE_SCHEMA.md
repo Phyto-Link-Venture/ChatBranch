@@ -278,7 +278,10 @@ back from the mailbox's Sent folder) · `private` (internal note) · `text` · `
 resolved from `reply_to_external_id` when we hold it) · `reply_to_external_id`
 (the provider id of the quoted message: Cloud `context.id`, Baileys
 `contextInfo.stanzaId`, Telegram `reply_to_message.message_id`, Messenger
-`reply_to.mid`; `''` = not a reply) ·
+`reply_to.mid`; `''` = not a reply) · `transcript` (what a voice note says) ·
+`recalled_at` (nullable — taken back on the channel, "delete for everyone" / unsend;
+`Channels/MessageRecalls.cs`) · `recalled_by` (`customer`\|`business`, `''` = never;
+the inbox's `keep_recalled` decides whether `text` / the file were kept or erased) ·
 `created_at` (provider timestamp for inbound). **Unique**
 `(thread_id, external_id)` where `external_id <> ''`
 (`uniq_message_thread_external_id`) — the webhook-redelivery guarantee.

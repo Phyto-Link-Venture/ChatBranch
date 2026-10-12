@@ -34,6 +34,11 @@ header); the gateway pushes back to the API's `/api/whatsapp/baileys/*` routes.
   (`ownSends` holds its own ids), 1:1, under 15 minutes old, not a reaction → pushed
   to the API's `/api/whatsapp/baileys/from-phone`, which records it as the person's
   reply (a file follows on `/baileys/media` with `from_me=1`).
+- **"Delete for everyone"** (`index.js` `pushRecall`, rule in `messages.js` `recallOf`):
+  a live REVOKE `protocolMessage` in a 1:1 chat — the customer's, or one made on the
+  number's own phone (`from_me`) — is pushed to `/api/whatsapp/baileys/recall` with the
+  id of the message taken back; it is never a bubble or a "sent from the phone" reply.
+  Edits (`MESSAGE_EDIT`) are not recalls.
 - `calls.js` — **voice calls**. Composes the internals of
   [baileys-caller](https://github.com/SheIITear/baileys-caller) (MIT,
   WhatsApp Web's own VoIP WASM stack) around the *existing* account socket —

@@ -210,6 +210,8 @@ public static class LineInbound
             {
                 if (type is "follow" or "unfollow")
                     events.Add(new LineEvent(type, userId, replyToken, "", "", ts, null));
+                else if (type == "unsend" && ProviderHttp.Str(e, "unsend", "messageId") is { Length: > 0 } gone)
+                    events.Add(new LineEvent("unsend", userId, "", gone, "", ts, null));   // the customer took it back
                 continue;
             }
             var m = ProviderHttp.At(e, "message");

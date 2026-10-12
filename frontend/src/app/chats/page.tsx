@@ -2177,8 +2177,8 @@ function ChatsPage() {
                               m={m}
                               contactName={active.contact_name || active.name}
                               meName={meName}
-                              canReply={!combinedOn && access.can('chats.send') && REACTION_CHANNELS.includes(active.channel)}
-                              canReact={!combinedOn && access.can('chats.send') && REACTION_CHANNELS.includes(active.channel)}
+                              canReply={!combinedOn && !m.recalled && access.can('chats.send') && REACTION_CHANNELS.includes(active.channel)}
+                              canReact={!combinedOn && !m.recalled && access.can('chats.send') && REACTION_CHANNELS.includes(active.channel)}
                               onReply={(msg) => {
                                 setComposerMode('reply')
                                 setReplyTo(msg)
@@ -2204,7 +2204,24 @@ function ChatsPage() {
                                 </span>
                               )}
                               {!m.private && m.dir === 'out' && m.source === 'ai' && <AiBubbleFeedback m={m} store={aiFeedback} />}
-                              <MessageContent m={m} contactName={active.contact_name || active.name} onJump={jumpToMessage} />
+                              {/* deleted for everyone on the channel, kept by this inbox: still readable, marked */}
+                              {m.recalled?.kept && (
+                                <span
+                                  className="cb-bubble-source text-[color:var(--amber-ink)]"
+                                  title={t('chats.page.recalled.keptTitle', { time: f.dateTime(m.recalled.at) })}
+                                >
+                                  <Ban size={9} className="mr-0.5 inline" aria-hidden />{' '}
+                                  {t(m.recalled.by === 'business' ? 'chats.page.recalled.keptOurs' : 'chats.page.recalled.keptCustomer')}
+                                </span>
+                              )}
+                              {m.recalled && !m.recalled.kept ? (
+                                <span className="flex items-center gap-1.5 italic text-text-muted" title={f.dateTime(m.recalled.at)}>
+                                  <Ban size={13} aria-hidden />
+                                  {t(m.recalled.by === 'business' ? 'chats.page.recalled.erasedOurs' : 'chats.page.recalled.erased')}
+                                </span>
+                              ) : (
+                                <MessageContent m={m} contactName={active.contact_name || active.name} onJump={jumpToMessage} />
+                              )}
                               <span className="cb-bubble-time">
                                 {(multiAccount || combinedOn) && !m.private && m.account_id && (
                                   <span title={t(m.dir === 'out' ? 'chats.page.sentFrom' : 'chats.page.receivedOn', { account: acctLabel(m) })}>

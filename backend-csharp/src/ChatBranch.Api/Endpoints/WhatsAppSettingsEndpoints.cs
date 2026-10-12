@@ -647,7 +647,8 @@ public static class WhatsAppSettingsEndpoints
             // inbox "who answers it" keys: owning team + AI reply default
             if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
                     AsString(body, InboxSettings.AiDefaultKey),
-                    AsString(body, InboxSettings.ReviewModeKey)) is string inboxErr)
+                    AsString(body, InboxSettings.ReviewModeKey),
+                    AsString(body, InboxSettings.KeepRecalledKey)) is string inboxErr)
                 return Results.Json(new { detail = inboxErr }, statusCode: 400);
             db.ChannelAccounts.Add(row);
             await db.SaveChangesAsync();
@@ -726,7 +727,8 @@ public static class WhatsAppSettingsEndpoints
             var phoneNotificationsChanged = ApplyPhoneNotifications(row, body);
             if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
                     AsString(body, InboxSettings.AiDefaultKey),
-                    AsString(body, InboxSettings.ReviewModeKey)) is string inboxErr)
+                    AsString(body, InboxSettings.ReviewModeKey),
+                    AsString(body, InboxSettings.KeepRecalledKey)) is string inboxErr)
                 return Results.Json(new { detail = inboxErr }, statusCode: 400);
 
             var entityChanged = false;
@@ -1860,6 +1862,9 @@ public static class WhatsAppSettingsEndpoints
         team_id = InboxSettings.TeamId(a),
         ai_default = InboxSettings.AiDefaultWire(a),
         ai_review_mode = InboxSettings.ReviewModeWire(a),
+        // recalled messages ("delete for everyone"): kept, or erased (default) — QR numbers report them
+        keep_recalled = InboxSettings.KeepRecalled(a),
+        recalls_supported = MessageRecalls.Supports(a),
         // official = template-capable + bound by the 24h window (Cloud API, YCloud, Twilio)
         official = WhatsAppProviders.IsOfficial(a),
         provider_label = WhatsAppProviders.Label(a.Provider),

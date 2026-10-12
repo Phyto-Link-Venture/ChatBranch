@@ -346,6 +346,38 @@ public class AiGate
     }
 
     /// <summary>
+    /// The customer recalled ("delete for everyone") messages: a reply still waiting
+    /// for review that answers ONLY those has nothing left to answer — expire it.
+    /// A reply that also answers something still there stays for a person to decide.
+    /// </summary>
+    public int ExpireForRecall(Thread thread, IReadOnlyCollection<int> recalledIds)
+    {
+        if (recalledIds.Count == 0) return 0;
+        var held = _db.AiDrafts.Where(d => d.ThreadId == thread.Id && d.Status == AiDraftStatus.Pending
+                && (d.Kind == AiDraftKind.Reply || d.Kind == AiDraftKind.FollowUp)).ToList();
+        var expired = 0;
+        foreach (var d in held)
+        {
+            var answering = Get(d.Context, "answering") switch
+            {
+                JsonElement { ValueKind: JsonValueKind.Array } el => el.EnumerateArray().Select(x => (object?)x).ToList(),
+                System.Collections.IEnumerable e and not string => e.Cast<object?>().ToList(),
+                _ => new List<object?>(),
+            };
+            var ids = answering.Select(a => Num(a, "id")).Where(x => x != null).Select(x => (int)x!.Value).ToList();
+            if (ids.Count == 0 || !ids.All(recalledIds.Contains)) continue;
+            Expire(d, "The customer deleted the message this reply answered.");
+            expired++;
+        }
+        if (expired > 0)
+        {
+            _db.SaveChanges();
+            BumpThread(thread.Id);
+        }
+        return expired;
+    }
+
+    /// <summary>
     /// Worker pass: expire held drafts a teammate already answered, then send the
     /// ones whose auto-send deadline passed with nobody acting.
     /// </summary>
@@ -557,7 +589,7 @@ public class AiGate
         try
         {
             var msg = _db.Messages.FirstOrDefault(m => m.Id == r.MessageId && m.ThreadId == thread.Id
-                && m.Direction == MessageDirection.In && !m.Private);
+                && m.Direction == MessageDirection.In && !m.Private && m.RecalledAt == null);
             var emoji = MessageReactions.ForAi(thread.Channel, r.Emoji);
             string? refused = msg == null ? "the message to react to is not in this conversation"
                 : emoji == null ? $"{r.Emoji} can't be used as a reaction on {thread.Channel}"
@@ -889,7 +921,7 @@ public class AiGate
         if (messageId is not int id || !MessageReactions.Supports(thread.Channel)) return null;
         try
         {
-            return _db.Messages.FirstOrDefault(m => m.Id == id && m.ThreadId == thread.Id && !m.Private);
+            return _db.Messages.FirstOrDefault(m => m.Id == id && m.ThreadId == thread.Id && !m.Private && m.RecalledAt == null);
         }
         catch { return null; }
     }

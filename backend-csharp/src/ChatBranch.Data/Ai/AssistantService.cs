@@ -1109,7 +1109,7 @@ public partial class AssistantService
         {
             var lastIdx = history.FindLastIndex(m => m.Direction == MessageDirection.In);
             if (lastIdx < 0 || history[lastIdx].ReplyToId is not int qid || lastIdx >= messages.Count) return;
-            var quoted = _db.Messages.AsNoTracking().FirstOrDefault(m => m.Id == qid && !m.Private);
+            var quoted = _db.Messages.AsNoTracking().FirstOrDefault(m => m.Id == qid && !m.Private && m.RecalledAt == null);
             if (quoted == null || string.IsNullOrWhiteSpace(quoted.Text)) return;
             var who = quoted.Direction == MessageDirection.In ? "their own earlier message" : "your earlier message";
             var text = System.Text.RegularExpressions.Regex.Replace(Trim(quoted.Text, 300), @"\s+", " ")
@@ -1193,7 +1193,8 @@ public partial class AssistantService
             var lastOut = _db.Messages.AsNoTracking()
                 .Where(m => m.ThreadId == threadId && !m.Private && m.Direction == MessageDirection.Out)
                 .Max(m => (int?)m.Id) ?? 0;
-            var waiting = _db.Messages.AsNoTracking().Count(m => m.ThreadId == threadId && !m.Private && m.Id > lastOut);
+            var waiting = _db.Messages.AsNoTracking().Count(m => m.ThreadId == threadId && !m.Private
+                && m.RecalledAt == null && m.Id > lastOut);
             return Math.Clamp(waiting + 4, 20, 60);
         }
         catch { return 20; }
@@ -1201,8 +1202,9 @@ public partial class AssistantService
 
     private List<Message> History(int threadId, int take)
     {
+        // a recalled message ("delete for everyone") is gone for the AI, kept or not for the team
         var history = _db.Messages.AsNoTracking()
-            .Where(m => m.ThreadId == threadId && !m.Private)
+            .Where(m => m.ThreadId == threadId && !m.Private && m.RecalledAt == null)
             .OrderByDescending(m => m.Id).Take(take).ToList();
         history.Reverse();
         // a transcribed voice note reads as its words ("[voice note] …"), not "[audio]" (untracked rows)

@@ -80,7 +80,7 @@ public class AiComposer
     private Dictionary<string, object?> BaseMeta(Thread thread)
     {
         var recent = _db.Messages.AsNoTracking()
-            .Where(m => m.ThreadId == thread.Id && !m.Private)
+            .Where(m => m.ThreadId == thread.Id && !m.Private && m.RecalledAt == null)
             .OrderByDescending(m => m.Id).Take(12).ToList();
         var answering = new List<object?>();
         foreach (var m in recent)
