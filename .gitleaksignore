@@ -11,3 +11,6 @@ e4f66e03b091c7cf1f29cae994b9e0c52eeb7e85:backend-csharp/tests/ChatBranch.Tests/M
 3bf118a472966d979b3a073bc4cf5e2b84a9d17c:backend-csharp/tests/ChatBranch.Tests/QueueCallsTests.cs:generic-api-key:79
 7f78b16e50a461da70c22db140d5b79006630d13:backend/tests/test_integrations.py:generic-api-key:195
 7f78b16e50a461da70c22db140d5b79006630d13:backend/tests/test_integrations.py:generic-api-key:215
+# reviewed 2026-10-12: the initial commit's Django masking test (file removed since) — shpat_abcdefgh1234 / sk_live_abcd1234, fake
+2b3a486da760284f0a625b4048f8df4adf7415fc:backend/tests/test_integrations.py:generic-api-key:189
+2b3a486da760284f0a625b4048f8df4adf7415fc:backend/tests/test_integrations.py:generic-api-key:209
