@@ -730,6 +730,7 @@ public partial class AssistantService
                                                   && AppSkills.AppOf(s.Config) == AppSkills.Calendar);
         var booked = false;
         var cancelled = false;
+        List<AiReplyPart>? parts = null;   // a reply answering several messages in parts
         // the conversation's own bookings: restating one ("confirmed for Mon 12 Oct, 3:15 PM") is honest
         var known = guardBookingClaims && spec.Contact is { Id: > 0 } who
             ? _skills.Bookings.KnownForClaims(who.Id, spec.ThreadId, spec.EntityId)
@@ -757,11 +758,16 @@ public partial class AssistantService
             }
             // a reschedule is all-or-nothing: a reply that tried to book and booked nothing cancels nothing
             if (await _skills.Bookings.SettleRescheduleAsync(ctx.Apps, ct) != null) cancelled = false;
-            // the [msg id] tags the model was shown never reach the customer
-            var text = RenderPlaceholders(HumanTouch.StripTags((outcome.Text ?? "").Trim()), spec.Contact);
-            // Markdown → what the customer's channel shows (in code: a prompt rule alone
-            // loses to the style of earlier replies in the history). AI text only.
-            text = ChannelFormatter.ForChannel(text, spec.Channel);
+            // the [msg id] tags the model was shown never reach the customer — one that STARTS a
+            // line starts a part answering that message (its own bubble quoting it)
+            string Finish(string raw) =>
+                // Markdown → what the customer's channel shows (in code: a prompt rule alone
+                // loses to the style of earlier replies in the history). AI text only.
+                ChannelFormatter.ForChannel(RenderPlaceholders(HumanTouch.StripTags(raw.Trim()), spec.Contact), spec.Channel);
+            var tryParts = human?.SplitParts((outcome.Text ?? "").Trim())?
+                .Select(p => p with { Text = Finish(p.Text) }).Where(p => p.Text.Length > 0).ToList();
+            if (tryParts is { Count: < 2 }) tryParts = null;
+            var text = tryParts != null ? AiReplyPart.Join(tryParts) : Finish(outcome.Text ?? "");
             if (text.Length == 0)
             {
                 // nothing on a retry = the model could not fix the draft → fall
@@ -780,6 +786,7 @@ public partial class AssistantService
                 break;
             }
             draft = text;
+            parts = tryParts;   // the draft is exactly its parts (or has none)
 
             var runs = _skills.RunChecks(checkSkills, draft, ctx);
             if (spec.NotRepeating.Length > 0 &&
@@ -823,7 +830,20 @@ public partial class AssistantService
             if (PartialReply.Without(draft, dropped) is { } rest)
             {
                 partial = new AiPartialHandover(topic, why, dropped);
-                draft = rest + "\n\n" + PartialReply.CustomerLine(topic, Review.AiReviewService.Language(rest));
+                var line = PartialReply.CustomerLine(topic, Review.AiReviewService.Language(rest));
+                // a reply in parts keeps its parts (each without the dropped sentences), the line its own
+                var kept = parts?.Select(p => p with { Text = PartialReply.Strip(p.Text, dropped) })
+                    .Where(p => p.Text.Length > 0).ToList();
+                if (kept is { Count: >= 1 } && kept.Count(p => p.ReplyTo != null) >= 1)
+                {
+                    parts = kept.Append(new AiReplyPart(line, null)).ToList();
+                    draft = AiReplyPart.Join(parts);
+                }
+                else
+                {
+                    parts = null;
+                    draft = rest + "\n\n" + line;
+                }
                 action = AiActions.Send;
                 reason = partial.HandoverReason();
             }
@@ -869,8 +889,10 @@ public partial class AssistantService
             Attachments = ctx.Docs.DocumentIds.ToList(),
             Deferred = ctx.Docs.Deferred.ToList(),
             Reactions = human?.Reaction is { } reaction ? new[] { reaction } : Array.Empty<AiReaction>(),
-            // a reaction alone has no bubble to carry a quote
-            ReplyToId = draft.Length > 0 ? human?.ReplyTo : null,
+            // a reaction alone has no bubble to carry a quote; a reply in parts quotes per part
+            ReplyToId = draft.Length == 0 ? null : parts?[0].ReplyTo ?? human?.ReplyTo,
+            // kept on a held reply too: a person who approves it sends the same bubbles
+            Parts = draft.Length > 0 && parts != null ? parts : Array.Empty<AiReplyPart>(),
         };
         RecordUsage(metered, spec, result);
         return result;

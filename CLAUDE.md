@@ -1172,8 +1172,20 @@ When you fix one of these, update this table, `README.md` and
   U+FE0F; a few never-for-the-AI ones). `ai_quote_replies` auto (default) | off
   offers `quote_message(message_id)` — the reply's FIRST bubble quotes it
   (`reply_to` on the draft → `OutboundSender.Send(replyTo:)` direct or through the
-  first queued bubble's payload; ignored where quotes aren't carried). No
-  heuristic quoting: only when the model asks. The model sees ids as `[msg <id>] `
+  first queued bubble's payload; ignored where quotes aren't carried). **A reply
+  in parts:** when the customer's messages since the last reply are about different
+  things, the model starts each part on a new line with the `[msg <id>]` it answers
+  (prompt "ANSWERING IN PARTS", offered only with quotes on and ≥ 2 waiting
+  messages); `HumanTurn.SplitParts` cuts there (an id it was never shown quotes
+  nothing, repeats join, ≤ 4 parts, one marked part = a plain quote) →
+  `AiReplyResult.Parts` → the draft's `parts: [{text, reply_to}]`, its content the
+  parts joined by a blank line; `AiGate.StartHumanSend` sends ONE bubble per part,
+  each quoting its message (the first inline or queued, the rest through the queue —
+  `reply_to` + `rest_quotes` on the job); a held reply keeps its parts, a person's
+  edit (content no longer the parts — `AiReplyPart.From`) sends one message; a
+  voice reply stays one note. The monitor lists each part's quote (`parts` on the
+  draft payload), the playground answers `bubble_quotes`. Tests:
+  `ReplyPartsTests`. No heuristic quoting: only when the model asks. The model sees ids as `[msg <id>] `
   in front of customer messages (only when a tool can use them; stripped from any
   reply). Results ride on `AiReplyResult.Reactions` / `ReplyToId` → the draft's
   `reactions: [{message_id, emoji}]` / `reply_to`; `AiGate.Deliver` reacts FIRST

@@ -472,7 +472,7 @@ public class AiGate
         var start = _voice.Wants(thread, account, policy, draft.Content)
             ? StartVoiceSend(draft, thread, account, policy, humanize, extra)
             : StartHumanSend(thread, draft.Content, MessageSource.Ai, account, policy, humanize, extra,
-                replyTo: HumanTouch.ReplyTo(draft.Context));
+                replyTo: HumanTouch.ReplyTo(draft.Context), parts: AiReplyPart.From(draft.Context, draft.Content));
         // the activity log's "the AI said something" row (a person's approval is
         // audited by the endpoint that took the decision)
         if (!humanDecision)
@@ -673,13 +673,28 @@ public class AiGate
     /// </summary>
     /// <param name="replyTo">a message of this conversation the FIRST bubble quotes (WhatsApp / Telegram;
     /// ignored elsewhere — <see cref="OutboundSender.Send"/>).</param>
+    /// <param name="parts">a reply in parts (<see cref="AiReplyPart"/>): one bubble per part, each
+    /// quoting the message it answers — never split further.</param>
     public HumanSendStart StartHumanSend(Thread thread, string text, string source, ChannelAccount? account,
-        AiBehaviour policy, bool humanize, Dictionary<string, object?> extra, int? replyTo = null)
+        AiBehaviour policy, bool humanize, Dictionary<string, object?> extra, int? replyTo = null,
+        IReadOnlyList<AiReplyPart>? parts = null)
     {
-        var bubbles = humanize
-            ? Humanizer.Split(text, policy.SplitMode, policy.SplitMaxChars)
-            : new List<string> { text.Trim() };
-        if (bubbles.Count == 0) bubbles.Add(text);
+        List<string> bubbles;
+        List<int?> quotes;
+        if (parts is { Count: >= 2 })
+        {
+            bubbles = parts.Select(p => p.Text).ToList();
+            quotes = parts.Select(p => p.ReplyTo).ToList();
+        }
+        else
+        {
+            bubbles = humanize
+                ? Humanizer.Split(text, policy.SplitMode, policy.SplitMaxChars)
+                : new List<string> { text.Trim() };
+            if (bubbles.Count == 0) bubbles.Add(text);
+            // only the first bubble quotes
+            quotes = bubbles.Select((_, i) => i == 0 ? replyTo : null).ToList();
+        }
         var typing = humanize && policy.TypingEnabled;
         var quiet = AccountDelivery.InQuietHours(account, _scoping, LocalNow);
         var payload = new Dictionary<string, object?>(extra)
@@ -691,10 +706,10 @@ public class AiGate
         if (!typing && !quiet)
         {
             var msg = _sender.Send(thread, bubbles[0], source, account?.Id ?? thread.AccountId,
-                replyTo: QuotedMessage(thread, replyTo));
+                replyTo: QuotedMessage(thread, quotes[0]));
             if (bubbles.Count > 1)
                 EnqueueBubbles(thread, account, bubbles.Skip(1).ToList(), 2, payload,
-                    TimeSpan.FromSeconds(BubbleGapSeconds));
+                    TimeSpan.FromSeconds(BubbleGapSeconds), quotes.Skip(1).ToList());
             return new HumanSendStart(msg.Id, bubbles.Count,
                 bubbles.Count > 1 ? $"Sent in {bubbles.Count} messages." : "Sent.");
         }
@@ -703,9 +718,8 @@ public class AiGate
             ? Humanizer.TypingDelay(bubbles[0], policy.TypingCps, policy.TypingMinSeconds, policy.TypingMaxSeconds)
             : TimeSpan.Zero;
         if (typing && !quiet) StartTyping(thread, account);
-        // only the first bubble quotes (ContinueHumanSend never carries reply_to on)
-        if (replyTo is int quoted) payload["reply_to"] = quoted;
-        EnqueueBubbles(thread, account, bubbles, 1, payload, delay);
+        // each bubble carries its own quote (ContinueHumanSend hands the next one on)
+        EnqueueBubbles(thread, account, bubbles, 1, payload, delay, quotes);
         return new HumanSendStart(null, bubbles.Count, quiet
             ? "Quiet hours — it will be sent when they end."
             : $"Typing… sends in {Math.Ceiling(delay.TotalSeconds):0}s.");
@@ -816,13 +830,26 @@ public class AiGate
         if (typing) StartTyping(thread, account);
         var carry = new Dictionary<string, object?>();
         foreach (var (k, v) in job.Payload)
-            if (k is not ("text" or "rest" or "bubble" or "reply_to")) carry[k] = v;
+            if (k is not ("text" or "rest" or "bubble" or "reply_to" or "rest_quotes")) carry[k] = v;
         var index = (int)(Num(job.Payload, "bubble") ?? 1) + 1;
-        EnqueueBubbles(thread, account, rest, index, carry, delay);
+        // a reply in parts: the next bubble quotes the message ITS part answers
+        var quotes = Items(job.Payload, "rest_quotes").Select(QuoteId).ToList();
+        EnqueueBubbles(thread, account, rest, index, carry, delay, quotes.Count > 0 ? quotes : null);
     }
 
+    private static int? QuoteId(object? q) => q switch
+    {
+        int i when i > 0 => i,
+        long l when l > 0 => (int)l,
+        double d when d > 0 => (int)d,
+        JsonElement { ValueKind: JsonValueKind.Number } e when e.TryGetInt32(out var n) && n > 0 => n,
+        _ => null,
+    };
+
+    /// <param name="quotes">the message each bubble quotes, aligned with <paramref name="bubbles"/>
+    /// (null = leave the payload's own <c>reply_to</c> as it is).</param>
     private void EnqueueBubbles(Thread thread, ChannelAccount? account, List<string> bubbles, int index,
-        Dictionary<string, object?> payload, TimeSpan delay)
+        Dictionary<string, object?> payload, TimeSpan delay, IReadOnlyList<int?>? quotes = null)
     {
         var p = new Dictionary<string, object?>(payload)
         {
@@ -830,6 +857,14 @@ public class AiGate
             ["rest"] = bubbles.Skip(1).ToList(),
             ["bubble"] = index,
         };
+        if (quotes != null)
+        {
+            p.Remove("reply_to");
+            if (quotes.Count > 0 && quotes[0] is int quoted) p["reply_to"] = quoted;
+            var later = quotes.Skip(1).Take(bubbles.Count - 1).Select(q => (object?)(q ?? 0)).ToList();
+            if (later.Any(q => q is int n && n > 0)) p["rest_quotes"] = later;
+            else p.Remove("rest_quotes");
+        }
         Enqueue(thread, account, JobKind.Text, p, Now.Add(delay));
     }
 

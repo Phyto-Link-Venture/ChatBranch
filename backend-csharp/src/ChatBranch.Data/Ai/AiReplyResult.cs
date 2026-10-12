@@ -75,6 +75,11 @@ public sealed record AiReplyResult
     public IReadOnlyList<AiReaction> Reactions { get; init; } = Array.Empty<AiReaction>();
     /// <summary>The customer message the reply's first bubble quotes (<c>quote_message</c>).</summary>
     public int? ReplyToId { get; init; }
+    /// <summary>
+    /// A reply that answers several messages in PARTS (two or more), each its own bubble
+    /// quoting the message it answers; <see cref="Text"/> is their <see cref="AiReplyPart.Join"/>.
+    /// </summary>
+    public IReadOnlyList<AiReplyPart> Parts { get; init; } = Array.Empty<AiReplyPart>();
 
     /// <summary>
     /// A PARTIAL handover: a reply check pinned its problem to some sentences, so
@@ -122,6 +127,7 @@ public sealed record AiReplyResult
         if (Deferred.Count > 0) meta["deferred_actions"] = Deferred.ToList();
         if (Reactions.Count > 0) meta["reactions"] = AiReaction.ToMeta(Reactions);
         if (ReplyToId is int quote) meta["reply_to"] = quote;
+        if (Parts.Count >= 2) meta["parts"] = AiReplyPart.ToMeta(Parts);
         if (Partial != null) meta["partial_handover"] = Partial.ToMeta();
         if (KeepAiOn || Partial != null) meta["ai_keeps_answering"] = true;
         return meta;

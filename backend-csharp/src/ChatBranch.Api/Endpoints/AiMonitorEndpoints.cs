@@ -432,7 +432,8 @@ public static class AiMonitorEndpoints
 
         // the human-like touches: the reaction it will make (or made) and the message it quotes
         var touchIds = rows.SelectMany(r => AiReaction.From(r.Context).Select(x => x.MessageId)
-                .Concat(HumanTouch.ReplyTo(r.Context) is int q ? new[] { q } : Array.Empty<int>()))
+                .Concat(HumanTouch.ReplyTo(r.Context) is int q ? new[] { q } : Array.Empty<int>())
+                .Concat(AiReplyPart.From(r.Context, r.Content).Where(p => p.ReplyTo != null).Select(p => p.ReplyTo!.Value)))
             .Distinct().ToList();
         var touchText = touchIds.Count == 0
             ? new Dictionary<int, string>()
@@ -504,6 +505,12 @@ public static class AiMonitorEndpoints
                 quote = HumanTouch.ReplyTo(d.Context) is int qid
                     ? new { message_id = qid, text = touchText.GetValueOrDefault(qid, "") }
                     : null,
+                // a reply in parts: each bubble and the customer message it quotes ([] = one message)
+                parts = AiReplyPart.From(d.Context, d.Content).Select(p => new
+                {
+                    text = p.Text,
+                    quote = p.ReplyTo is int pq ? new { message_id = pq, text = touchText.GetValueOrDefault(pq, "") } : null,
+                }).ToList(),
             };
         }).ToList();
     }

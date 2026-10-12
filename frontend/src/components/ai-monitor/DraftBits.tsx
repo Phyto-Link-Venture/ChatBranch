@@ -251,21 +251,22 @@ const BOOKING_INK: Record<string, string> = {
 /**
  * The human-like touches a reply carries: the emoji reaction it makes on a
  * customer message ("Will react 👍 on “ok thanks”" while held, "Reacted 👍"
- * once delivered) and the message its first bubble quotes. Nothing renders for
- * a reply without either.
+ * once delivered) and the message its first bubble quotes — or, for a reply in
+ * parts, the message EACH bubble quotes. Nothing renders for a reply without either.
  */
 export function DraftTouches({
   d,
   compact = false,
 }: {
-  d: Pick<Draft, 'reactions' | 'quote' | 'content'> & Partial<Pick<Draft, 'voice' | 'voice_error'>>
+  d: Pick<Draft, 'reactions' | 'quote' | 'content'> & Partial<Pick<Draft, 'voice' | 'voice_error' | 'parts'>>
   /** No box — for the chat's review banner. */
   compact?: boolean
 }) {
   const t = useT()
   const reactions = Array.isArray(d.reactions) ? d.reactions : []
   const voice = d.voice === 'planned' || d.voice === 'sent' || d.voice === 'text' ? d.voice : null
-  if (!reactions.length && !d.quote && !voice) return null
+  const parts = Array.isArray(d.parts) && d.parts.length >= 2 ? d.parts : []
+  if (!reactions.length && !d.quote && !voice && !parts.length) return null
   const clip = (s: string) => (s.length > 80 ? `${s.slice(0, 80)}…` : s)
   return (
     <div
@@ -316,10 +317,25 @@ export function DraftTouches({
               : t('ai.draft.touch.voicePlanned')}
         </span>
       )}
-      {d.quote && (
-        <span className="min-w-0 break-words border-l-2 border-line-strong pl-2 text-text-mid">
-          {d.quote.text ? t('ai.draft.touch.quotes', { text: clip(d.quote.text) }) : t('ai.draft.touch.quotesMessage')}
-        </span>
+      {parts.length > 0 ? (
+        <>
+          <span className="text-text-mid">{t('ai.draft.touch.inParts', { count: parts.length })}</span>
+          {parts.map((p, i) =>
+            p.quote ? (
+              <span key={i} className="min-w-0 break-words border-l-2 border-line-strong pl-2 text-text-mid">
+                {p.quote.text
+                  ? t('ai.draft.touch.partQuotes', { n: i + 1, text: clip(p.quote.text) })
+                  : t('ai.draft.touch.partQuotesMessage', { n: i + 1 })}
+              </span>
+            ) : null,
+          )}
+        </>
+      ) : (
+        d.quote && (
+          <span className="min-w-0 break-words border-l-2 border-line-strong pl-2 text-text-mid">
+            {d.quote.text ? t('ai.draft.touch.quotes', { text: clip(d.quote.text) }) : t('ai.draft.touch.quotesMessage')}
+          </span>
+        )
       )}
     </div>
   )

@@ -563,4 +563,41 @@ public class HumanTouchPlaygroundTests : IClassFixture<PlaygroundFactory>
             _f.Chat.Script = null;
         }
     }
+
+    [Fact]
+    public async Task The_playground_previews_a_reply_in_parts_one_quoted_bubble_each()
+    {
+        Set("openai_api_key", "sk-test-openai-secret");
+        try
+        {
+            var admin = await Platform.As(_f, "admin", "admin123");
+            _f.Chat.Script = _ => ("[msg 1] The red one is RM 45.\n[msg 2] Yes — we open on Sunday, 10am to 4pm.",
+                Array.Empty<(string, string)>());
+            var res = await admin.PostAsJsonAsync("/api/ai/playground/reply", new
+            {
+                channel = "whatsapp",
+                profile = new { name = "Test", language = "en" },
+                messages = new object[]
+                {
+                    new { role = "customer", text = "How much is the red one?" },
+                    new { role = "customer", text = "And do you open Sunday?" },
+                },
+                options = new { quote_replies = "auto" },
+            });
+            var body = JsonDocument.Parse(await res.Content.ReadAsStringAsync()).RootElement;
+            Assert.True(res.IsSuccessStatusCode, body.ToString());
+
+            Assert.Equal(new[] { "The red one is RM 45.", "Yes — we open on Sunday, 10am to 4pm." },
+                body.GetProperty("bubbles").EnumerateArray().Select(b => b.GetString()).ToArray());
+            var quotes = body.GetProperty("bubble_quotes").EnumerateArray().ToList();
+            Assert.Equal(0, quotes[0].GetProperty("message_index").GetInt32());
+            Assert.Equal(1, quotes[1].GetProperty("message_index").GetInt32());
+            Assert.DoesNotContain("[msg", body.GetProperty("reply").GetString());
+        }
+        finally
+        {
+            Set("openai_api_key", "");
+            _f.Chat.Script = null;
+        }
+    }
 }

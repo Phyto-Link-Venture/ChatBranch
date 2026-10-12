@@ -95,19 +95,22 @@ function AiCell({
             : t('playground.chat.noText')}
         </div>
       ) : (
-        bubbles.map((b, i) => (
-          <div key={i} className={`cb-bubble cb-bubble-out ${sent ? '' : 'opacity-75'}`} style={{ maxWidth: '100%' }}>
-            {i === 0 && <span className="cb-bubble-source">{t('playground.chat.ai')}</span>}
-            {/* the quote production would send with the first bubble — shown, never sent */}
-            {i === 0 && r.quote && (
-              <span className="cb-quote" title={t('playground.chat.wouldQuote')}>
-                <span className="cb-quote-author">{t('playground.chat.customer')}</span>
-                <span className="cb-quote-text">{r.quote.text}</span>
-              </span>
-            )}
-            {b}
-          </div>
-        ))
+        bubbles.map((b, i) => {
+          // the quote production would send with this bubble (the first, or each part's) — shown, never sent
+          const quote = r.bubble_quotes ? r.bubble_quotes[i] : i === 0 ? r.quote : null
+          return (
+            <div key={i} className={`cb-bubble cb-bubble-out ${sent ? '' : 'opacity-75'}`} style={{ maxWidth: '100%' }}>
+              {i === 0 && <span className="cb-bubble-source">{t('playground.chat.ai')}</span>}
+              {quote && (
+                <span className="cb-quote" title={t('playground.chat.wouldQuote')}>
+                  <span className="cb-quote-author">{t('playground.chat.customer')}</span>
+                  <span className="cb-quote-text">{quote.text}</span>
+                </span>
+              )}
+              {b}
+            </div>
+          )
+        })
       )}
       {r.reaction && bubbles.length > 0 && (
         <span className="text-[11px] text-text-muted">

@@ -39,6 +39,17 @@ public static class PartialReply
         return Sensible(text) ? text : null;
     }
 
+    /// <summary>One part of a reply without the dropped sentences, tidied ("" when nothing is left).</summary>
+    public static string Strip(string text, IEnumerable<string> sentences)
+    {
+        foreach (var s in sentences.Where(s => !string.IsNullOrWhiteSpace(s)))
+            text = text.Replace(s, "", StringComparison.Ordinal);
+        text = Regex.Replace(text, @"[ \t]{2,}", " ");
+        text = Regex.Replace(text, @"\n{3,}", "\n\n").Trim();
+        text = Regex.Replace(text, @"[\s,;:–—-]+$", "").Trim();
+        return Sensible(text) || text.Any(char.IsLetter) && text.Length >= 2 ? text : "";
+    }
+
     /// <summary>Enough left to be an answer: three words (or four CJK characters).</summary>
     public static bool Sensible(string? text)
     {

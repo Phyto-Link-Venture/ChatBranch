@@ -285,10 +285,16 @@ public static class AiPlaygroundEndpoints
             var prior = turns.Count(t => t.Role == PlaygroundTurn.Ai);
             var production = AiPlayground.Decide(policy, ai, r, prior);
             var said = r.ShouldSend ? r.Text : r.Draft;
+            // a reply in parts goes as one bubble per part, each quoting the message it answers
             var bubbles = string.IsNullOrWhiteSpace(said)
                 ? new List<string>()
+                : r.Parts.Count >= 2 ? r.Parts.Select(p => p.Text).ToList()
                 : Humanizer.Split(said, policy.SplitMode, policy.SplitMaxChars) is { Count: > 0 } split ? split
                 : new List<string> { said.Trim() };
+            var bubbleQuotes = bubbles.Select((_, i) => r.Parts.Count >= 2
+                    ? r.Parts[i].ReplyTo is int pq ? Turn(pq) : null
+                    : i == 0 && r.ReplyToId is int fq ? Turn(fq) : null)
+                .ToList();
             var (cost, priced) = r.CostUsd is double paid ? (Math.Round(paid, 6), true)
                 : EstimateCost(sc, r.Model, r.PromptTokens, r.CompletionTokens);
             var used = r.Grounding.Select(g => (g.Type, g.Id)).ToHashSet();
@@ -309,6 +315,8 @@ public static class AiPlaygroundEndpoints
                     text = turns[reaction.MessageId - 1].Text,
                 },
                 quote = r.ReplyToId is int q ? Turn(q) : null,
+                // the quote each bubble carries (a reply in parts quotes per bubble)
+                bubble_quotes = bubbleQuotes,
                 // ai_voice_replies: would production send this reply as a voice note? (no audio is made here)
                 voice_note = r.ShouldSend
                              && ChatBranch.Data.Ai.Voice.VoiceReplyService.Supports(channel, inbox)

@@ -69,6 +69,8 @@ export interface PlaygroundReply {
   reaction?: { message_index: number; emoji: string; text: string } | null
   /** The customer message the reply's first bubble would quote. */
   quote?: { message_index: number; text: string } | null
+  /** The quote each bubble would carry (a reply in parts quotes per bubble); aligned with `bubbles`. */
+  bubble_quotes?: ({ message_index: number; text: string } | null)[]
   /** The touches this run used (the setting, or this run's override; off where the channel has none). */
   touches?: { emoji_style: string; reactions: boolean; quotes: boolean }
   production: {

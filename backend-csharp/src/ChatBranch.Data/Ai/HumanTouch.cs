@@ -37,6 +37,49 @@ public sealed record AiReaction(int MessageId, string Emoji)
 }
 
 /// <summary>
+/// One part of a reply that answers several customer messages about different
+/// things: its own bubble, quoting the message it answers (<see cref="ReplyTo"/>;
+/// null = an unquoted part). The model writes a part by starting it on a new line
+/// with the <c>[msg &lt;id&gt;]</c> it was shown (<see cref="HumanTurn.SplitParts"/>).
+/// Travels on <see cref="AiReplyResult.Parts"/> and, through the draft context, as
+/// <c>parts: [{text, reply_to}]</c> — used at delivery only while the draft's text is
+/// still exactly those parts (a person's edit sends it as one message).
+/// </summary>
+public sealed record AiReplyPart(string Text, int? ReplyTo)
+{
+    /// <summary>A reply is at most this many parts (more are folded into the last).</summary>
+    public const int Max = 4;
+
+    /// <summary>The draft text of a reply in parts (what the customer reads, top to bottom).</summary>
+    public static string Join(IEnumerable<AiReplyPart> parts) =>
+        string.Join("\n\n", parts.Select(p => p.Text.Trim()).Where(t => t.Length > 0));
+
+    public static List<Dictionary<string, object?>> ToMeta(IEnumerable<AiReplyPart> parts) =>
+        parts.Select(p => new Dictionary<string, object?> { ["text"] = p.Text, ["reply_to"] = p.ReplyTo }).ToList();
+
+    /// <summary>
+    /// The parts a draft / job context carries, when <paramref name="content"/> is still
+    /// exactly them (else none: the reply goes as before, one message).
+    /// </summary>
+    public static List<AiReplyPart> From(Dictionary<string, object?>? ctx, string? content)
+    {
+        var list = new List<AiReplyPart>();
+        if (ctx == null) return list;
+        try
+        {
+            foreach (var item in AiGate.Items(ctx, "parts"))
+            {
+                var text = AiGate.Str(item, "text", "").Trim();
+                if (text.Length == 0) continue;
+                list.Add(new AiReplyPart(text, AiGate.Num(item, "reply_to") is double d && d > 0 ? (int)d : null));
+            }
+        }
+        catch { return new List<AiReplyPart>(); }
+        return list.Count >= 2 && Join(list) == (content ?? "").Trim() ? list : new List<AiReplyPart>();
+    }
+}
+
+/// <summary>
 /// The human-like touches of an AI reply (settings <c>ai_emoji_style</c>,
 /// <c>ai_reactions</c>, <c>ai_quote_replies</c> — <see cref="AiBehaviourSettings"/>):
 ///  * an emoji STYLE line in the system prompt, below the hard rules, house rules
@@ -48,7 +91,10 @@ public sealed record AiReaction(int MessageId, string Emoji)
 ///    alone, with no text;
 ///  * <c>quote_message(message_id)</c>: the reply's first bubble quotes that
 ///    customer message (WhatsApp / Telegram), when the turn held several messages
-///    or the answer refers to an older one.
+///    or the answer refers to an older one;
+///  * a reply in PARTS (<see cref="AiReplyPart"/>): when the customer's messages are
+///    about different things, each part starts with the <c>[msg id]</c> it answers
+///    and goes out as its own bubble quoting that message.
 /// The model sees ids next to the customer's messages (<see cref="Tag"/>). Chat
 /// replies only — follow-ups and flow messages get the style line, voice calls nothing.
 /// </summary>
@@ -167,7 +213,8 @@ public sealed class HumanTurn
         var lines = new List<string>
         {
             "MESSAGE IDS: each customer message below starts with its id, like [msg 123] — the id is not part of "
-            + "what they wrote. Never write ids in your reply.",
+            + "what they wrote. Never write ids in your reply"
+            + (QuotesOn && Current.Count > 1 ? ", except to start a part as described under ANSWERING IN PARTS." : "."),
         };
         if (ReactionsOn && Current.Count > 0)
             lines.Add($"REACTIONS: you may react to the customer's latest message(s) with one emoji by calling "
@@ -178,7 +225,63 @@ public sealed class HumanTurn
             lines.Add($"QUOTING: when the customer sent several messages since your last reply, or your answer refers "
                       + $"to an older message of theirs, call {HumanTouch.QuoteTool} with the id of the message your "
                       + "reply answers. Don't quote in a simple one-message exchange.");
+        if (QuotesOn && Current.Count > 1)
+            lines.Add("ANSWERING IN PARTS: when the customer's messages since your last reply are about DIFFERENT "
+                      + "things, answer each in its own short part, in order: start each part on a new line with the "
+                      + "[msg <id>] of the message it answers, e.g.\n[msg 101] Noted, I'll leave the invoice aside.\n"
+                      + "[msg 102] Sure — 3:45 PM is free, shall I move it?\nEach part is sent as its own message "
+                      + $"quoting that message (at most {AiReplyPart.Max}). Messages about the same thing get ONE part; "
+                      + "a single topic needs no [msg] at all.");
         return string.Join("\n", lines);
+    }
+
+    // a part starts at the beginning of a line with the id the model was shown
+    private static readonly Regex PartStart = new(@"^[ \t]*\[msg\s*#?(\d+)\][ \t]*:?[ \t]*",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+
+    /// <summary>
+    /// The model's reply cut into parts at the <c>[msg id]</c> that starts a line, each
+    /// quoting that customer message (an id it was never shown quotes nothing; a part
+    /// with the same id as the one before joins it; more than <see cref="AiReplyPart.Max"/>
+    /// fold into the last). Null when quotes are off or there are fewer than two parts —
+    /// one marked part then just quotes, like <c>quote_message</c>. The texts are RAW:
+    /// the caller renders and formats each.
+    /// </summary>
+    public List<AiReplyPart>? SplitParts(string raw)
+    {
+        if (!QuotesOn || string.IsNullOrWhiteSpace(raw)) return null;
+        var marks = PartStart.Matches(raw);
+        if (marks.Count == 0) return null;
+        var parts = new List<AiReplyPart>();
+        void Add(string text, int? id)
+        {
+            text = text.Trim();
+            if (text.Length == 0) return;
+            if (parts.Count > 0 && parts[^1].ReplyTo == id && id != null)
+                parts[^1] = parts[^1] with { Text = parts[^1].Text + "\n\n" + text };
+            else parts.Add(new AiReplyPart(text, id));
+        }
+        Add(raw[..marks[0].Index], null);
+        for (var i = 0; i < marks.Count; i++)
+        {
+            var from = marks[i].Index + marks[i].Length;
+            var to = i + 1 < marks.Count ? marks[i + 1].Index : raw.Length;
+            var id = int.TryParse(marks[i].Groups[1].Value, out var n) && Known.ContainsKey(n) ? n : (int?)null;
+            Add(raw[from..to], id);
+        }
+        if (parts.Count > AiReplyPart.Max)
+            parts = parts.Take(AiReplyPart.Max - 1)
+                .Append(parts[AiReplyPart.Max - 1] with
+                {
+                    Text = string.Join("\n\n", parts.Skip(AiReplyPart.Max - 1).Select(p => p.Text)),
+                }).ToList();
+        if (parts.Count(p => p.ReplyTo != null) == 0) return null;
+        if (parts.Count < 2)
+        {
+            ReplyTo ??= parts[0].ReplyTo;
+            return null;
+        }
+        return parts;
     }
 
     public (string Result, bool Ok) Execute(LlmToolCall call)
