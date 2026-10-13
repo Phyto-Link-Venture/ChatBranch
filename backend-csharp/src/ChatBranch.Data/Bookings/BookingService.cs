@@ -279,8 +279,9 @@ public class BookingService
                 + "why and the nearest free times. A time missing from a sample may still be free — never tell the "
                 + "customer a time is unavailable unless you checked that exact time or the book tool refused it. "
                 + "Every result is the live calendar, so never call earlier results made up or unchecked. Call this "
-                + "BEFORE suggesting any time and offer the customer two or three of the returned options, each with "
-                + "weekday, date, time and timezone — never invent, guess or round a time. Dates are YYYY-MM-DD in "
+                + "BEFORE suggesting any time and offer the customer two or three of the returned options the short way a "
+                + "person would (weekday, date and time, e.g. \"Wed 14 Oct, 10–11am\" — the timezone only when the "
+                + "customer may be in another one) — never invent, guess or round a time. Dates are YYYY-MM-DD in "
                 + "the business's local time: work out 'today', 'tomorrow' or 'next Tuesday' from the current date "
                 + $"in the system prompt. Bookings are possible up to {cfg.MaxDaysAhead} days ahead." + lengthHowTo
                 + (reschedule
@@ -302,12 +303,12 @@ public class BookingService
                 + $"returned by {b}_availability. Call it ONLY after the customer clearly chose that specific time — "
                 + "never on your own pick, never for 'any time' and never while they are still deciding. "
                 + $"`start` is the local start time as YYYY-MM-DDTHH:mm ({tzId}). The time is held for them and "
-                + "confirmed when your reply is sent: in that reply, confirm the booking and restate the weekday, "
-                + "date, time and timezone exactly as this tool returns them. If it fails, apologise and offer the "
+                + "confirmed when your reply is sent: in that reply, confirm it once, briefly, with the day and time "
+                + "exactly as this tool returns them. If it fails, apologise and offer the "
                 + "alternatives it returns."
                 + (cfg.VariableLength
                     ? " Pass the length the customer chose as duration_minutes (the same one you checked availability "
-                      + "with) and restate it as a time range when you confirm, e.g. \"Mon 12 Oct, 2:00–3:00 PM\"."
+                      + "with) and give it as a time range when you confirm, e.g. \"Mon 12 Oct, 2–3pm\"."
                     : ""),
                 Schema("{\"type\":\"object\",\"properties\":{"
                        + "\"start\":{\"type\":\"string\",\"description\":\"Chosen start, YYYY-MM-DDTHH:mm in the calendar's local time, exactly as returned by the availability tool\"},"
@@ -444,11 +445,11 @@ public class BookingService
             payload["note"] = (offered.Count == 0
                 ? $"No free times between {r.From:yyyy-MM-dd} and {r.To:yyyy-MM-dd}. Try other dates (up to {last:yyyy-MM-dd}) — don't offer a time that wasn't returned."
                 : complete
-                    ? "These are all the free times in the range. Offer 2–3 of them, with weekday, date, time and timezone."
+                    ? "These are all the free times in the range. Offer 2–3 of them, with weekday, date and time."
                     : "A sample of the free times, not all of them. A time missing from this list may still be free. Never tell "
                       + "the customer a time is unavailable unless you checked that exact time (call this tool with `time`) or the "
                       + "book tool refused it. To list every free time on one day, call again with from_date = to_date. Offer 2–3 "
-                      + "of these, with weekday, date, time and timezone.")
+                      + "of these, with weekday, date and time.")
                 + IgnoreNote(ignore) + SampleNote;
             json = JsonSerializer.Serialize(payload);
             if (json.Length <= ResultCap || offered.Count == 0) break;
@@ -753,8 +754,9 @@ public class BookingService
         }
         var slotLabel = SlotLabel(slot, cfg.VariableLength);
         var restate = (cfg.VariableLength
-            ? "In your reply, confirm the booking and restate the weekday, date, time range (start–end) and timezone."
-            : "In your reply, confirm the booking and restate the weekday, date, time and timezone.")
+            ? "In your reply, confirm the booking once, briefly, with its day and time range (start–end)."
+            : "In your reply, confirm the booking once, briefly, with its day and time.")
+            + " No timezone unless the customer may be in another one, and don't repeat the time in later messages."
             + MeetingInstruction(cfg);
 
         if (session.Preview)
@@ -917,8 +919,8 @@ public class BookingService
             ["end"] = BookingAvailability.LocalIso(BookingAvailability.ToLocal(row.EndUtc, TimeZoneFor(row.Timezone, tz))),
             ["label"] = BookingAvailability.StartLabel(local),
             ["timezone"] = row.Timezone,
-            ["instructions"] = "The cancellation takes effect when your reply is sent. Confirm to the customer that "
-                               + "this appointment is cancelled, restating its weekday, date and time.",
+            ["instructions"] = "The cancellation takes effect when your reply is sent. Tell the customer briefly "
+                               + "that this appointment (its day and time) is cancelled.",
         };
         if (session.BookAttempted && session.BookedId == null)
         {
@@ -1486,7 +1488,7 @@ public class BookingService
     /// it (the real one, made with the booking) — the model never writes a link of its own.</summary>
     private static string MeetingInstruction(CalendarAppConfig cfg) => cfg.Meeting.Length == 0 ? ""
         : $" The {MeetingKinds.Label(cfg.Meeting)} link is sent to the customer automatically, in its own message "
-          + "right after your reply — you may say it is on its way, but never write a meeting link yourself.";
+          + "right after your reply — don't announce it, and never write a meeting link yourself.";
 
     // =========================================================================
     // the meeting link, sent to the customer after the reply that booked
@@ -1541,10 +1543,14 @@ public class BookingService
         catch { /* a stamp is a side effect */ }
     }
 
-    /// <summary>"Here's the link to join your appointment on Tue 14 Oct, 3:00–3:30 PM: https://…".</summary>
+    /// <summary>"Here's the Google Meet link: https://…" — the reply right before it already said the
+    /// time, so the link message doesn't repeat it (a skill's own meeting_message may use {time}).</summary>
     public static string MeetingMessage(Booking b, CalendarAppConfig cfg, Contact? c)
     {
         var time = LabelOf(b);
+        var provider = b.MeetingProvider.Length > 0 ? b.MeetingProvider : cfg.Meeting;
+        var kind = MeetingKinds.Label(provider);
+        var named = provider is MeetingKinds.Zoom or MeetingKinds.GoogleMeet;
         if (cfg.MeetingMessage.Trim().Length > 0)
             return Render(cfg.MeetingMessage, new Dictionary<string, string>
             {
@@ -1552,9 +1558,9 @@ public class BookingService
             });
         return (c?.Language ?? "").Trim().ToLowerInvariant() switch
         {
-            "ms" => $"Ini pautan untuk menyertai temu janji anda pada {time}: {b.MeetingUrl}",
-            "zh" => $"这是您 {time} 预约的会议链接：{b.MeetingUrl}",
-            _ => $"Here's the link to join your appointment on {time}: {b.MeetingUrl}",
+            "ms" => $"Ini pautan {(named ? kind : "mesyuarat")}: {b.MeetingUrl}",
+            "zh" => $"这是{(named ? kind + " " : "")}会议链接：{b.MeetingUrl}",
+            _ => $"Here's the {kind} link: {b.MeetingUrl}",
         };
     }
 

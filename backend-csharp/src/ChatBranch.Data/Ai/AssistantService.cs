@@ -137,7 +137,8 @@ public partial class AssistantService
         "The customer may raise several things in one message or across several messages since your last reply. "
         + "Address every one, in order, in one reply. If you can't do one of them (needs a person, a tool refused), "
         + "say so for that item only and still answer the rest. When their messages disagree (they changed a time "
-        + "or changed their mind), the latest message wins.";
+        + "or changed their mind), the latest message wins. Don't repeat what you already told them earlier in the "
+        + "chat (a time, an apology, something you couldn't find) unless they ask again.";
 
     private string SafeEmojiStyle(int? entityId)
     {
@@ -283,14 +284,14 @@ public partial class AssistantService
         if (cfg.VariableLength)
             lines.Add("  How long: if the customer hasn't said how long they want, ask before looking for times; pass "
                       + $"that length as duration_minutes to {b}_availability and {b}_book, and confirm with the time "
-                      + "range (e.g. \"Mon 12 Oct, 2:00–3:00 PM\"). One booking covers the whole length.");
+                      + "range (e.g. \"Mon 12 Oct, 2–3pm\"). One booking covers the whole length.");
         if (cfg.Allows("book"))
             lines.Add($"  To book: 1) call {b}_availability for the day(s) the customer wants — work out \"today\", "
-                      + "\"tomorrow\" or a weekday from the current date; 2) offer two or three of the returned times, "
-                      + "each with weekday, date, time and timezone; 3) wait until the customer picks ONE specific time "
+                      + "\"tomorrow\" or a weekday from the current date; 2) offer two or three of the returned times "
+                      + "the short way a person would (\"Wed 14 Oct, 10–11am\"); 3) wait until the customer picks ONE specific time "
                       + "(never book on your own pick, on \"any time\", or while they are still deciding); 4) call "
-                      + $"{b}_book with exactly that start; 5) reply confirming the booking, restating the weekday, date, "
-                      + $"time and timezone. Never say a time is booked unless {b}_book returned ok.");
+                      + $"{b}_book with exactly that start; 5) confirm it once, briefly, like a person "
+                      + $"(\"Done, see you Wed 14 Oct, 10am!\"). Never say a time is booked unless {b}_book returned ok.");
         else if (cfg.Allows("availability"))
             lines.Add($"  Call {b}_availability before mentioning any free time; you cannot book — a teammate confirms bookings.");
         if (cfg.Allows("cancel"))
@@ -305,9 +306,11 @@ public partial class AssistantService
                       + ".");
         if (cfg.Meeting.Length > 0)
             lines.Add($"  Every booking comes with a {ChatBranch.Data.Bookings.MeetingKinds.Label(cfg.Meeting)} meeting: "
-                      + "its link is sent to the customer automatically right after the reply that books — never write "
-                      + $"or guess a meeting link. If they ask for the link of an existing booking, {b}_my_bookings "
+                      + "its link is sent to the customer automatically right after the reply that books — don't "
+                      + $"announce it, and never write or guess a meeting link. If they ask for the link of an existing booking, {b}_my_bookings "
                       + "returns it (meeting_link); give exactly that one.");
+        lines.Add($"  Say the timezone ({tz.Id}) only when the customer may be in another one. Once a booking is "
+                  + "confirmed, don't repeat its time in later messages unless the customer asks or it changes.");
         lines.Add("  If a calendar tool returns ok:false, follow its advice; if the calendar is unavailable, tell the "
                   + "customer a teammate will confirm the time — never invent or promise a time.");
         return string.Join("\n", lines);

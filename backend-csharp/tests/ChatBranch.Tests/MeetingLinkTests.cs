@@ -42,7 +42,7 @@ public class MeetingLinkTests
         r.Messages(Phone).Where(m => !m.Private && m.Direction == MessageDirection.Out).ToList();
 
     private static string LinkMessage(Booking b) =>
-        $"Here's the link to join your appointment on {BookingService.LabelOf(b)}: {b.MeetingUrl}";
+        $"Here's the {MeetingKinds.Label(b.MeetingProvider)} link: {b.MeetingUrl}";
 
     [Fact]
     public void A_zoom_booking_gets_its_own_meeting_and_the_link_follows_the_confirmation()
@@ -155,11 +155,14 @@ public class MeetingLinkTests
             StartUtc = BookingRig.Kul(13, 10), EndUtc = BookingRig.Kul(13, 10, 30),
         };
         var cfg = new CalendarAppConfig();
-        Assert.Equal("Ini pautan untuk menyertai temu janji anda pada Tue 13 Oct, 10:00–10:30 AM: https://meet.example.com/room",
+        // the reply right before it already said the time — the link message doesn't repeat it
+        Assert.Equal("Ini pautan mesyuarat: https://meet.example.com/room",
             BookingService.MeetingMessage(b, cfg, new Contact { Language = "ms" }));
-        Assert.Equal("这是您 Tue 13 Oct, 10:00–10:30 AM 预约的会议链接：https://meet.example.com/room",
+        Assert.Equal("这是会议链接：https://meet.example.com/room",
             BookingService.MeetingMessage(b, cfg, new Contact { Language = "zh" }));
-        Assert.StartsWith("Here's the link", BookingService.MeetingMessage(b, cfg, null));
+        Assert.Equal("Here's the meeting link: https://meet.example.com/room", BookingService.MeetingMessage(b, cfg, null));
+        b.MeetingProvider = MeetingKinds.GoogleMeet;
+        Assert.Equal("Here's the Google Meet link: https://meet.example.com/room", BookingService.MeetingMessage(b, cfg, null));
     }
 
     [Fact]
