@@ -148,12 +148,26 @@ public class AiResponder
 
             var c = await _composer.ComposeReplyAsync(thread, ct);
             if (string.IsNullOrWhiteSpace(c.Text) && !c.HasReaction)
-                return Out(AiGateStatus.Empty, "The AI produced no reply.");
+            {
+                // never leave the customer in silence: a person picks it up, and the AI
+                // stays on so their next message is still answered
+                Handover.Mark(_db, thread, HandoverKinds.LowConfidence,
+                    "The AI could not write a reply to the customer's last message "
+                    + "(it returned no text). Please answer them.", "ai", standDown: false);
+                return Out(AiGateStatus.Empty, "The AI produced no reply — handed over to a person.");
+            }
             if (jobId is int jid) c.Meta["job_id"] = jid;
             return _gate.Submit(new AiSubmission(thread, AiDraftKind.Reply, c.Text, c.Meta, accountId));
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // shutting down is not the AI failing — no handover for it
+            return Out(AiGateStatus.Empty, "AI reply cancelled.");
+        }
         catch (Exception ex)
         {
+            Handover.Mark(_db, thread, HandoverKinds.LowConfidence,
+                $"The AI reply failed ({ex.Message}). Please answer the customer.", "ai", standDown: false);
             return Out(AiGateStatus.Empty, $"AI reply failed: {ex.Message}");
         }
     }

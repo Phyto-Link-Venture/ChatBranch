@@ -20,7 +20,7 @@ public static class ToolLoop
         List<LlmMessage> messages, IReadOnlyList<LlmTool> tools,
         Func<LlmToolCall, CancellationToken, Task<(string result, bool ok)>> execute,
         int maxRounds = 5, string? model = null, double temperature = 0.4,
-        CancellationToken ct = default)
+        CancellationToken ct = default, string? lastRoundNote = null)
     {
         var steps = new List<Step>();
         int pin = 0, pout = 0;
@@ -30,6 +30,9 @@ public static class ToolLoop
         {
             // Last round: withhold tools so the model must answer in text.
             var offer = round == maxRounds - 1 ? null : tools;
+            // …and say so: a model that still wants a tool otherwise answers with nothing at all
+            if (offer == null && steps.Count > 0 && !string.IsNullOrWhiteSpace(lastRoundNote))
+                messages.Add(new LlmMessage("system", lastRoundNote));
             var r = await llm.ChatAsync(system, messages, offer?.Count > 0 ? offer : null, model, temperature, ct);
             pin += r.PromptTokens;
             pout += r.CompletionTokens;

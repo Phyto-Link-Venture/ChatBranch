@@ -254,6 +254,79 @@ public class AiSilenceTests
         Assert.Contains("the latest message wins", call.System);
     }
 
+    // ---- an empty reply is never silence (the Phytolink reschedule, 13 Oct) ----------------
+
+    /// <summary>
+    /// The incident: a reschedule needs my_bookings → availability → book (refused) → cancel +
+    /// book, the round budget ran out, and in the tool-less last round the model answered with
+    /// nothing — no reply, no handover, nobody knew the customer was waiting.
+    /// </summary>
+    [Fact]
+    public void A_model_that_never_answers_hands_the_chat_to_a_person_and_the_ai_stays_on()
+    {
+        using var r = new BookingRig();
+        var c = r.Contact();
+        r.Skill();
+        AddBooking(r, c, 16, 0, 60);
+        r.Llm.Script = (_, tools) => tools is { Count: > 0 }
+            ? ToolScriptLlm.Calls(("calendar_my_bookings", "{}"))
+            : ToolScriptLlm.Says("");
+
+        r.Say(Phone, "Yeah help me modify it to 430-5");
+
+        Assert.DoesNotContain(r.Messages(Phone), m => m.Source == MessageSource.Ai && !m.Private);
+        var thread = r.T.Fresh().Threads.Single(t => t.Key == Phone);
+        Assert.NotNull(thread.HandoverAt);
+        Assert.Null(thread.HandoverResolvedAt);
+        Assert.Equal(HandoverKinds.LowConfidence, thread.HandoverKind);
+        Assert.Contains("could not write a reply", thread.HandoverReason);
+        Assert.True(AiOn(r));   // the customer's next message is still answered
+        Assert.Contains(r.Messages(Phone), m => m.Private && m.Text.Contains("handed this conversation to a person"));
+
+        // six rounds; the last one offered no tools and said why
+        Assert.Equal(6, r.Llm.Seen.Count);
+        Assert.Empty(r.Llm.Seen[^1].Tools);
+        Assert.Equal(AssistantService.LastRoundNote, r.Llm.Seen[^1].Messages.Last().Content);
+
+        // the usage row says where it stopped, for the next investigation
+        var last = r.T.Fresh().LlmUsage.OrderByDescending(u => u.Id).First();
+        Assert.Equal("empty", last.Detail["action"]?.ToString());
+        Assert.Contains("Last tool: calendar_my_bookings", last.Detail["reason"]?.ToString());
+    }
+
+    [Fact]
+    public void Told_the_tools_are_gone_the_model_answers_honestly_and_nothing_is_handed_over()
+    {
+        using var r = new BookingRig();
+        var c = r.Contact();
+        r.Skill();
+        AddBooking(r, c, 16, 0, 60);
+        const string honest = "I couldn't move your 4:00 PM booking yet — a teammate will confirm 4:30 PM with you.";
+        r.Llm.Script = (msgs, tools) => tools is { Count: > 0 }
+            ? ToolScriptLlm.Calls(("calendar_my_bookings", "{}"))
+            : ToolScriptLlm.Says(msgs.Last().Content == AssistantService.LastRoundNote ? honest : "");
+
+        r.Say(Phone, "Yeah help me modify it to 430-5");
+
+        Assert.Contains(r.Messages(Phone), m => m.Source == MessageSource.Ai && !m.Private && m.Text == honest);
+        Assert.Null(r.T.Fresh().Threads.Single(t => t.Key == Phone).HandoverAt);
+    }
+
+    [Fact]
+    public void A_failing_model_hands_over_too()
+    {
+        using var r = new BookingRig();
+        r.Contact();
+        r.Llm.Script = (_, _) => throw new HttpRequestException("provider down");
+
+        r.Say(Phone, "Hello?");
+
+        var thread = r.T.Fresh().Threads.Single(t => t.Key == Phone);
+        Assert.NotNull(thread.HandoverAt);
+        Assert.Equal(HandoverKinds.LowConfidence, thread.HandoverKind);
+        Assert.True(AiOn(r));
+    }
+
     // ---- "Let the AI continue" answers the waiting message --------------------------------
 
     /// <summary>The incident's state: a person had the chat (AI off) and the customer wrote meanwhile.</summary>

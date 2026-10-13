@@ -80,6 +80,30 @@ public class ToolLoopTests
     }
 
     [Fact]
+    public async Task The_last_round_note_is_sent_only_when_asked_for_and_only_after_a_tool_ran()
+    {
+        const string note = "Tools are gone — answer now.";
+        var withNote = new ScriptedLlm(Calls(new LlmToolCall("a", "current_time", "{}")), Says("done"));
+        await ToolLoop.RunAsync(withNote, "sys", new List<LlmMessage> { new("user", "hi") }, new[] { Clock },
+            (_, _) => Task.FromResult(("10:00", true)), maxRounds: 2, lastRoundNote: note);
+        Assert.DoesNotContain(withNote.Seen[0], m => m.Content == note);
+        Assert.Equal(note, withNote.Seen[1].Last().Content);
+        Assert.Equal("system", withNote.Seen[1].Last().Role);
+
+        // the operator assistant and AI tasks pass none: nothing is added
+        var without = new ScriptedLlm(Calls(new LlmToolCall("a", "current_time", "{}")), Says("done"));
+        await ToolLoop.RunAsync(without, "sys", new List<LlmMessage> { new("user", "hi") }, new[] { Clock },
+            (_, _) => Task.FromResult(("10:00", true)), maxRounds: 2);
+        Assert.Equal("tool", without.Seen[1].Last().Role);
+
+        // a one-round loop (no tool ran) has nothing to own up to
+        var oneRound = new ScriptedLlm(Says("hello"));
+        await ToolLoop.RunAsync(oneRound, "sys", new List<LlmMessage> { new("user", "hi") }, new[] { Clock },
+            (_, _) => Task.FromResult(("x", true)), maxRounds: 1, lastRoundNote: note);
+        Assert.DoesNotContain(oneRound.Seen[0], m => m.Content == note);
+    }
+
+    [Fact]
     public async Task Sandbox_client_never_asks_for_tools()
     {
         var outcome = await ToolLoop.RunAsync(new SandboxLlmClient(), "sys",

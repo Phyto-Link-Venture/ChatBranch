@@ -1431,7 +1431,12 @@ When you fix one of these, update this table, `README.md` and
   /api/contacts/identify/{channel}/{key}/contact` →
   `IdentityRequestService.ResolveByHand`) clears it — the plain `…/link` route
   does not. Sites: the AI gate (refused drafts, "a
-  person will help you" replies, send-time blocks, booking failures), the
+  person will help you" replies, send-time blocks, booking failures), **an AI
+  reply that came back EMPTY or threw** (`AiResponder.RespondAsync` → kind
+  `low_confidence`, `standDown: false` — never silence; the chat reply's tool loop
+  has 6 rounds and its tool-less last round carries `AssistantService.LastRoundNote`
+  "Tools are no longer available. Reply … honestly", and an empty outcome's usage
+  `reason` keeps the raw text + the last tool; tests in `AiSilenceTests`), the
   assistant's handover outcome, the flow Hand-over step, the automation
   `hand_over` action, the identity exchange and `POST
   /api/inbox/threads/{channel}/{key}/handover` `{take|continue|flag}`
@@ -2325,7 +2330,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **1177 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **1181 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

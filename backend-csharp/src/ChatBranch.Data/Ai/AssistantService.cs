@@ -30,7 +30,13 @@ namespace ChatBranch.Data.Ai;
 public partial class AssistantService
 {
     public const int MaxCheckRetries = 2;
-    private const int MaxToolRounds = 4;
+    // a reschedule alone is my_bookings → availability → book (refused) → cancel + book, then words
+    private const int MaxToolRounds = 6;
+
+    /// <summary>The tool loop's last round withholds tools; this tells the model to answer anyway.</summary>
+    public const string LastRoundNote =
+        "Tools are no longer available. Reply to the customer now in plain text, honestly saying "
+        + "what was and was not done (e.g. the booking could not be changed yet).";
 
     private readonly AppDbContext _db;
     private readonly ScopingService _scoping;
@@ -751,7 +757,7 @@ public partial class AssistantService
                 (call, token) => human != null && human.Handles(call.Name)
                     ? Task.FromResult(human.Execute(call))
                     : _skills.ExecuteToolAsync(toolSet, call, ctx, token),
-                maxRounds: MaxToolRounds, ct: ct);
+                maxRounds: MaxToolRounds, ct: ct, lastRoundNote: LastRoundNote);
             tools.AddRange(outcome.Steps.Select(s => new AiToolCall(s.Tool, Trim(s.ArgumentsJson, 500),
                 Trim(s.Result, 500), s.Ok)));
             foreach (var step in outcome.Steps.Where(s => s.Ok))
@@ -787,6 +793,12 @@ public partial class AssistantService
                 {
                     action = AiActions.Empty;
                     reason = outcome.RoundsExhausted ? "The model kept calling tools and never answered." : "The model returned nothing.";
+                    // what it DID say (tags and markup stripped it to nothing) and where it stopped —
+                    // lands in the usage row's detail for the next investigation
+                    var raw = (outcome.Text ?? "").Trim();
+                    if (raw.Length > 0) reason += " Raw (stripped to empty): " + Trim(raw, 300);
+                    var lastTool = outcome.Steps.LastOrDefault();
+                    if (lastTool != null) reason += $" Last tool: {lastTool.Tool} → {Trim(lastTool.Result, 300)}";
                 }
                 break;
             }
@@ -1079,7 +1091,8 @@ public partial class AssistantService
                     {
                         ["name"] = c.Name, ["ok"] = c.Ok, ["attempt"] = c.Attempt,
                     }).ToList();
-                    if (result.Reason.Length > 0) detail["reason"] = Trim(result.Reason, 300);
+                    // room for an empty reply's raw text + last tool (300 each)
+                    if (result.Reason.Length > 0) detail["reason"] = Trim(result.Reason, 800);
                 }
                 _db.LlmUsage.Add(new LlmUsage
                 {
