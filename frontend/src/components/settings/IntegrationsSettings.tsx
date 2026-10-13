@@ -134,7 +134,7 @@ function ScopeChip({ a }: { a: Account }) {
 }
 
 /** Providers with a real brand mark (ChannelLogo); anything else gets a plug. */
-const BRANDED = new Set(['google_calendar', 'google_drive', 'gmail', 'google_sheets', 'shopify', 'stripe'])
+const BRANDED = new Set(['google_calendar', 'google_drive', 'gmail', 'google_sheets', 'shopify', 'stripe', 'zoom'])
 
 function ProviderLogo({ id, size }: { id: string; size: number }) {
   if (BRANDED.has(id)) return <ChannelLogo channel={id} size={size} variant="tile" title="" />
