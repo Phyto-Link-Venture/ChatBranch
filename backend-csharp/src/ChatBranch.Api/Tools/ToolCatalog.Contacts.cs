@@ -139,15 +139,19 @@ public static partial class ToolCatalog
             new[] { A.Id("contact"), A.Limit(50, 500), A.Str("company", "Only this company's conversations (id or slug).") });
 
         yield return T(g, "contacts_get_timeline", "Get a communications timeline",
-            "The communications timeline for a phone number or email: messages, calls and business records in " +
-            "date order, with the stored summary.", "GET", "/api/messaging/timeline", viewOrChats,
-            new[] { A.Str("phone", "E.164 phone number."), A.Str("email", "Email address."), A.Limit(50, 500) });
+            "The communications timeline of a contact (contact_id: that contact's own conversations and calls — " +
+            "the same person may be a separate contact in another company with the same phone) or of a phone " +
+            "number / email (every conversation on it): messages and calls in date order, with the stored summary.",
+            "GET", "/api/messaging/timeline", viewOrChats,
+            new[] { A.Int("contact_id", "The contact id (preferred)."), A.Str("phone", "E.164 phone number."),
+                A.Str("email", "Email address."), A.Limit(50, 500) });
 
         yield return T(g, "contacts_summarize_timeline", "Summarize a contact's history",
-            "An AI summary of everything with this phone/email (messages, calls, records): open issues, " +
-            "follow-ups, sentiment. Uses the configured model; falls back to a heuristic summary.",
+            "An AI summary of everything with this contact (contact_id) or phone/email (messages, calls, records): " +
+            "open issues, follow-ups, sentiment. Uses the configured model; falls back to a heuristic summary.",
             "POST", "/api/messaging/timeline/summary", viewOrChats,
-            new[] { A.Str("phone", "E.164 phone number."), A.Str("email", "Email address.") },
+            new[] { A.Int("contact_id", "The contact id (preferred)."), A.Str("phone", "E.164 phone number."),
+                A.Str("email", "Email address.") },
             write: false, outside: true);
 
         yield return T(g, "contacts_sync_records", "Sync business records",

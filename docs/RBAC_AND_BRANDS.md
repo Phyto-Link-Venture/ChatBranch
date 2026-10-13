@@ -383,7 +383,9 @@ Around it:
   `/api/bookings?contact_id=`, the timeline (`/api/messaging/timeline`) and
   its AI summary (a cached summary is served only to a caller who sees every
   conversation and call it was written from; a new one is written from what the
-  caller sees), the channel hub (`/api/contacts/{id}/channels`), documents
+  caller sees; with `contact_id` — the contact page — only that contact's own
+  conversations and calls, so two companies' contacts with one phone never show
+  each other's log), the channel hub (`/api/contacts/{id}/channels`), documents
   (`/api/documents`) and search hits list only conversations in the caller's
   inbox scope, calls placed for their entities (`crm_callrecord.entity_id`,
   `Endpoints/CallScope.cs`; a call with no entity only for unbound viewers) and

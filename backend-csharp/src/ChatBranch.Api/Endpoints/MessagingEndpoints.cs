@@ -925,24 +925,35 @@ public static class MessagingEndpoints
             return Results.Ok(new { stats });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("analytics.view");
 
-        // GET /api/messaging/timeline?phone=&email=&limit= — every communication
-        // across voice/WhatsApp/email/social, oldest first, plus the cached AI
-        // summary. `total` is ALWAYS the full count so the contact page knows
-        // how much more there is behind its preview.
-        app.MapGet("/api/messaging/timeline", async (string? phone, string? email, int? limit,
+        // GET /api/messaging/timeline?contact_id=|phone=&email=&limit= — every
+        // communication across voice/WhatsApp/email/social, oldest first, plus the
+        // cached AI summary. `total` is ALWAYS the full count so the contact page
+        // knows how much more there is behind its preview. `contact_id` (the contact
+        // page) = THAT contact's own history: one person may be a separate contact in
+        // two companies with the same phone, and neither page shows the other's chats.
+        app.MapGet("/api/messaging/timeline", async (int? contact_id, string? phone, string? email, int? limit,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             phone = (phone ?? "").Trim();
             email = (email ?? "").Trim();
-            if (phone.Length == 0 && email.Length == 0)
-                return Results.Json(new { detail = "phone or email query param required." },
+            Contact? person = null;
+            if (contact_id is int cid)
+            {
+                person = await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
+                    .FirstOrDefaultAsync(c => c.Id == cid);
+                if (person == null) return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
+            }
+            else if (phone.Length == 0 && email.Length == 0)
+                return Results.Json(new { detail = "contact_id, phone or email query param required." },
                     statusCode: 400);
 
             // only what the CALLER may see: their conversations, the calls placed for their
             // entities, a contact of their scope (Fix 3 of the 2026-10-11 incident)
-            var seen = CollectEvents(db, phone, email, ThreadFilter(db, sc, me),
-                rows => CallScope.Visible(db, sc, me, rows),
-                ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc));
+            var seen = person != null
+                ? CollectForContact(db, sc, person, ThreadFilter(db, sc, me), rows => CallScope.Visible(db, sc, me, rows))
+                : CollectEvents(db, phone, email, ThreadFilter(db, sc, me),
+                    rows => CallScope.Visible(db, sc, me, rows),
+                    ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc));
             var (events, contact) = (seen.Events, seen.Contact);
             if (contact != null && !await ContactVisibleAsync(db, sc, me, contact.Id))
                 return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
@@ -959,19 +970,30 @@ public static class MessagingEndpoints
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("contacts.view", "chats.view");
 
-        // POST /api/messaging/timeline/summary {name, phone?, email?, record?}
+        // POST /api/messaging/timeline/summary {contact_id? | name, phone?, email?, record?}
         // — (re)generate the AI case summary from the full cross-channel
-        // timeline. Without an AI key a deterministic heuristic summary is
-        // produced, so the feature still demos in sandbox.
+        // timeline (with contact_id: that contact's own, like the GET). Without an AI
+        // key a deterministic heuristic summary is produced, so the feature still
+        // demos in sandbox.
         app.MapPost("/api/messaging/timeline/summary", async (Dictionary<string, JsonElement>? body,
             AppDbContext db, ILlmClient llm, ScopingService sc, ClaimsPrincipal me, CancellationToken ct) =>
         {
             if (QuotaGuard.Refusal(db, sc, me) is { } quota) return quota;
             var phone = (Str(body, "phone") ?? "").Trim();
             var email = (Str(body, "email") ?? "").Trim();
-            if (phone.Length == 0 && email.Length == 0)
-                return Results.Json(new { detail = "phone or email required." }, statusCode: 400);
             var name = (Str(body, "name") ?? "").Trim();
+            Contact? person = null;
+            if (int.TryParse(Str(body, "contact_id"), out var cid))
+            {
+                person = await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
+                    .FirstOrDefaultAsync(c => c.Id == cid, ct);
+                if (person == null) return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
+                phone = person.Phone;
+                email = person.Email;
+                if (name.Length == 0) name = person.Name;
+            }
+            else if (phone.Length == 0 && email.Length == 0)
+                return Results.Json(new { detail = "contact_id, phone or email required." }, statusCode: 400);
 
             // The contact page posts {context: {record}}; Django reads a
             // top-level `record`. Accept both rather than silently dropping it.
@@ -982,9 +1004,11 @@ public static class MessagingEndpoints
                 context.TryGetProperty("record", out var rec) && rec.ValueKind != JsonValueKind.Null)
                 record = rec.ValueKind == JsonValueKind.String ? rec.GetString() ?? "" : rec.GetRawText();
 
-            var seen = CollectEvents(db, phone, email, ThreadFilter(db, sc, me),
-                rows => CallScope.Visible(db, sc, me, rows),
-                ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc));
+            var seen = person != null
+                ? CollectForContact(db, sc, person, ThreadFilter(db, sc, me), rows => CallScope.Visible(db, sc, me, rows))
+                : CollectEvents(db, phone, email, ThreadFilter(db, sc, me),
+                    rows => CallScope.Visible(db, sc, me, rows),
+                    ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc));
             var (events, contact) = (seen.Events, seen.Contact);
             if (contact != null && !await ContactVisibleAsync(db, sc, me, contact.Id))
                 return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
@@ -1027,42 +1051,30 @@ public static class MessagingEndpoints
                 var calls = db.CallRecords.AsNoTracking().ToList()
                     .Where(r => Digits(r.Phone) == digits).ToList();
                 if (visibleCalls != null) calls = visibleCalls(calls);
-                foreach (var c in calls) callIds.Add(c.CallId);
-                foreach (var c in calls)
-                {
-                    var outcome = string.IsNullOrEmpty(c.Outcome) ? "unclear" : c.Outcome;
-                    events.Add(new Dictionary<string, object?>
-                    {
-                        ["channel"] = "voice",
-                        ["dir"] = MessageDirection.Out,
-                        ["source"] = MessageSource.Ai,
-                        ["text"] = string.IsNullOrEmpty(c.Summary)
-                            ? $"Voice call — outcome: {outcome}." : c.Summary,
-                        ["ts"] = string.IsNullOrEmpty(c.EndedAt) ? c.StartedAt : c.EndedAt,
-                        ["extra"] = new Dictionary<string, object?>
-                        {
-                            ["outcome"] = outcome,
-                            ["followup_date"] = c.FollowupDate,
-                            ["needs_human"] = c.NeedsHuman,
-                            ["call_id"] = c.CallId,
-                        },
-                    });
-                }
+                AddCallEvents(events, calls, callIds);
             }
 
             // ---- identity: which CRM contact are we talking about? -----------
             // Stored phones are formatted ("+60 18-445 6677"), so the match is
             // on digits — done in memory because SQLite cannot strip them.
-            // (among the contacts the caller may see — one per company may share it)
+            // (among the contacts the caller may see — one per company may share it:
+            // then it is nobody's in particular, and no one contact's summary or
+            // linked chats are pulled in; the contact page asks by contact_id)
             var people = visibleContacts ?? db.Contacts.AsNoTracking();
+            var ambiguous = false;
             if (digits.Length > 0)
             {
                 var tail = digits.Length >= 9 ? digits[^9..] : digits;
-                contact = people.Where(c => c.Phone != "").ToList()
-                    .FirstOrDefault(c => Digits(c.Phone).EndsWith(tail));
+                var matches = people.Where(c => c.Phone != "").ToList()
+                    .Where(c => Digits(c.Phone).EndsWith(tail)).Take(2).ToList();
+                contact = matches.Count == 1 ? matches[0] : null;
+                ambiguous = matches.Count > 1;
             }
-            if (contact == null && email.Length > 0)
-                contact = people.FirstOrDefault(c => c.Email.ToLower() == email.ToLower());
+            if (contact == null && !ambiguous && email.Length > 0)
+            {
+                var matches = people.Where(c => c.Email.ToLower() == email.ToLower()).Take(2).ToList();
+                contact = matches.Count == 1 ? matches[0] : null;
+            }
 
             // ---- the threads that count --------------------------------------
             var threads = new List<Thread>();
@@ -1092,39 +1104,123 @@ public static class MessagingEndpoints
                              .Where(t => t.Channel == Channels.Email && t.Key == email).ToList())
                     Consider(t);
 
-            // ---- their messages (private notes stay OFF the timeline) --------
-            var ids = threads.Select(t => t.Id).ToList();
-            if (ids.Count > 0)
-            {
-                var byId = threads.ToDictionary(t => t.Id);
-                var rows = db.Messages.AsNoTracking()
-                    .Where(x => ids.Contains(x.ThreadId) && !x.Private)
-                    .OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).ToList();
-                foreach (var m in rows)
-                {
-                    var thread = byId[m.ThreadId];
-                    var e = new Dictionary<string, object?>
-                    {
-                        ["channel"] = thread.Channel,
-                        ["pk"] = m.Id, // the database id (AI feedback thumbs key on it)
-                        ["dir"] = m.Direction,
-                        ["source"] = m.Source,
-                        ["text"] = m.Text,
-                        ["ts"] = Iso(m.CreatedAt),
-                    };
-                    if (!string.IsNullOrEmpty(m.MediaPath))
-                        e["media"] = MediaStreamLinks.Payload(m, thread.Channel);
-                    events.Add(e);
-                }
-            }
-
-            events = events
-                .OrderBy(e => (string)(e["ts"] ?? ""), StringComparer.Ordinal)
-                .ToList();
+            AddMessageEvents(db, events, threads);
+            events = InOrder(events);
         }
         catch { /* a partial timeline beats a 500 on the contact page */ }
         return new TimelineSeen(events, contact, threadIds, callIds);
     }
+
+    /// <summary>
+    /// ONE contact's history — the contact page. The conversations and calls linked to
+    /// THIS contact, plus the unlinked ones on its phone / email inside its own companies
+    /// (<see cref="ChatBranch.Data.Contacts.ContactCompanies"/>; any company for an
+    /// organization-wide contact) — never one linked to another contact. "The same
+    /// person" is a separate contact in each company, so two companies' contacts sharing
+    /// a phone must not show each other's chats or summary (the phone lookup above picks
+    /// whichever matches first). Filtered by the caller's view like the rest.
+    /// </summary>
+    private static TimelineSeen CollectForContact(AppDbContext db, ScopingService sc, Contact contact,
+        Func<Thread, bool> visible, Func<List<CallRecord>, List<CallRecord>> visibleCalls)
+    {
+        var events = new List<Dictionary<string, object?>>();
+        var threadIds = new HashSet<int>();
+        var callIds = new HashSet<string>();
+        try
+        {
+            var digits = Digits(contact.Phone);
+            var email = contact.Email.Trim();
+            var lower = email.ToLowerInvariant();
+            var companies = ChatBranch.Data.Contacts.ContactCompanies.LinkCompanies(db, sc, contact.Id);
+            bool Ours(int? company) => company is not int c || companies.Count == 0 || companies.Contains(c);
+
+            // ---- calls: placed for this contact, or an unattached call to its number --
+            var calls = db.CallRecords.AsNoTracking()
+                .Where(r => r.ContactId == contact.Id || r.ContactId == null).ToList()
+                .Where(r => r.ContactId == contact.Id
+                    || (digits.Length > 0 && Digits(r.Phone) == digits && Ours(sc.CompanyOf(r.EntityId))))
+                .ToList();
+            AddCallEvents(events, visibleCalls(calls), callIds);
+
+            // ---- conversations: its own, then the unlinked ones on its number / address --
+            var threads = new List<Thread>();
+            void Consider(Thread t)
+            {
+                if (!visible(t) || !threadIds.Add(t.Id)) return;
+                threads.Add(t);
+            }
+            foreach (var t in db.Threads.AsNoTracking().Where(t => t.ContactId == contact.Id).ToList())
+                Consider(t);
+            var loose = db.Threads.AsNoTracking().Where(t => t.ContactId == null
+                && ((digits != "" && t.Channel == Channels.WhatsApp && t.Key == digits)
+                    || (email != "" && t.Channel == Channels.Email && (t.Key == email || t.Key == lower))))
+                .ToList();
+            foreach (var t in loose)
+                if (Ours(sc.ThreadCompany(t))) Consider(t);
+
+            AddMessageEvents(db, events, threads);
+            events = InOrder(events);
+        }
+        catch { /* a partial timeline beats a 500 on the contact page */ }
+        return new TimelineSeen(events, contact, threadIds, callIds);
+    }
+
+    /// <summary>A voice call as a timeline event.</summary>
+    private static void AddCallEvents(List<Dictionary<string, object?>> events, List<CallRecord> calls,
+        HashSet<string> callIds)
+    {
+        foreach (var c in calls)
+        {
+            callIds.Add(c.CallId);
+            var outcome = string.IsNullOrEmpty(c.Outcome) ? "unclear" : c.Outcome;
+            events.Add(new Dictionary<string, object?>
+            {
+                ["channel"] = "voice",
+                ["dir"] = MessageDirection.Out,
+                ["source"] = MessageSource.Ai,
+                ["text"] = string.IsNullOrEmpty(c.Summary)
+                    ? $"Voice call — outcome: {outcome}." : c.Summary,
+                ["ts"] = string.IsNullOrEmpty(c.EndedAt) ? c.StartedAt : c.EndedAt,
+                ["extra"] = new Dictionary<string, object?>
+                {
+                    ["outcome"] = outcome,
+                    ["followup_date"] = c.FollowupDate,
+                    ["needs_human"] = c.NeedsHuman,
+                    ["call_id"] = c.CallId,
+                },
+            });
+        }
+    }
+
+    /// <summary>The conversations' messages as timeline events (private notes stay OFF the timeline).</summary>
+    private static void AddMessageEvents(AppDbContext db, List<Dictionary<string, object?>> events, List<Thread> threads)
+    {
+        var ids = threads.Select(t => t.Id).ToList();
+        if (ids.Count == 0) return;
+        var byId = threads.ToDictionary(t => t.Id);
+        var rows = db.Messages.AsNoTracking()
+            .Where(x => ids.Contains(x.ThreadId) && !x.Private)
+            .OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).ToList();
+        foreach (var m in rows)
+        {
+            var thread = byId[m.ThreadId];
+            var e = new Dictionary<string, object?>
+            {
+                ["channel"] = thread.Channel,
+                ["pk"] = m.Id, // the database id (AI feedback thumbs key on it)
+                ["dir"] = m.Direction,
+                ["source"] = m.Source,
+                ["text"] = m.Text,
+                ["ts"] = Iso(m.CreatedAt),
+            };
+            if (!string.IsNullOrEmpty(m.MediaPath))
+                e["media"] = MediaStreamLinks.Payload(m, thread.Channel);
+            events.Add(e);
+        }
+    }
+
+    private static List<Dictionary<string, object?>> InOrder(List<Dictionary<string, object?>> events) =>
+        events.OrderBy(e => (string)(e["ts"] ?? ""), StringComparer.Ordinal).ToList();
 
     // ---- timeline.generate_summary / cached_summary -------------------------
 

@@ -355,7 +355,7 @@ public static class ContactsEndpoints
 
             // Voice — from CallRecord (FK-linked, plus phone-matched rows mirrored
             // from the voice agent's file store before any link existed).
-            var callRows = await CallScope.VisibleAsync(db, sc, me, await CallsForAsync(db, contact));
+            var callRows = await CallScope.VisibleAsync(db, sc, me, await CallsForAsync(db, sc, contact));
             var lastCall = callRows
                 .OrderByDescending(r => r.EndedAt.Length > 0 ? r.EndedAt : r.StartedAt)
                 .FirstOrDefault();
@@ -464,7 +464,7 @@ public static class ContactsEndpoints
             if (contact == null) return NotFound("Contact not found.");
 
             // only the calls placed for the caller's own entities (CallScope)
-            var visible = await CallScope.VisibleAsync(db, sc, me, await CallsForAsync(db, contact));
+            var visible = await CallScope.VisibleAsync(db, sc, me, await CallsForAsync(db, sc, contact));
             // ?company= (id / slug, or none): only the calls placed for that company — the chat
             // of one company never lists another company's calls with the same customer
             if (!string.IsNullOrWhiteSpace(company))
@@ -750,14 +750,21 @@ public static class ContactsEndpoints
 
     /// <summary>
     /// This contact's call records: FK-linked rows plus the phone-matched ones
-    /// mirrored from the voice agent's file store before any link existed.
+    /// mirrored from the voice agent's file store before any link existed — only
+    /// UNLINKED ones, placed for one of the contact's own companies (any for an
+    /// organization-wide contact): a call made to another company's contact with the
+    /// same phone is that contact's, never this one's.
     /// </summary>
-    private static async Task<List<CallRecord>> CallsForAsync(AppDbContext db, Contact contact)
+    private static async Task<List<CallRecord>> CallsForAsync(AppDbContext db, ScopingService sc, Contact contact)
     {
         var phone = contact.Phone;
-        return await db.CallRecords.AsNoTracking()
-            .Where(r => r.ContactId == contact.Id || (phone != "" && r.Phone == phone))
+        var rows = await db.CallRecords.AsNoTracking()
+            .Where(r => r.ContactId == contact.Id || (r.ContactId == null && phone != "" && r.Phone == phone))
             .ToListAsync();
+        if (rows.All(r => r.ContactId == contact.Id)) return rows;
+        var companies = ChatBranch.Data.Contacts.ContactCompanies.LinkCompanies(db, sc, contact.Id);
+        return rows.Where(r => r.ContactId == contact.Id || companies.Count == 0
+            || sc.CompanyOf(r.EntityId) is not int c || companies.Contains(c)).ToList();
     }
 
     /// <summary>

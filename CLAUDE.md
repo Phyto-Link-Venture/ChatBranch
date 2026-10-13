@@ -1957,7 +1957,15 @@ When you fix one of these, update this table, `README.md` and
   A contact's views (merged conversation, calls, bookings, timeline + its AI
   summary, channel hub, documents, search hits) list only the caller's own
   entities' conversations / calls / bookings / documents — "has a conversation
-  there" makes a contact visible, never another company's data.
+  there" makes a contact visible, never another company's data. The contact
+  page asks for its log BY CONTACT (`GET /api/messaging/timeline?contact_id=`,
+  the summary POST `{contact_id}` — `MessagingEndpoints.CollectForContact`): the
+  conversations and calls linked to THAT contact plus unlinked ones on its phone /
+  email inside its own companies, never one linked to another contact — the same
+  phone saved as a contact in two companies keeps two separate logs and
+  summaries (`CallsForAsync` likewise). The phone / email form (MCP, API callers)
+  lists every chat on the number and names a contact only when exactly one
+  visible contact has it. Tests: `ContactTimelineTests`.
 - **Contacts:** `/contacts` is a list (the kanban board is gone) with a 4-step
   **import wizard** (`components/contacts/ContactImportModal.tsx`: a .csv / .xlsx
   / .vcf file or your own Google Contacts → map columns → duplicates skip / fill

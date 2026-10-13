@@ -139,16 +139,14 @@ export default function ContactDetailPage() {
       .catch(() => setCustomerFields([]))
   }, [])
 
-  const phone = d?.phone ?? ''
-  const email = d?.email ?? ''
+  // THIS contact's own history (by id, not by phone): the same person can be a
+  // separate contact in another company with the same number, and their logs never mix
   const fetchLog = useCallback(
     async (full: boolean) => {
-      if (!phone && !email) return
+      if (!Number.isFinite(id)) return
       if (full) setLogBusy(true)
       try {
-        const p = new URLSearchParams()
-        if (phone) p.set('phone', phone)
-        if (email) p.set('email', email)
+        const p = new URLSearchParams({ contact_id: String(id) })
         if (!full) p.set('limit', String(RECENT_EVENTS))
         const res = await fetch(`${API}/messaging/timeline?${p}`, { headers: authHeaders() })
         const data = await res.json()
@@ -164,7 +162,7 @@ export default function ContactDetailPage() {
         if (full) setLogBusy(false)
       }
     },
-    [phone, email],
+    [id],
   )
   useEffect(() => {
     fetchLog(false)
@@ -190,7 +188,7 @@ export default function ContactDetailPage() {
       const res = await fetch(`${API}/messaging/timeline/summary`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ name: d.name, phone: d.phone, email: d.email, context: { record } }),
+        body: JSON.stringify({ contact_id: d.id, name: d.name, context: { record } }),
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok) setSummary(data)
