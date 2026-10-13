@@ -118,6 +118,8 @@ public class ReplyPartsTests
         Drain(r, TimeSpan.FromSeconds(10));   // the next part after the bubble gap
 
         Assert.Contains("ANSWERING IN PARTS", r.Llm.Seen[0].System);
+        // the waiting messages are named, so the model can't miss one
+        Assert.Contains($"sent 2 messages since your last reply ([msg {first.Id}], [msg {second.Id}])", r.Llm.Seen[0].System);
         Assert.Equal(new[]
         {
             "reply[wamid.in.70]:Noted, I'll leave the invoice aside.",

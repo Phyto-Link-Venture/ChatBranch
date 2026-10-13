@@ -226,12 +226,17 @@ public sealed class HumanTurn
                       + $"to an older message of theirs, call {HumanTouch.QuoteTool} with the id of the message your "
                       + "reply answers. Don't quote in a simple one-message exchange.");
         if (QuotesOn && Current.Count > 1)
-            lines.Add("ANSWERING IN PARTS: when the customer's messages since your last reply are about DIFFERENT "
-                      + "things, answer each in its own short part, in order: start each part on a new line with the "
-                      + "[msg <id>] of the message it answers, e.g.\n[msg 101] Noted, I'll leave the invoice aside.\n"
-                      + "[msg 102] Sure — 3:45 PM is free, shall I move it?\nEach part is sent as its own message "
-                      + $"quoting that message (at most {AiReplyPart.Max}). Messages about the same thing get ONE part; "
-                      + "a single topic needs no [msg] at all.");
+        {
+            // name the messages: a small model skipped the rule (and a question) when it only read "since your last reply"
+            var waiting = string.Join(", ", Current.Select(id => $"[msg {id}]"));
+            lines.Add($"ANSWERING IN PARTS: the customer sent {Current.Count} messages since your last reply ({waiting}). "
+                      + "Unless they are all about the same thing, you MUST answer in parts, in order: start each part "
+                      + "on a new line with the [msg <id>] of the message it answers, e.g.\n"
+                      + "[msg 101] Noted, I'll leave the invoice aside.\n[msg 102] Sure — 3:45 PM is free, shall I move it?\n"
+                      + $"Each part is sent as its own message quoting that message (at most {AiReplyPart.Max}). Every "
+                      + "question gets an answer; messages about the same thing share ONE part (use the id of the one "
+                      + "it answers best). Only when everything is one topic, reply without [msg].");
+        }
         return string.Join("\n", lines);
     }
 
