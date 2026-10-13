@@ -168,7 +168,7 @@ those are knowledge, and they change weekly.
 | **Prompt** | `use_when` + `instructions` in the prompt's SKILLS section | every reply, every call |
 | **Tool** | JavaScript `run(args, ctx)` with a JSON-schema of arguments; the model decides to call it | when the model calls it |
 | **Check** | JavaScript `check(reply, ctx)` returning `{ok:true}` or `{ok:false, reason, fix?}` | on EVERY draft before it is sent |
-| **Connected app** | a configured app instead of code — today **Calendar booking**: which calendar (the assigned agent's own Google Calendar, an outlet's, the organization's, or ChatBranch's built-in bookings with no Google account), working hours per weekday, appointment length, buffer, notice, how far ahead, a per-customer cap, and which actions (check availability, book, cancel / reschedule) | when the model checks or books — chat only |
+| **Connected app** | a configured app instead of code — today **Calendar booking**: which calendar (the assigned agent's own Google Calendar, an outlet's, the organization's, or ChatBranch's built-in bookings with no Google account), working hours per weekday, appointment length, buffer, notice, how far ahead, a per-customer cap, and which actions (check availability, book, cancel / reschedule), plus an optional **video meeting** per booking (a Zoom meeting of its own through a Zoom connection, a Google Meet on the Google event, or your own fixed link — ChatBranch sends the link right after the AI confirms) | when the model checks or books — chat only |
 
 A booking skill offers two or three real free times, waits for the customer to
 pick one, holds it while the reply is reviewed and only **books when the reply
@@ -391,7 +391,7 @@ before/on/after a contact's date custom field, optionally yearly) · before a
 booking starts (N minutes / hours / days before each ChatBranch booking — one run
 per booking, sent to the chat it was made in, follows reschedules, stops on
 cancel; messages can use `{{booking_time}}`, `{{booking_length}}`,
-`{{booking_link}}`…) · on a schedule · started by hand or by the API (`POST /api/flows/{flowId}/start`). The
+`{{booking_link}}`, `{{booking_meeting_link}}`…) · on a schedule · started by hand or by the API (`POST /api/flows/{flowId}/start`). The
 old record-due-date triggers still run in flows that use them but are no longer
 offered.
 

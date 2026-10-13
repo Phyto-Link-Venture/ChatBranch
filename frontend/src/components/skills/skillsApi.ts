@@ -60,7 +60,15 @@ export interface CalendarAppConfig {
   max_active_per_contact: number
   event_title: string
   event_description: string
+  /** The video meeting each booking gets: "" none · zoom · google_meet · link (the same link every time). */
+  meeting: MeetingKind
+  /** The link every booking shares (meeting = link). */
+  meeting_link: string
+  /** The message the link is sent in ("" = the default); {{link}} {{time}} {{name}}. */
+  meeting_message: string
 }
+
+export type MeetingKind = '' | 'zoom' | 'google_meet' | 'link'
 
 export type AppConfig = CalendarAppConfig
 
@@ -102,6 +110,9 @@ export const CALENDAR_DEFAULTS: CalendarAppConfig = {
   max_active_per_contact: 1,
   event_title: '{{name}} — appointment',
   event_description: '',
+  meeting: '',
+  meeting_link: '',
+  meeting_message: '',
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -157,6 +168,9 @@ export function calendarConfig(raw: unknown, defaults: Partial<CalendarAppConfig
     max_active_per_contact: num('max_active_per_contact'),
     event_title: str('event_title'),
     event_description: str('event_description'),
+    meeting: r.meeting === 'zoom' || r.meeting === 'google_meet' || r.meeting === 'link' ? r.meeting : '',
+    meeting_link: typeof r.meeting_link === 'string' ? r.meeting_link : '',
+    meeting_message: typeof r.meeting_message === 'string' ? r.meeting_message : '',
   }
 }
 
@@ -181,6 +195,8 @@ export interface AppCatalogEntry {
   label: string
   sources: AppSourceInfo[]
   actions: { id: AppAction; label: string }[]
+  /** The video meetings a booking can get (Zoom: `connected` = a Zoom connection is in reach). */
+  meetings?: { id: Exclude<MeetingKind, ''>; label: string; connected: boolean }[]
   defaults: Partial<CalendarAppConfig>
 }
 

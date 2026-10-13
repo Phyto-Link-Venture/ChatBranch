@@ -13,6 +13,7 @@ import Link from 'next/link'
 import { ExternalLink, Loader2 } from 'lucide-react'
 import { useAccess } from '@/lib/useAccess'
 import { isQuietError, listBookings, type Booking } from '@/lib/bookings'
+import { MeetingLink } from './MeetingLink'
 import { useT } from '@/i18n'
 import { BookingStatusChip, CalendarMark, CancelBookingModal, calendarName, useBookingLabel } from './BookingBits'
 
@@ -89,8 +90,9 @@ export function BookingsCard({
                   {b.timezone ? ` · ${b.timezone}` : ''}
                 </span>
               </div>
-              {(b.event_link || (canCancel && b.status === 'booked')) && (
-                <div className="mt-1 flex items-center gap-3">
+              {(b.event_link || b.meeting_url || (canCancel && b.status === 'booked')) && (
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <MeetingLink booking={b} className="text-[11px]" />
                   {b.event_link && (
                     <a
                       href={b.event_link}

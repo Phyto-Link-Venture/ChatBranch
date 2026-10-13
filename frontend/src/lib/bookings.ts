@@ -34,6 +34,11 @@ export interface Booking {
   source: 'google' | 'chatbranch'
   calendar_label: string
   event_link: string | null
+  /** The video meeting made with it (while it stands): zoom | google_meet | link (the skill's own). */
+  meeting_provider?: 'zoom' | 'google_meet' | 'link' | null
+  meeting_url?: string | null
+  /** When its link was sent to the customer (null = not yet). */
+  meeting_sent_at?: string | null
   /** "ai" or "agent:<username>". */
   created_by: string
   skill_id: string

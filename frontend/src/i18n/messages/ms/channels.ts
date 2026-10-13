@@ -899,6 +899,7 @@ export const channels: Dict<typeof source> = {
       continue: 'Teruskan ke Google',
       personalHint: 'Hanya untuk diri sendiri? Gunakan {link}.',
     },
+    zoomHelp: 'Di Zoom App Marketplace, bina aplikasi Server-to-Server OAuth dan salin Account ID, Client ID dan Client secret. Beri skop meeting:write:meeting:admin, meeting:delete:meeting:admin dan user:read:user:admin, kemudian aktifkannya.',
     blurbs: {
       google_calendar: 'Tempah janji temu dan cari slot kosong pada kalendar dikongsi.',
       google_drive: 'Simpan dokumen yang dihasilkan perbualan (sebut harga, foto, resit).',
@@ -907,6 +908,7 @@ export const channels: Dict<typeof source> = {
       google_contacts: 'Import buku kenalan Google ke Kenalan (baca sahaja).',
       shopify: 'Pesanan masuk melalui webhook dan menjadi Rekod; langkah boleh menanda atau mencatat nota pada pesanan.',
       stripe: 'Bayaran disahkan sendiri — bayaran yang berjaya direkodkan pada Rekod yang sepadan.',
+      zoom: 'Setiap tempahan mendapat mesyuarat Zoom sendiri; pautannya dihantar kepada pelanggan.',
     },
   },
 }

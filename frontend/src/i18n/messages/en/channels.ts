@@ -892,6 +892,7 @@ export const channels = {
       continue: 'Continue to Google',
       personalHint: 'Only for yourself? Use {link} instead.',
     },
+    zoomHelp: 'In the Zoom App Marketplace, build a Server-to-Server OAuth app and copy its Account ID, Client ID and Client secret. Give it the scopes meeting:write:meeting:admin, meeting:delete:meeting:admin and user:read:user:admin, then activate it.',
     blurbs: {
       google_calendar: 'Book appointments and find free slots on a shared calendar.',
       google_drive: 'Store documents a conversation produced (quotes, photos, receipts).',
@@ -900,6 +901,7 @@ export const channels = {
       google_contacts: 'Import a Google contact book into Contacts (read-only).',
       shopify: 'Orders arrive by webhook and become Records; steps can tag or note an order back.',
       stripe: 'Payments confirm themselves — a successful payment is recorded against the matching Record.',
+      zoom: 'Every booking gets its own Zoom meeting; the customer is sent the link.',
     },
   },
 } as const

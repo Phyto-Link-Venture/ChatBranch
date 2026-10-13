@@ -19,6 +19,13 @@ export const bookings: Dict<typeof source> = {
     failed: 'Kalendar menolak tempahan semasa balasan sepatutnya dihantar.',
   },
   chatbranchCalendar: 'Tempahan ChatBranch',
+  meeting: {
+    label: 'Mesyuarat',
+    join: 'Sertai {name}',
+    generic: 'mesyuarat',
+    sent: 'Pautan telah dihantar kepada pelanggan',
+    notSent: 'Pautan belum dihantar',
+  },
   card: {
     all: 'Semua tempahan',
     loadFailed: 'Tempahan tidak dapat dimuatkan sekarang.',

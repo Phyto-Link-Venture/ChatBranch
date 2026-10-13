@@ -470,6 +470,7 @@ export const ai: Dict<typeof source> = {
       t1: 'Uji dalam Ruang uji AI dahulu — alat kalendar hanya membuat pratonton di sana, tiada apa-apa ditempah.',
       t2: 'Jika balasan ditahan untuk semakan, tempahan hanya dibuat apabila seseorang meluluskan balasan itu.',
       t3: 'Anda boleh membatalkan tempahan dari halaman Tempahan — pelanggan tidak dimaklumkan secara automatik, jadi beritahu mereka dalam sembang.',
+      t4: 'Untuk temu janji dalam talian, tetapkan “Mesyuarat video” kepada Zoom (sambungkan Zoom di Saluran → Integrasi dahulu), Google Meet (Google Calendar sahaja) atau “Pautan mesyuarat saya sendiri”. Pautan dihantar kepada pelanggan dalam mesejnya sendiri sejurus selepas AI mengesahkan tempahan.',
     },
     trouble: 'Google menunjukkan belum disambungkan: sambungkannya di Integrasi — sehingga itu AI memberitahu kalendar tidak tersedia dan menawarkan rakan sepasukan; ia tidak pernah menempah dalam ChatBranch sebagai ganti. “Tiada masa lapang”: luaskan waktu bekerja, pendekkan notis minimum atau benarkan lebih banyak hari ke hadapan. Tempahan gagal semasa balasan dihantar: balasan ditahan dan sembang diserahkan kepada manusia.',
   },

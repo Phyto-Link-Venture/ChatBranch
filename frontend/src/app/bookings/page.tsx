@@ -31,6 +31,7 @@ import {
   useBookingLabel,
 } from '@/components/bookings/BookingBits'
 import { BookingsCalendar } from '@/components/bookings/BookingsCalendar'
+import { MeetingLink } from '@/components/bookings/MeetingLink'
 import { Trans, useFormat, useT, type MessageKey } from '@/i18n'
 import { useAccess } from '@/lib/useAccess'
 import { useEntityQuery } from '@/lib/EntityContext'
@@ -220,9 +221,12 @@ export default function BookingsPage() {
       sortable: true,
       value: (b) => calendarName(t, b),
       render: (b) => (
-        <span className="inline-flex min-w-[130px] items-center gap-1.5 text-[12.5px] text-text-mid">
-          <CalendarMark source={b.source} />
-          <span className="truncate">{calendarName(t, b)}</span>
+        <span className="flex min-w-[130px] flex-col items-start gap-0.5">
+          <span className="inline-flex max-w-full items-center gap-1.5 text-[12.5px] text-text-mid">
+            <CalendarMark source={b.source} />
+            <span className="truncate">{calendarName(t, b)}</span>
+          </span>
+          <MeetingLink booking={b} />
         </span>
       ),
     },

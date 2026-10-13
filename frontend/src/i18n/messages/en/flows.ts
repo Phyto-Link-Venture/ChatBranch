@@ -1123,6 +1123,7 @@ export const flows = {
     bookingLength: 'Length',
     bookingCalendar: 'Calendar',
     bookingLink: 'Calendar link',
+    bookingMeetingLink: 'Meeting link (Zoom / Google Meet)',
     exampleOrder: 'Order #1042',
     exampleBestTime: 'weekdays after 6pm',
   },

@@ -357,6 +357,14 @@ public static class AiSkillsEndpoints
                             new { id = "book", label = "Book appointments" },
                             new { id = "cancel", label = "Cancel / reschedule" },
                         },
+                        // the video meeting each booking can get: Zoom needs a Zoom connection
+                        // (Integrations → Zoom) for this entity, its parents or the organization
+                        meetings = new object[]
+                        {
+                            new { id = MeetingKinds.Zoom, label = "Zoom", connected = Connected(ZoomClient.Provider) },
+                            new { id = MeetingKinds.GoogleMeet, label = "Google Meet", connected = connections.Count > 0 },
+                            new { id = MeetingKinds.Link, label = "My own meeting link", connected = true },
+                        },
                         defaults = CalendarAppConfig.Defaults(),
                     },
                     new

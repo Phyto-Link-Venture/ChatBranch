@@ -44,6 +44,7 @@ builder.Services.AddScoped<ChatBranch.Data.Integrations.IntegrationActions>();
 // Calendar booking for the AI ("Connected app" skills): the Google Calendar
 // client (shared with the flow actions) and the reserve → make-at-delivery service
 builder.Services.AddScoped<ChatBranch.Data.Integrations.GoogleCalendarClient>();
+builder.Services.AddScoped<ChatBranch.Data.Integrations.ZoomClient>();
 builder.Services.AddScoped<ChatBranch.Data.Bookings.BookingService>();
 // Documents / QR / Payments / Sheets app skills: files made for a reply (sent at
 // delivery) and the integration-backed tools

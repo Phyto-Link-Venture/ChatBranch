@@ -111,6 +111,7 @@ const BLURBS: Record<string, MessageKey> = {
   google_contacts: 'channels.integrations.blurbs.google_contacts',
   shopify: 'channels.integrations.blurbs.shopify',
   stripe: 'channels.integrations.blurbs.stripe',
+  zoom: 'channels.integrations.blurbs.zoom',
 }
 
 /** "Used by" chip: how far a connection reaches. */
@@ -810,6 +811,11 @@ export function IntegrationsSettings() {
               {draft.entity ? t('channels.integrations.connectFor.entityHint') : t('channels.integrations.connectFor.orgHint')}
             </p>
           </div>
+          {draftProvider.id === 'zoom' && (
+            <p className="mb-3 rounded-lg border border-line bg-fill-subtle px-3 py-2 text-[11.5px] leading-relaxed text-text-mid">
+              {t('channels.integrations.zoomHelp')}
+            </p>
+          )}
           {draftProvider.config_fields.map((f) => (
             <label key={f.key} className="mb-3 block">
               <span className="mb-1 block text-[10.5px] font-bold text-text-high">{f.label}</span>

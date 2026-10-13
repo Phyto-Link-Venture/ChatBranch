@@ -1097,6 +1097,7 @@ export const flows: Dict<typeof source> = {
     bookingLength: '时长',
     bookingCalendar: '日历',
     bookingLink: '日历链接',
+    bookingMeetingLink: '会议链接（Zoom / Google Meet）',
     exampleOrder: '订单 #1042',
     exampleBestTime: '工作日晚上 6 点后',
   },

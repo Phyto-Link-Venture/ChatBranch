@@ -282,6 +282,10 @@ public static class BookingsEndpoints
                 source = b.Source,
                 calendar_label = b.CalendarLabel,
                 event_link = b.EventLink.Length > 0 ? b.EventLink : null,
+                // the video meeting made with it (zoom | google_meet | link) — while it stands
+                meeting_provider = b.MeetingUrl.Length > 0 && b.Status != BookingStatus.Cancelled ? b.MeetingProvider : null,
+                meeting_url = b.MeetingUrl.Length > 0 && b.Status != BookingStatus.Cancelled ? b.MeetingUrl : null,
+                meeting_sent_at = b.MeetingSentAt is DateTime sentAt ? BookingAvailability.Utc(sentAt) : (DateTime?)null,
                 created_by = b.CreatedBy,
                 skill_id = b.SkillId,
                 draft_id = b.DraftId,

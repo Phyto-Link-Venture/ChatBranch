@@ -79,6 +79,7 @@ export const BOOKING_VARIABLES: VariableGroup = {
     { key: 'booking_length', lbl: 'flows.variables.bookingLength', example: '45 min' },
     { key: 'booking_calendar', lbl: 'flows.variables.bookingCalendar', example: 'ChatBranch bookings' },
     { key: 'booking_link', lbl: 'flows.variables.bookingLink', example: 'https://calendar.google.com/…' },
+    { key: 'booking_meeting_link', lbl: 'flows.variables.bookingMeetingLink', example: 'https://us06web.zoom.us/j/…' },
   ],
 }
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { AlertCircle, CalendarCheck, CalendarSearch, Clock, Info, Loader2, Plus, X } from 'lucide-react'
+import { AlertCircle, CalendarCheck, CalendarSearch, Clock, Info, Link2, Loader2, Plus, Video, X } from 'lucide-react'
 import { Advanced } from '@/components/ui/Advanced'
 import { Button } from '@/components/ui/Button'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
@@ -20,6 +20,7 @@ import {
   type AppTestResponse,
   type CalendarAppConfig,
   type HoursWindow,
+  type MeetingKind,
   type Weekday,
 } from './skillsApi'
 import { Trans, useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
@@ -124,7 +125,21 @@ export function calendarConfigProblem(c: CalendarAppConfig, t: TFunction): strin
   if (!int(c.max_active_per_contact) || c.max_active_per_contact < 1 || c.max_active_per_contact > 20)
     return t('ai.app.problems.perCustomer')
   if (!c.event_title.trim()) return t('ai.app.problems.eventTitle')
+  if (c.meeting === 'link' && !isMeetingLink(c.meeting_link)) return t('ai.app.problems.meetingLink')
+  if (c.meeting === 'google_meet' && c.source !== 'google') return t('ai.app.problems.meetingMeet')
+  if (c.meeting && c.meeting_message.trim() && !c.meeting_message.includes('{{link}}'))
+    return t('ai.app.problems.meetingMessage')
   return null
+}
+
+/** A full https:// link (what the server accepts as a booking's own meeting link). */
+export function isMeetingLink(raw: string): boolean {
+  try {
+    const u = new URL(raw.trim())
+    return u.protocol === 'https:' && u.hostname.includes('.')
+  } catch {
+    return false
+  }
 }
 
 // ---- the form ------------------------------------------------------------------
@@ -541,8 +556,128 @@ export function AppSkillForm({
         </Advanced>
       </Section>
 
+      {/* ---- video meeting: a link sent with every booking ------------------------- */}
+      <MeetingSection config={c} app={app} appsState={appsState} readOnly={readOnly} onChange={set} />
+
       <AvailabilityPreview config={c} />
     </div>
+  )
+}
+
+/**
+ * The video meeting each booking gets — a Zoom meeting of its own (a Zoom connection on the
+ * Integrations page), a Google Meet on the Google event, or the same link every time — and
+ * the message its link is sent in. ChatBranch sends the link right after the AI's
+ * confirmation; the AI never writes one.
+ */
+function MeetingSection({
+  config: c,
+  app,
+  appsState,
+  readOnly,
+  onChange,
+}: {
+  config: CalendarAppConfig
+  app: AppCatalogEntry
+  appsState: 'loading' | 'ok' | 'offline'
+  readOnly: boolean
+  onChange: (p: Partial<CalendarAppConfig>) => void
+}) {
+  const t = useT()
+  const zoom = app.meetings?.find((m) => m.id === 'zoom')
+  const options: SelectOption[] = [
+    { value: '', label: t('ai.app.meeting.none'), hint: t('ai.app.meeting.noneHint') },
+    { value: 'zoom', label: t('ai.app.meeting.zoom'), hint: t('ai.app.meeting.zoomHint') },
+    {
+      value: 'google_meet',
+      label: t('ai.app.meeting.meet'),
+      hint: c.source === 'google' ? t('ai.app.meeting.meetHint') : t('ai.app.meeting.meetNeedsGoogle'),
+    },
+    { value: 'link', label: t('ai.app.meeting.link'), hint: t('ai.app.meeting.linkHint') },
+  ]
+  const linkBad = c.meeting === 'link' && c.meeting_link.trim() !== '' && !isMeetingLink(c.meeting_link)
+  const messageBad = c.meeting_message.trim() !== '' && !c.meeting_message.includes('{{link}}')
+  return (
+    <Section title={t('ai.app.meeting.title')} hint={t('ai.app.meeting.hint')}>
+      <div data-tour="skill-meeting" className="flex flex-col gap-3">
+        <Field label={t('ai.app.meeting.label')}>
+          <Select
+            value={c.meeting}
+            disabled={readOnly}
+            onChange={(v) => onChange({ meeting: v as MeetingKind })}
+            options={options}
+            size="md"
+            ariaLabel={t('ai.app.meeting.label')}
+            className="w-full sm:max-w-[360px]"
+          />
+        </Field>
+
+        {c.meeting === 'zoom' &&
+          appsState === 'ok' &&
+          (zoom?.connected ? (
+            <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--green-ink)]">
+              <span className="h-1.5 w-1.5 rounded-full bg-green" aria-hidden /> {t('ai.app.meeting.zoomConnected')}
+            </span>
+          ) : (
+            <Note tone="amber">
+              <Trans
+                k="ai.app.meeting.zoomNotConnected"
+                values={{
+                  link: (
+                    <Link href="/integrations" className="font-semibold underline-offset-2 hover:underline">
+                      {t('ai.app.meeting.connectZoom')}
+                    </Link>
+                  ),
+                }}
+              />
+            </Note>
+          ))}
+        {c.meeting === 'google_meet' && c.source !== 'google' && <Note tone="amber">{t('ai.app.meeting.meetNotGoogle')}</Note>}
+
+        {c.meeting === 'link' && (
+          <Field label={t('ai.app.meeting.linkLabel')} hint={t('ai.app.meeting.linkFieldHint')}>
+            <div className="relative">
+              <Link2 size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" aria-hidden />
+              <input
+                value={c.meeting_link}
+                disabled={readOnly}
+                onChange={(e) => onChange({ meeting_link: e.target.value })}
+                placeholder="https://zoom.us/j/…"
+                inputMode="url"
+                aria-invalid={linkBad || undefined}
+                className={`${input} pl-8 ${linkBad ? 'border-red-400' : ''}`}
+              />
+            </div>
+            {linkBad && <span className="mt-1 block text-[11.5px] text-[color:var(--red-ink)]">{t('ai.app.problems.meetingLink')}</span>}
+          </Field>
+        )}
+
+        {c.meeting && (
+          <>
+            <p className="flex items-start gap-1.5 text-[11.5px] leading-relaxed text-text-muted">
+              <Video size={13} className="mt-px shrink-0" aria-hidden />
+              <span>{t(c.meeting === 'zoom' ? 'ai.app.meeting.howZoom' : 'ai.app.meeting.how')}</span>
+            </p>
+            <Advanced count={c.meeting_message.trim() ? 1 : 0} forceOpen={messageBad}>
+              <Field label={t('ai.app.meeting.message')} hint={t('ai.app.meeting.messageHint')}>
+                <textarea
+                  rows={2}
+                  value={c.meeting_message}
+                  disabled={readOnly}
+                  onChange={(e) => onChange({ meeting_message: e.target.value })}
+                  placeholder={t('ai.app.meeting.messagePlaceholder')}
+                  aria-invalid={messageBad || undefined}
+                  className={`${input} resize-y leading-[1.55]`}
+                />
+              </Field>
+              {messageBad && (
+                <span className="text-[11.5px] text-[color:var(--red-ink)]">{t('ai.app.problems.meetingMessage')}</span>
+              )}
+            </Advanced>
+          </>
+        )}
+      </div>
+    </Section>
   )
 }
 

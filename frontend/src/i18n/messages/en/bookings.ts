@@ -18,6 +18,13 @@ export const bookings = {
     failed: 'The calendar refused the booking when the reply was due.',
   },
   chatbranchCalendar: 'ChatBranch bookings',
+  meeting: {
+    label: 'Meeting',
+    join: 'Join {name}',
+    generic: 'meeting',
+    sent: 'Link sent to the customer',
+    notSent: 'Link not sent yet',
+  },
   card: {
     all: 'All bookings',
     loadFailed: 'Bookings couldn’t be loaded right now.',

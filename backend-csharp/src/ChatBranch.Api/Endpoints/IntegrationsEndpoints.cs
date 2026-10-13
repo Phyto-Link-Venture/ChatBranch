@@ -18,7 +18,7 @@ namespace ChatBranch.Api.Endpoints;
 public static class IntegrationsEndpoints
 {
     public static readonly string[] Providers =
-        { "google_calendar", "google_drive", "gmail", "google_sheets", "shopify", "stripe", "google_contacts" };
+        { "google_calendar", "google_drive", "gmail", "google_sheets", "shopify", "stripe", "google_contacts", "zoom" };
 
     // Contract shared with frontend lib/flow/nodeConfig.ts INTEGRATION_ACTIONS.
     public static readonly string[] Actions =
@@ -104,6 +104,17 @@ public static class IntegrationsEndpoints
                     new CatalogField("webhook_secret", "Webhook signing secret (whsec_…)") },
             new[] { "Create Stripe payment link" },
             StripeWebhookPath),
+
+        // a Server-to-Server OAuth app (Zoom App Marketplace → Develop → Build app); scopes
+        // meeting:write:meeting:admin + meeting:delete:meeting:admin + user:read:user:admin.
+        // A calendar skill set to Zoom makes one meeting per booking with it (BookingService).
+        new("zoom", "Zoom", "apikey", "zoom",
+            "Every booking gets its own Zoom meeting; the customer is sent the link.",
+            Array.Empty<string>(),
+            new[] { new CatalogField("account_id", "Account ID", "From your Server-to-Server OAuth app"),
+                    new CatalogField("client_id", "Client ID") },
+            new[] { new CatalogField("client_secret", "Client secret") },
+            Array.Empty<string>()),
     };
 
     // The C# port serves the webhooks under /webhooks/<p> (plural) — the paths
@@ -283,7 +294,8 @@ public static class IntegrationsEndpoints
             config["created_by"] = me.Identity?.Name ?? "";
 
             var creds = new Dictionary<string, object?>();
-            foreach (var key in new[] { "api_key", "webhook_secret" })
+            // the provider's own secret fields (Shopify / Stripe: api_key + webhook_secret; Zoom: client_secret)
+            foreach (var key in meta.SecretFields.Select(f => f.Key).Union(new[] { "api_key", "webhook_secret" }))
             {
                 var value = (AsText(body, key) ?? "").Trim();
                 // a masked placeholder round-tripped from a GET is NOT a new secret
@@ -329,11 +341,28 @@ public static class IntegrationsEndpoints
         // NOTE: the live provider probes are not ported yet — a stored-credential
         // row reports a clean SKIP rather than pretending it reached Google.
         app.MapPost("/api/integrations/accounts/{id:int}/test", async (int id, AppDbContext db,
-            ClaimsPrincipal me) =>
+            ClaimsPrincipal me, ZoomClient zoom) =>
         {
             var row = await db.Integrations.Include(i => i.Owner).Include(i => i.Entity).FirstOrDefaultAsync(i => i.Id == id);
             if (row == null || !await CanSeeRowAsync(db, me, row))
                 return Results.Json(new { detail = "Integration not found." }, statusCode: 404);
+
+            // Zoom: a real sign-in + the account's own user
+            if (row.Provider == ZoomClient.Provider && ZoomClient.Configured(row))
+            {
+                var probe = await zoom.ProbeAsync(row);
+                await db.Entry(row).ReloadAsync();
+                return Results.Json(new
+                {
+                    ok = probe.Ok,
+                    skipped = false,
+                    detail = probe.Ok
+                        ? $"Connected to Zoom{(probe.Account.Length > 0 ? $" as {probe.Account}" : "")}."
+                        : probe.Error,
+                    data = new { },
+                    account = Payload(row),
+                }, statusCode: probe.Ok ? 200 : 502);
+            }
 
             var meta = Meta(row.Provider);
             var detail = !Connected(row)
@@ -629,7 +658,8 @@ public static class IntegrationsEndpoints
     /// an API key). Anything else is a sandbox row.
     /// </summary>
     private static bool Connected(Integration row) =>
-        Cred(row, "access_token") != "" || Cred(row, "api_key") != "";
+        Cred(row, "access_token") != "" || Cred(row, "api_key") != ""
+        || (row.Provider == ZoomClient.Provider && ZoomClient.Configured(row));
 
     private static string Name(Integration row)
     {

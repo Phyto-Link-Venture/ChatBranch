@@ -867,6 +867,7 @@ export const channels: Dict<typeof source> = {
       continue: '前往 Google',
       personalHint: '只给自己用？请改用{link}。',
     },
+    zoomHelp: '在 Zoom App Marketplace 中创建一个 Server-to-Server OAuth 应用，复制其 Account ID、Client ID 和 Client secret。为它添加 meeting:write:meeting:admin、meeting:delete:meeting:admin 和 user:read:user:admin 权限范围，然后激活。',
     blurbs: {
       google_calendar: '在共享日历上预约并查找空闲时段。',
       google_drive: '保存对话产生的文件（报价、照片、收据）。',
@@ -875,6 +876,7 @@ export const channels: Dict<typeof source> = {
       google_contacts: '把 Google 通讯录导入联系人（只读）。',
       shopify: '订单通过 Webhook 进入并成为记录；步骤可以给订单加标签或备注。',
       stripe: '付款自动确认——成功的付款会记录到对应的记录上。',
+      zoom: '每个预约都有自己的 Zoom 会议，并把链接发送给客户。',
     },
   },
 }

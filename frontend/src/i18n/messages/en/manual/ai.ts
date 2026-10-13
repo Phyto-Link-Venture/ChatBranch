@@ -468,6 +468,7 @@ export const ai = {
       t1: 'Test it in the AI playground first — calendar tools only preview there, nothing is booked.',
       t2: 'If replies are held for review, the booking is only made when someone approves the reply.',
       t3: 'You can cancel a booking from the Bookings page — the customer is not messaged automatically, so tell them in the chat.',
+      t4: 'For online appointments, set “Video meeting” to Zoom (connect Zoom in Channels → Integrations first), Google Meet (Google Calendar only) or “My own meeting link”. The link is sent to the customer in its own message right after the AI confirms the booking.',
     },
     trouble: 'Google shows “Not connected”: connect it in Integrations — until then the AI says the calendar is unavailable and offers a teammate; it never books into ChatBranch instead. “No free times”: widen the working hours, shorten the minimum notice or allow more days ahead. A booking failed when the reply was sent: the reply is held and the chat is handed to a person.',
   },

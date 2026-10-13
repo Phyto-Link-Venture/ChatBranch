@@ -452,6 +452,9 @@ AI-written outbound, sent or held.
 | `created_by` | `ai` \| `agent:<username>` |
 | `draft_id`, `cancel_draft_id` | the AI drafts whose delivery makes / cancels it |
 | `detail`, `created_at`, `updated_at` | why it failed / was released / who cancelled it |
+| `meeting_provider`, `meeting_url` | the video meeting made with it: `zoom` \| `google_meet` \| `link` (the calendar skill's own link) and the link the customer joins with; `""` = none |
+| `meeting_id`, `meeting_integration_id` | the Zoom meeting's id and the Zoom connection that made it (what cancelling deletes) |
+| `meeting_sent_at` | when the link was sent to the customer (after the reply that booked); null = not yet |
 
 Indexes `(contact_id, status)`, `(calendar_key, start_utc)`; no foreign keys.
 Every rule lives in `Bookings/BookingService.cs`.

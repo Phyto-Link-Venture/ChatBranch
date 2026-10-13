@@ -529,11 +529,13 @@ public class AiGate
     }
 
     /// <summary>
-    /// The reply's text reached the customer (its last bubble): send the files its
-    /// app tools made (Documents PDFs, QR codes — as files, or download links on
-    /// channels without files) and run its deferred actions (Sheets rows). The text
-    /// failed ⇒ the files are voided and nothing deferred runs. Idempotent: a
-    /// document is sent once, deferred actions run once.
+    /// The reply's text reached the customer (its last bubble): send the meeting link of
+    /// what it booked (Zoom / Google Meet / the skill's own link, made with the booking),
+    /// the files its app tools made (Documents PDFs, QR codes — as files, or download
+    /// links on channels without files) and run its deferred actions (Sheets rows). The
+    /// text failed ⇒ the files are voided, nothing deferred runs and the link is noted
+    /// for a person instead. Idempotent: a link and a document are sent once, deferred
+    /// actions run once.
     /// </summary>
     public void DeliverExtras(int draftId, Thread thread, int? accountId, string? textStatus)
     {
@@ -543,10 +545,32 @@ public class AiGate
             if (d == null) return;
             var ids = AiAttachments.From(d.Context);
             var deferred = Items(d.Context, "deferred_actions").ToList();
-            if (ids.Count == 0 && deferred.Count == 0) return;
+            var links = _bookings.MeetingLinksToSend(d.Context);
+            if (ids.Count == 0 && deferred.Count == 0 && links.Count == 0) return;
             if (textStatus == "failed")
             {
                 _documents.Release(ids, "The reply text could not be sent, so its file wasn't either.");
+                foreach (var link in links)
+                    _bookings.MeetingLinkSent(link.Row, false, "the reply confirming the booking could not be sent", thread.Id);
+                return;
+            }
+            // the meeting link right after the confirmation it belongs to, in its own message
+            foreach (var link in links)
+            {
+                try
+                {
+                    var sent = _sender.Send(thread, link.Text, MessageSource.Ai, accountId);
+                    _bookings.MeetingLinkSent(link.Row, sent.Status != "failed",
+                        sent.Status == "failed" ? (sent.Error.Length > 0 ? sent.Error : "send failed") : null, thread.Id);
+                }
+                catch (Exception ex)
+                {
+                    _bookings.MeetingLinkSent(link.Row, false, ex.GetType().Name, thread.Id);
+                }
+            }
+            if (ids.Count == 0 && deferred.Count == 0)
+            {
+                BumpThread(thread.Id);
                 return;
             }
             var actor = d.Status is AiDraftStatus.Approved or AiDraftStatus.Edited && !string.IsNullOrWhiteSpace(d.DecidedBy)

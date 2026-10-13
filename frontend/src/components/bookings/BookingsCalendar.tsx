@@ -35,6 +35,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import { BookingStatusChip, CalendarMark, calendarName } from '@/components/bookings/BookingBits'
+import { MeetingLink } from '@/components/bookings/MeetingLink'
 import { Trans, useFormat, useT, type MessageKey } from '@/i18n'
 import { useAccess } from '@/lib/useAccess'
 import { subscribeChatStream } from '@/lib/chatStream'
@@ -1086,6 +1087,17 @@ function ItemModal({
           <dd className="flex items-center gap-1.5 text-text-high">
             <CalendarMark source={b.source} size={12} /> {calendarName(t, b)}
           </dd>
+          {b.meeting_url && (
+            <>
+              <dt className="text-text-muted">{t('bookings.meeting.label')}</dt>
+              <dd className="flex min-w-0 flex-col items-start gap-0.5">
+                <MeetingLink booking={b} className="max-w-full text-[12.5px]" />
+                <span className="text-[11.5px] text-text-muted">
+                  {t(b.meeting_sent_at ? 'bookings.meeting.sent' : 'bookings.meeting.notSent')}
+                </span>
+              </dd>
+            </>
+          )}
           <dt className="text-text-muted">{t('common.fields.status')}</dt>
           <dd className="flex flex-col items-start gap-1">
             <BookingStatusChip booking={b} />

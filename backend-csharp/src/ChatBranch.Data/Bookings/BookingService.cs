@@ -44,9 +44,10 @@ public class BookingService
     private readonly IntegrationResolver _resolver;
     private readonly GoogleCalendarClient _calendar;
     private readonly TimeProvider _clock;
+    private readonly ZoomClient _zoom;
 
     public BookingService(AppDbContext db, ScopingService scoping, IntegrationResolver? resolver = null,
-        GoogleCalendarClient? calendar = null, TimeProvider? clock = null)
+        GoogleCalendarClient? calendar = null, TimeProvider? clock = null, ZoomClient? zoom = null)
     {
         _db = db;
         _scoping = scoping;
@@ -54,6 +55,7 @@ public class BookingService
         _calendar = calendar ?? new GoogleCalendarClient(db,
             new GoogleOAuth(db, scoping, PlainHttpClientFactory.Instance), PlainHttpClientFactory.Instance);
         _clock = clock ?? TimeProvider.System;
+        _zoom = zoom ?? new ZoomClient(db, PlainHttpClientFactory.Instance);
     }
 
     public DateTime UtcNow => _clock.GetUtcNow().UtcDateTime;
@@ -312,12 +314,16 @@ public class BookingService
                        + "\"note\":{\"type\":\"string\",\"description\":\"Optional short note for the booking (what the appointment is about)\"}"
                        + lengthSchema
                        + "},\"required\":[\"start\"]}")));
+        // also offered when bookings carry a meeting: the customer may ask for the link again
+        if (cfg.Allows("cancel") || cfg.Meeting.Length > 0)
+            yield return (b + "_my_bookings", "my_bookings", new LlmTool(b + "_my_bookings",
+                "List this customer's upcoming bookings (booking_id, date, time, status"
+                + (cfg.Meeting.Length > 0 ? ", meeting_link" : "") + "). Use it to find the "
+                + "booking_id before cancelling or rescheduling, or when they ask when their appointment is"
+                + (cfg.Meeting.Length > 0 ? " or for its meeting link" : "") + ".",
+                Schema("{\"type\":\"object\",\"properties\":{}}")));
         if (cfg.Allows("cancel"))
         {
-            yield return (b + "_my_bookings", "my_bookings", new LlmTool(b + "_my_bookings",
-                "List this customer's upcoming bookings (booking_id, date, time, status). Use it to find the "
-                + "booking_id before cancelling or rescheduling, or when they ask when their appointment is.",
-                Schema("{\"type\":\"object\",\"properties\":{}}")));
             yield return (b + "_cancel", "cancel", new LlmTool(b + "_cancel",
                 $"Cancel one of this customer's upcoming bookings (booking_id from {b}_my_bookings). Only after "
                 + "the customer asked to cancel or reschedule and confirmed which appointment. To reschedule, call "
@@ -746,9 +752,10 @@ public class BookingService
                 new() { ["alternatives"] = alternatives.Select(s => SlotJson(s, cfg.VariableLength)).ToList() });
         }
         var slotLabel = SlotLabel(slot, cfg.VariableLength);
-        var restate = cfg.VariableLength
+        var restate = (cfg.VariableLength
             ? "In your reply, confirm the booking and restate the weekday, date, time range (start–end) and timezone."
-            : "In your reply, confirm the booking and restate the weekday, date, time and timezone.";
+            : "In your reply, confirm the booking and restate the weekday, date, time and timezone.")
+            + MeetingInstruction(cfg);
 
         if (session.Preview)
         {
@@ -764,6 +771,7 @@ public class BookingService
                 ["label"] = slotLabel,
                 ["timezone"] = tz.Id,
                 ["calendar"] = target.Label,
+                ["meeting"] = cfg.Meeting.Length > 0 ? MeetingKinds.Label(cfg.Meeting) : null,
                 ["instructions"] = "The time is held for this customer and is confirmed when your reply is sent. " + restate,
             };
             session.Previews.Add(new BookingPreview(AiPendingAction.Book, slotLabel,
@@ -813,6 +821,7 @@ public class BookingService
             ["label"] = slotLabel,
             ["timezone"] = tz.Id,
             ["calendar"] = target.Label,
+            ["meeting"] = cfg.Meeting.Length > 0 ? MeetingKinds.Label(cfg.Meeting) : null,
             ["instructions"] = "The time is held for this customer and is confirmed when your reply is sent. " + restate,
         };
         session.BookedId = row.Id;
@@ -1146,6 +1155,11 @@ public class BookingService
             .OrderByDescending(s => s.EntityId == row.EntityId).FirstOrDefaultAsync(ct);
         var cfg = CalendarAppConfig.From(skill?.Config);
 
+        // the video meeting is made WITH the booking (a Zoom meeting of its own, or the skill's
+        // own link) — before the Google event, so the invite carries the link. A meeting that
+        // can't be made never stops the booking: the note says so and a person sends a link.
+        var meetingProblem = await MakeMeetingAsync(row, cfg, contact, ct);
+
         if (row.Source == BookingSources.Google)
         {
             var integration = row.IntegrationId is int iid
@@ -1162,23 +1176,113 @@ public class BookingService
                           && x.End > BookingAvailability.Utc(row.StartUtc) - buffer))
                 return "that time is no longer free on the calendar.";
             var email = contact?.Email ?? "";
+            var meet = cfg.Meeting == MeetingKinds.GoogleMeet;
             var ev = await _calendar.InsertEventAsync(integration, calendarId, new GoogleCalendarClient.EventSpec(
                 row.Title, Description(cfg, row, contact), BookingAvailability.Utc(row.StartUtc),
                 BookingAvailability.Utc(row.EndUtc), row.Timezone,
-                AttendeeEmail: email.Length > 0 ? email : null, SendUpdates: email.Length > 0 ? "all" : null), ct);
-            if (!ev.Ok) return ev.NotConnected ? "Google Calendar is not connected." : ev.Error;
+                AttendeeEmail: email.Length > 0 ? email : null, SendUpdates: email.Length > 0 ? "all" : null,
+                Location: row.MeetingUrl.Length > 0 ? row.MeetingUrl : null, CreateMeet: meet), ct);
+            if (!ev.Ok)
+            {
+                // no booking ⇒ no meeting: the Zoom meeting made a moment ago goes too
+                await DropMeetingAsync(row, ct);
+                return ev.NotConnected ? "Google Calendar is not connected." : ev.Error;
+            }
             row.ExternalEventId = ev.Id;
             row.EventLink = ev.HtmlLink;
+            if (meet)
+            {
+                if (ev.MeetLink.Length > 0)
+                {
+                    row.MeetingProvider = MeetingKinds.GoogleMeet;
+                    row.MeetingUrl = ev.MeetLink;
+                }
+                else meetingProblem = "Google didn't return a Google Meet link for the event.";
+            }
         }
+        else if (cfg.Meeting == MeetingKinds.GoogleMeet)
+            meetingProblem = "Google Meet links need a Google Calendar — this calendar keeps its bookings in ChatBranch.";
 
         row.Status = BookingStatus.Booked;
         row.DraftId ??= draftId;
         row.Detail = "";
         row.UpdatedAt = UtcNow;
         await _db.SaveChangesAsync(ct);
-        Record(row, "booking.created", actor, $"📅 Booked {LabelWithZone(row)} on {row.CalendarLabel}.",
-            "Booking confirmed", null, noteThreadId);
+        var meetingNote = row.MeetingUrl.Length > 0
+            ? $" {MeetingKinds.Label(row.MeetingProvider)} link: {row.MeetingUrl} (sent to the customer after the reply)."
+            : meetingProblem != null ? $" ⚠ No meeting link: {meetingProblem} Send the customer a link yourself." : "";
+        Record(row, "booking.created", actor, $"📅 Booked {LabelWithZone(row)} on {row.CalendarLabel}.{meetingNote}",
+            meetingProblem != null ? "Booking confirmed — no meeting link" : "Booking confirmed", meetingProblem,
+            noteThreadId);
         return null;
+    }
+
+    /// <summary>The booking's own meeting before it is made: a Zoom meeting (through the Zoom
+    /// connection of the booking's entity → its parents → the organization) or the skill's own
+    /// link. Google Meet is made with the Google event. Returns why there is none, or null.</summary>
+    private async Task<string?> MakeMeetingAsync(Booking row, CalendarAppConfig cfg, Contact? contact, CancellationToken ct)
+    {
+        try
+        {
+            if (row.MeetingUrl.Length > 0) return null; // made already (a retried delivery)
+            switch (cfg.Meeting)
+            {
+                case MeetingKinds.Link when MeetingKinds.IsLink(cfg.MeetingLink):
+                    row.MeetingProvider = MeetingKinds.Link;
+                    row.MeetingUrl = cfg.MeetingLink;
+                    return null;
+                case MeetingKinds.Link:
+                    return "the calendar skill has no meeting link.";
+                case MeetingKinds.Zoom:
+                    var zoomRow = _resolver.Active(ZoomClient.Provider, row.EntityId);
+                    if (zoomRow == null) return "Zoom is not connected (Integrations → Zoom).";
+                    var minutes = (int)Math.Round((BookingAvailability.Utc(row.EndUtc) - BookingAvailability.Utc(row.StartUtc)).TotalMinutes);
+                    var z = await _zoom.CreateMeetingAsync(zoomRow, row.Title, BookingAvailability.Utc(row.StartUtc), minutes,
+                        row.Timezone, Description(cfg, row, contact), ct);
+                    if (!z.Ok) return $"the Zoom meeting could not be made ({z.Error.TrimEnd('.')}).";
+                    row.MeetingProvider = MeetingKinds.Zoom;
+                    row.MeetingUrl = z.JoinUrl;
+                    row.MeetingId = z.Id;
+                    row.MeetingIntegrationId = zoomRow.Id;
+                    return null;
+                default:
+                    return null;
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            return $"the meeting could not be made ({ex.GetType().Name}).";
+        }
+    }
+
+    /// <summary>Delete the booking's Zoom meeting (cancelled / never made). Null = gone, else why not.
+    /// Google Meet goes with its event; a fixed link is the skill's, never deleted.</summary>
+    private async Task<string?> DropMeetingAsync(Booking row, CancellationToken ct)
+    {
+        try
+        {
+            if (row.MeetingProvider != MeetingKinds.Zoom || row.MeetingId.Length == 0) return null;
+            var zoomRow = row.MeetingIntegrationId is int zid
+                ? await _db.Integrations.FirstOrDefaultAsync(i => i.Id == zid, ct)
+                : _resolver.Active(ZoomClient.Provider, row.EntityId);
+            if (zoomRow == null) return "the Zoom connection is gone, so its meeting could not be deleted.";
+            var r = await _zoom.DeleteMeetingAsync(zoomRow, row.MeetingId, ct);
+            if (!r.Ok) return $"the Zoom meeting could not be deleted ({r.Error.TrimEnd('.')}).";
+            if (row.Status != BookingStatus.Cancelled)
+            {
+                row.MeetingProvider = "";
+                row.MeetingUrl = "";
+                row.MeetingId = "";
+                row.MeetingIntegrationId = null;
+            }
+            return null;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            return $"the Zoom meeting could not be deleted ({ex.GetType().Name}).";
+        }
     }
 
     /// <summary>Cancel one booking now (Google delete when it has an event). Null = done.</summary>
@@ -1201,8 +1305,11 @@ public class BookingService
         row.Status = BookingStatus.Cancelled;
         row.Detail = Cap($"Cancelled {how} ({actor}).", 300);
         row.UpdatedAt = UtcNow;
+        // its Zoom meeting goes too — never a reason to keep the booking
+        var meeting = await DropMeetingAsync(row, ct);
         await _db.SaveChangesAsync(ct);
-        Record(row, "booking.cancelled", actor, $"📅 Cancelled {LabelWithZone(row)} on {row.CalendarLabel}.",
+        Record(row, "booking.cancelled", actor, $"📅 Cancelled {LabelWithZone(row)} on {row.CalendarLabel}."
+            + (meeting != null ? $" ⚠ {char.ToUpperInvariant(meeting[0])}{meeting[1..]} Delete it in Zoom." : ""),
             "Booking cancelled", null, noteThreadId);
         return null;
     }
@@ -1370,6 +1477,84 @@ public class BookingService
             ["range"] = BookingAvailability.RangeLabel(local, end),
             ["timezone"] = b.Timezone,
             ["status"] = b.Status,
+            // the real link — the AI may repeat it when the customer asks for it again
+            ["meeting_link"] = b.Status == BookingStatus.Booked && b.MeetingUrl.Length > 0 ? b.MeetingUrl : null,
+        };
+    }
+
+    /// <summary>What the book tool tells the model about the booking's meeting link: ChatBranch sends
+    /// it (the real one, made with the booking) — the model never writes a link of its own.</summary>
+    private static string MeetingInstruction(CalendarAppConfig cfg) => cfg.Meeting.Length == 0 ? ""
+        : $" The {MeetingKinds.Label(cfg.Meeting)} link is sent to the customer automatically, in its own message "
+          + "right after your reply — you may say it is on its way, but never write a meeting link yourself.";
+
+    // =========================================================================
+    // the meeting link, sent to the customer after the reply that booked
+    // =========================================================================
+
+    public sealed record MeetingLinkMessage(Booking Row, string Text);
+
+    /// <summary>
+    /// The meeting links a DELIVERED reply's bookings carry and the customer hasn't been sent yet,
+    /// each with the message it goes in (the skill's <c>meeting_message</c>, else the default in
+    /// the contact's language). <see cref="AiGate.DeliverExtras"/> sends them after the reply's text.
+    /// </summary>
+    public List<MeetingLinkMessage> MeetingLinksToSend(Dictionary<string, object?>? draftContext)
+    {
+        try
+        {
+            var ids = AiPendingAction.From(draftContext).Where(a => a.Type == AiPendingAction.Book)
+                .Select(a => a.BookingId).Distinct().ToList();
+            if (ids.Count == 0) return new();
+            var rows = _db.Bookings.Where(b => ids.Contains(b.Id) && b.Status == BookingStatus.Booked
+                && b.MeetingUrl != "" && b.MeetingSentAt == null).OrderBy(b => b.Id).ToList();
+            var list = new List<MeetingLinkMessage>();
+            foreach (var row in rows)
+            {
+                var contact = _db.Contacts.AsNoTracking().FirstOrDefault(c => c.Id == row.ContactId);
+                var skill = _db.AgentSkills.AsNoTracking().Where(x => x.SkillId == row.SkillId)
+                    .OrderByDescending(x => x.EntityId == row.EntityId).FirstOrDefault();
+                list.Add(new MeetingLinkMessage(row, MeetingMessage(row, CalendarAppConfig.From(skill?.Config), contact)));
+            }
+            return list;
+        }
+        catch { return new(); }
+    }
+
+    /// <summary>The link went out (or could not): stamp it so it is never sent twice; a failed
+    /// send is noted for a person to follow up.</summary>
+    public void MeetingLinkSent(Booking row, bool ok, string? error, int? threadId)
+    {
+        try
+        {
+            var tracked = _db.Bookings.FirstOrDefault(b => b.Id == row.Id);
+            if (tracked == null) return;
+            tracked.MeetingSentAt = UtcNow;
+            tracked.UpdatedAt = UtcNow;
+            _db.SaveChanges();
+            if (!ok)
+                Record(tracked, "booking.unconfirmed", "ai",
+                    $"📅 The {MeetingKinds.Label(tracked.MeetingProvider)} link for {LabelWithZone(tracked)} could not be sent "
+                    + $"({error ?? "send failed"}): {tracked.MeetingUrl} — send it to the customer yourself.",
+                    "Meeting link not sent", error ?? "send failed", threadId);
+        }
+        catch { /* a stamp is a side effect */ }
+    }
+
+    /// <summary>"Here's the link to join your appointment on Tue 14 Oct, 3:00–3:30 PM: https://…".</summary>
+    public static string MeetingMessage(Booking b, CalendarAppConfig cfg, Contact? c)
+    {
+        var time = LabelOf(b);
+        if (cfg.MeetingMessage.Trim().Length > 0)
+            return Render(cfg.MeetingMessage, new Dictionary<string, string>
+            {
+                ["link"] = b.MeetingUrl, ["time"] = time, ["name"] = c?.Name ?? "",
+            });
+        return (c?.Language ?? "").Trim().ToLowerInvariant() switch
+        {
+            "ms" => $"Ini pautan untuk menyertai temu janji anda pada {time}: {b.MeetingUrl}",
+            "zh" => $"这是您 {time} 预约的会议链接：{b.MeetingUrl}",
+            _ => $"Here's the link to join your appointment on {time}: {b.MeetingUrl}",
         };
     }
 

@@ -41,7 +41,7 @@ public partial class FlowEngine
     public static readonly string[] BookingVariables =
     {
         "booking_time", "booking_date", "booking_start_time", "booking_end_time",
-        "booking_length", "booking_calendar", "booking_link",
+        "booking_length", "booking_calendar", "booking_link", "booking_meeting_link",
     };
 
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
@@ -182,8 +182,8 @@ public partial class FlowEngine
     /// <summary>
     /// <c>{{booking_time}}</c> "Mon 12 Oct, 2:15 PM" · <c>{{booking_date}}</c> "Mon 12 Oct 2026" ·
     /// <c>{{booking_start_time}}</c> "2:15 PM" · <c>{{booking_end_time}}</c> ·
-    /// <c>{{booking_length}}</c> "45 min" · <c>{{booking_calendar}}</c> · <c>{{booking_link}}</c>
-    /// — in the booking's own timezone (else the organization's). Every key is set,
+    /// <c>{{booking_length}}</c> "45 min" · <c>{{booking_calendar}}</c> · <c>{{booking_link}}</c> ·
+    /// <c>{{booking_meeting_link}}</c> (its Zoom / Google Meet / own link) — in the booking's own timezone (else the organization's). Every key is set,
     /// empty when the run is not about a booking.
     /// </summary>
     private void MergeBookingVariables(Dictionary<string, string> vars, FlowRun? run)
@@ -202,6 +202,7 @@ public partial class FlowEngine
         vars["booking_length"] = LengthText((int)Math.Round((b.EndUtc - b.StartUtc).TotalMinutes));
         vars["booking_calendar"] = b.CalendarLabel ?? "";
         vars["booking_link"] = b.EventLink ?? "";
+        vars["booking_meeting_link"] = b.Status == BookingStatus.Cancelled ? "" : b.MeetingUrl ?? "";
     }
 
     /// <summary>"45 min", "1 hour", "2 hours", "1 h 30 min".</summary>

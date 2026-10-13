@@ -948,6 +948,33 @@ When you fix one of these, update this table, `README.md` and
   booking-claim check then catches "has been cancelled". At delivery `ConfirmAsync`
   makes books first; a failed book releases the cancel. Tests: the reschedule block
   of `BookingTests`.
+  **Meeting links** (`CalendarAppConfig.Meeting` = "" | `zoom` | `google_meet` |
+  `link` + `meeting_link` (https, the same link every booking) + optional
+  `meeting_message` ({{link}} {{time}} {{name}}); `MeetingKinds`). The meeting is
+  MADE with the booking at delivery (`MakeAsync` → `MakeMeetingAsync`): Zoom = ONE
+  meeting per booking through `Integrations/ZoomClient.cs` (a Server-to-Server OAuth
+  app — integration provider `zoom`, `account_id` + `client_id` config,
+  `client_secret` credential, token cached in-process; resolved like Stripe: the
+  booking's entity → parents → org; created BEFORE the Google event so the invite's
+  `location` carries it, deleted again if the event fails); Google Meet =
+  `conferenceData.createRequest` + `conferenceDataVersion=1` on the event
+  (`EventResult.MeetLink`, Google source only); `link` = the skill's own. Stored on
+  `crm_booking.meeting_provider|meeting_url|meeting_id|meeting_integration_id|meeting_sent_at`.
+  A meeting that can't be made never stops the booking (the 📅 note says "No meeting
+  link: … Send the customer a link yourself."). The LINK is sent by ChatBranch,
+  never the model: `AiGate.DeliverExtras` sends `BookingService.MeetingLinksToSend`
+  in its own AI message right after the reply's text (`MeetingMessage`: the skill's
+  template, else EN / BM / ZH by the contact's language), stamps `meeting_sent_at`
+  (once; a failed send is noted); the book tool's result and the SKILLS block tell
+  the model the link follows and never to write one, and `_my_bookings` (offered
+  whenever a meeting is set, even without `cancel`) returns `meeting_link` for a
+  customer who asks again. Cancelling deletes the Zoom meeting (best effort, noted
+  on failure). Flow variable `{{booking_meeting_link}}`; the Bookings page / card /
+  contact card show "Join Zoom" (`components/bookings/MeetingLink.tsx`); the skill
+  form's "Video meeting" section (`AppSkillForm.tsx MeetingSection`, `/skills/apps`
+  calendar `meetings[]` with Zoom's `connected`); the Integrations page's Zoom card
+  (setup help, a real Test = token + `GET /users/me`). Tests: `MeetingLinkTests`
+  (fake Zoom + fake Google), `ZoomIntegrationApiTests`.
   Every outcome writes audit `booking.created|cancelled|failed` (+
   `booking.unconfirmed` when the confirmation text is refused after booking), a
   "📅" private note and a notification (assignee, else admins; RefKey
@@ -1666,8 +1693,9 @@ When you fix one of these, update this table, `README.md` and
   Contacts (read-only `contacts.readonly` — the caller's own address book for the
   contact import) (`GoogleOAuth.cs`: one Google client, incremental per-product
   scopes, PKCE S256, HMAC-signed 600 s `state`, lazy refresh that marks a row
-  disconnected and returns "" rather than throwing) and Shopify / Stripe (API
-  keys). Google Calendar HTTP (free/busy, insert / delete an event, list events /
+  disconnected and returns "" rather than throwing), Shopify / Stripe (API
+  keys) and Zoom (a Server-to-Server OAuth app — meeting links for bookings, see
+  Calendar booking; the add-account form stores each provider's own secret fields). Google Calendar HTTP (free/busy, insert / delete an event, list events /
   calendars) is ONE client, `Integrations/GoogleCalendarClient.cs`, shared by the flow
   actions, the AI's booking tools and the Bookings page's Calendar tab. **Personal, entity or organization — every payload
   says which** (`scope` personal | entity | organization + `entity_name` /
@@ -2232,7 +2260,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   own pass in `EvaluateTriggers`, the run's sends go to the booking's chat via
   `trigger_thread_id`; `{{booking_time}}` / `{{booking_date}}` /
   `{{booking_start_time}}` / `{{booking_end_time}}` / `{{booking_length}}` /
-  `{{booking_calendar}}` / `{{booking_link}}` in the booking's timezone, empty
+  `{{booking_calendar}}` / `{{booking_link}}` / `{{booking_meeting_link}}` in the booking's timezone, empty
   outside such a run) · Scheduled (time + weekdays) · Manual / API
   (`POST /api/flows/{flowId}/start`); repeat Once / Every time / Once a day.
   Legacy record-due-date triggers still execute but are never offered.

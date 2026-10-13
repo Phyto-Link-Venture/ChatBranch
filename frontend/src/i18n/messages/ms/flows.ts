@@ -1109,6 +1109,7 @@ export const flows: Dict<typeof source> = {
     bookingLength: 'Tempoh',
     bookingCalendar: 'Kalendar',
     bookingLink: 'Pautan kalendar',
+    bookingMeetingLink: 'Pautan mesyuarat (Zoom / Google Meet)',
     exampleOrder: 'Pesanan #1042',
     exampleBestTime: 'hari bekerja selepas 6 petang',
   },

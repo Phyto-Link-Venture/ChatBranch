@@ -297,6 +297,11 @@ public partial class AssistantService
                             + "booked, the old booking is kept — then say it still stands, never that it was cancelled"
                           : "")
                       + ".");
+        if (cfg.Meeting.Length > 0)
+            lines.Add($"  Every booking comes with a {ChatBranch.Data.Bookings.MeetingKinds.Label(cfg.Meeting)} meeting: "
+                      + "its link is sent to the customer automatically right after the reply that books — never write "
+                      + $"or guess a meeting link. If they ask for the link of an existing booking, {b}_my_bookings "
+                      + "returns it (meeting_link); give exactly that one.");
         lines.Add("  If a calendar tool returns ok:false, follow its advice; if the calendar is unavailable, tell the "
                   + "customer a teammate will confirm the time — never invent or promise a time.");
         return string.Join("\n", lines);

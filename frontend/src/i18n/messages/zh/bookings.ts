@@ -19,6 +19,13 @@ export const bookings: Dict<typeof source> = {
     failed: '回复到期时日历拒绝了此预约。',
   },
   chatbranchCalendar: 'ChatBranch 预约',
+  meeting: {
+    label: '会议',
+    join: '加入{name}',
+    generic: '会议',
+    sent: '链接已发送给客户',
+    notSent: '链接尚未发送',
+  },
   card: {
     all: '全部预约',
     loadFailed: '目前无法加载预约。',

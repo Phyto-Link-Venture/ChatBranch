@@ -31,6 +31,8 @@ internal sealed class FakeGoogleCalendar : HttpMessageHandler, IHttpClientFactor
     /// <summary>Busy spans freeBusy reports (UTC).</summary>
     public List<(DateTime Start, DateTime End)> Busy { get; } = new();
     public HttpStatusCode? FailInsert { get; set; }
+    /// <summary>The Google Meet link an insert with conferenceData answers ("" = none).</summary>
+    public string MeetLink { get; set; } = "https://meet.google.com/abc-defg-hij";
     public HttpStatusCode? FailFreeBusy { get; set; }
     /// <summary>What events.list answers (raw Google items) and its calendar's timezone.</summary>
     public List<object> EventItems { get; } = new();
@@ -74,9 +76,60 @@ internal sealed class FakeGoogleCalendar : HttpMessageHandler, IHttpClientFactor
         {
             if (FailInsert is HttpStatusCode fi) return Json(fi, new { error = new { message = "Calendar says no" } });
             var n = Interlocked.Increment(ref _events);
-            return Json(HttpStatusCode.OK, new { id = $"evt-{n}", htmlLink = $"https://calendar.google.com/event?eid={n}" });
+            // a Google Meet comes back with the event when it was asked for (conferenceDataVersion=1)
+            return request.RequestUri.Query.Contains("conferenceDataVersion=1") && MeetLink.Length > 0
+                ? Json(HttpStatusCode.OK, new { id = $"evt-{n}", htmlLink = $"https://calendar.google.com/event?eid={n}",
+                    hangoutLink = MeetLink })
+                : Json(HttpStatusCode.OK, new { id = $"evt-{n}", htmlLink = $"https://calendar.google.com/event?eid={n}" });
         }
         if (request.Method == HttpMethod.Delete) return new HttpResponseMessage(HttpStatusCode.NoContent);
+        return new HttpResponseMessage(HttpStatusCode.NotFound);
+    }
+
+    private static HttpResponseMessage Json(HttpStatusCode status, object payload) =>
+        new(status) { Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json") };
+}
+
+/// <summary>
+/// zoom.us / api.zoom.us stand-in at the HTTP level, so the REAL <see cref="ZoomClient"/>
+/// (the Server-to-Server token, the meeting create / delete bodies) is what runs.
+/// </summary>
+internal sealed class FakeZoom : HttpMessageHandler, IHttpClientFactory
+{
+    public sealed record Call(string Method, string Host, string Path, string Query, string Body, string? Auth);
+
+    public List<Call> Calls { get; } = new();
+    public HttpStatusCode? FailToken { get; set; }
+    public HttpStatusCode? FailCreate { get; set; }
+    private long _meetings = 85_000_000_000;
+
+    public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
+
+    public IEnumerable<Call> Tokens => Calls.Where(c => c.Path == "/oauth/token");
+    public IEnumerable<Call> Creates => Calls.Where(c => c.Method == "POST" && c.Path == "/v2/users/me/meetings");
+    public IEnumerable<Call> Deletes => Calls.Where(c => c.Method == "DELETE");
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        var body = request.Content == null ? "" : await request.Content.ReadAsStringAsync(ct);
+        var uri = request.RequestUri!;
+        lock (Calls)
+            Calls.Add(new Call(request.Method.Method, uri.Host, uri.AbsolutePath, uri.Query, body,
+                request.Headers.Authorization?.ToString()));
+        if (uri.Host == "zoom.us" && uri.AbsolutePath == "/oauth/token")
+            return FailToken is HttpStatusCode ft
+                ? Json(ft, new { reason = "Invalid client_id or client_secret", error = "invalid_client" })
+                : Json(HttpStatusCode.OK, new { access_token = "zoom-token", token_type = "bearer", expires_in = 3599 });
+        if (uri.Host != "api.zoom.us") return new HttpResponseMessage(HttpStatusCode.NotFound);
+        if (request.Method == HttpMethod.Post && uri.AbsolutePath == "/v2/users/me/meetings")
+        {
+            if (FailCreate is HttpStatusCode fc) return Json(fc, new { code = 124, message = "Invalid access token." });
+            var id = Interlocked.Increment(ref _meetings);
+            return Json(HttpStatusCode.Created, new { id, join_url = $"https://us06web.zoom.us/j/{id}?pwd=abc", password = "abc" });
+        }
+        if (request.Method == HttpMethod.Delete) return new HttpResponseMessage(HttpStatusCode.NoContent);
+        if (request.Method == HttpMethod.Get && uri.AbsolutePath == "/v2/users/me")
+            return Json(HttpStatusCode.OK, new { email = "owner@example.com" });
         return new HttpResponseMessage(HttpStatusCode.NotFound);
     }
 
@@ -139,6 +192,7 @@ internal sealed class BookingRig : IDisposable
     public ManualClock Clock { get; } = new(Start);
     public ToolScriptLlm Llm { get; } = new(ToolScriptLlm.BookFirstSlot);
     public FakeGoogleCalendar Google { get; } = new();
+    public FakeZoom Zoom { get; } = new();
     public ScopingService Sc { get; }
     public ThreadStore Threads { get; }
     public BookingService Bookings { get; }
@@ -156,7 +210,7 @@ internal sealed class BookingRig : IDisposable
         Threads = new ThreadStore(Db, Sc);
         var sender = new OutboundSender(Db, Threads, new LiveWhatsApp(), new ChatBranch.Data.Sidecars.SandboxBaileysGateway());
         var calendar = new GoogleCalendarClient(Db, new GoogleOAuth(Db, Sc, Google), Google);
-        Bookings = new BookingService(Db, Sc, new IntegrationResolver(Db, Sc), calendar, Clock);
+        Bookings = new BookingService(Db, Sc, new IntegrationResolver(Db, Sc), calendar, Clock, new ZoomClient(Db, Zoom));
         Skills = new SkillService(Db, Sc, Clock, Bookings);
         Assistant = new AssistantService(Db, Sc, new PersonaService(Sc), new KnowledgeService(Db, Sc), Llm, Skills);
         var composer = new AiComposer(Db, Assistant, Llm);

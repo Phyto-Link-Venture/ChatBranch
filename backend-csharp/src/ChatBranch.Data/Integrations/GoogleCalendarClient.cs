@@ -35,12 +35,17 @@ public class GoogleCalendarClient
     public sealed record FreeBusyResult(bool Ok, bool NotConnected, string Error,
         IReadOnlyList<(DateTime Start, DateTime End)> Busy);
 
-    public sealed record EventResult(bool Ok, bool NotConnected, string Error, string Id, string HtmlLink, int Status);
+    /// <param name="MeetLink">The Google Meet link when the event was made with one (<see cref="EventSpec.CreateMeet"/>).</param>
+    public sealed record EventResult(bool Ok, bool NotConnected, string Error, string Id, string HtmlLink, int Status,
+        string MeetLink = "");
 
     /// <summary>An event to create. Times are UTC; <see cref="TimeZone"/> is the
-    /// IANA zone Google shows it in (optional).</summary>
+    /// IANA zone Google shows it in (optional). <see cref="Location"/> carries a meeting link
+    /// made elsewhere (Zoom, the skill's own link); <see cref="CreateMeet"/> asks Google to
+    /// add a Google Meet to the event.</summary>
     public sealed record EventSpec(string Summary, string Description, DateTime StartUtc, DateTime EndUtc,
-        string? TimeZone = null, string? AttendeeEmail = null, string? SendUpdates = null);
+        string? TimeZone = null, string? AttendeeEmail = null, string? SendUpdates = null,
+        string? Location = null, bool CreateMeet = false);
 
     /// <summary>The calendar id to use: the caller's choice, else the connection's
     /// configured <c>calendar_id</c>, else "primary".</summary>
@@ -98,13 +103,50 @@ public class GoogleCalendarClient
         };
         if (!string.IsNullOrWhiteSpace(spec.AttendeeEmail))
             body["attendees"] = new[] { new Dictionary<string, object?> { ["email"] = spec.AttendeeEmail } };
+        if (!string.IsNullOrWhiteSpace(spec.Location)) body["location"] = spec.Location;
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(spec.SendUpdates)) query.Add($"sendUpdates={Uri.EscapeDataString(spec.SendUpdates)}");
+        if (spec.CreateMeet)
+        {
+            // Google makes the Meet with the event; conferenceDataVersion=1 is what lets it
+            body["conferenceData"] = new Dictionary<string, object?>
+            {
+                ["createRequest"] = new Dictionary<string, object?>
+                {
+                    ["requestId"] = Guid.NewGuid().ToString("N"),
+                    ["conferenceSolutionKey"] = new Dictionary<string, object?> { ["type"] = "hangoutsMeet" },
+                },
+            };
+            query.Add("conferenceDataVersion=1");
+        }
         var url = $"{Base}/calendars/{Uri.EscapeDataString(calendarId)}/events"
-                  + (string.IsNullOrWhiteSpace(spec.SendUpdates) ? "" : $"?sendUpdates={Uri.EscapeDataString(spec.SendUpdates)}");
+                  + (query.Count > 0 ? "?" + string.Join("&", query) : "");
         var r = await ProviderHttp.SendAsync(_http, HttpMethod.Post, url, token, jsonBody: body, ct: ct);
         RecordResult(row, r.Ok, r.Ok ? "" : r.Body);
         if (!r.Ok) return new EventResult(false, false, $"Google Calendar: {r.Body}", "", "", r.Status);
         return new EventResult(true, false, "", ProviderHttp.JsonField(r.Body, "id"),
-            ProviderHttp.JsonField(r.Body, "htmlLink"), r.Status);
+            ProviderHttp.JsonField(r.Body, "htmlLink"), r.Status, spec.CreateMeet ? MeetLinkOf(r.Body) : "");
+    }
+
+    /// <summary>The event's Google Meet link: <c>hangoutLink</c>, else the video entry point.</summary>
+    public static string MeetLinkOf(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("hangoutLink", out var h) && h.ValueKind == JsonValueKind.String
+                && (h.GetString() ?? "").StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return h.GetString()!;
+            if (root.TryGetProperty("conferenceData", out var cd) && cd.ValueKind == JsonValueKind.Object
+                && cd.TryGetProperty("entryPoints", out var eps) && eps.ValueKind == JsonValueKind.Array)
+                foreach (var ep in eps.EnumerateArray())
+                    if (ep.TryGetProperty("entryPointType", out var type) && type.GetString() == "video"
+                        && ep.TryGetProperty("uri", out var uri) && (uri.GetString() ?? "").StartsWith("https://"))
+                        return uri.GetString()!;
+        }
+        catch { /* no link */ }
+        return "";
     }
 
     /// <summary>Delete an event. One that is already gone (404/410) counts as deleted.</summary>

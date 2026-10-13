@@ -73,6 +73,17 @@ public class Booking : IEntityScoped
     public int? CancelDraftId { get; set; }
     /// <summary>Why it failed / was released / who cancelled it.</summary>
     public string Detail { get; set; } = "";
+    /// <summary>The video meeting made with the booking: <c>zoom</c> | <c>google_meet</c> | <c>link</c>
+    /// (the calendar skill's own link); "" = none.</summary>
+    public string MeetingProvider { get; set; } = "";
+    /// <summary>The link the customer joins with ("" = none).</summary>
+    public string MeetingUrl { get; set; } = "";
+    /// <summary>The provider's meeting id (Zoom) — what cancelling deletes.</summary>
+    public string MeetingId { get; set; } = "";
+    /// <summary>The Zoom connection that made the meeting.</summary>
+    public int? MeetingIntegrationId { get; set; }
+    /// <summary>When the link was sent to the customer (null = not yet).</summary>
+    public DateTime? MeetingSentAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

@@ -392,6 +392,13 @@ public static class Seed
         // a call's outlet (stamped from the dispatch) — contact views show only the caller's calls
         AddColumnIfMissing(db, "crm_callrecord", "entity_id", "INTEGER NULL");
         Stores.ThreadCompanies.Upgrade(db);
+        // a booking's video meeting (Zoom / Google Meet / the skill's own link) and when its
+        // link was sent to the customer — Bookings/BookingService.cs
+        AddColumnIfMissing(db, "crm_booking", "meeting_provider", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_booking", "meeting_url", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_booking", "meeting_id", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_booking", "meeting_integration_id", "INTEGER NULL");
+        AddColumnIfMissing(db, "crm_booking", "meeting_sent_at", "TEXT NULL");
     }
 
     /// <summary>A partial UNIQUE index EnsureCreated() will never add to an existing

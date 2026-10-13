@@ -46,6 +46,13 @@ public sealed class CalendarAppConfig
     public int MaxActivePerContact { get; init; } = 1;
     public string EventTitle { get; init; } = "{{name}} — appointment";
     public string EventDescription { get; init; } = "";
+    /// <summary>The video meeting each booking gets (<see cref="MeetingKinds"/>; "" = none).</summary>
+    public string Meeting { get; init; } = "";
+    /// <summary>The link every booking shares when <see cref="Meeting"/> is <c>link</c> (a personal meeting room).</summary>
+    public string MeetingLink { get; init; } = "";
+    /// <summary>The message the link is sent in ("" = the default, in the customer's language);
+    /// <c>{{link}}</c>, <c>{{time}}</c>, <c>{{name}}</c>.</summary>
+    public string MeetingMessage { get; init; } = "";
 
     public bool Allows(string action) => AllowedActions.Contains(action);
 
@@ -108,6 +115,9 @@ public sealed class CalendarAppConfig
             ["max_active_per_contact"] = MaxActivePerContact,
             ["event_title"] = EventTitle,
             ["event_description"] = EventDescription,
+            ["meeting"] = Meeting,
+            ["meeting_link"] = MeetingLink,
+            ["meeting_message"] = MeetingMessage,
         };
     }
 
@@ -232,6 +242,32 @@ public sealed class CalendarAppConfig
         var description = Str(el, "event_description") ?? "";
         if (description.Length > 2000) { errors.Add("event_description is longer than 2,000 characters."); description = ""; }
 
+        // the video meeting: none, the skill's own link, Google Meet (a Google calendar's) or Zoom
+        var meeting = (Str(el, "meeting") ?? "").Trim().ToLowerInvariant();
+        if (meeting is "none" or "off") meeting = "";
+        if (meeting.Length > 0 && !MeetingKinds.All.Contains(meeting))
+        {
+            errors.Add($"meeting must be \"\", \"link\", \"google_meet\" or \"zoom\", not '{meeting}'.");
+            meeting = "";
+        }
+        var meetingLink = (Str(el, "meeting_link") ?? "").Trim();
+        if (meeting == MeetingKinds.Link)
+        {
+            if (meetingLink.Length == 0) errors.Add("meeting_link is needed when every booking uses your own meeting link.");
+            else if (!MeetingKinds.IsLink(meetingLink))
+                errors.Add("meeting_link must be a full https:// link (for example your Zoom personal meeting room).");
+        }
+        if (meetingLink.Length > 500 || (meetingLink.Length > 0 && !MeetingKinds.IsLink(meetingLink))) meetingLink = "";
+        if (meeting == MeetingKinds.GoogleMeet && source != "google")
+            errors.Add("Google Meet links come with a Google Calendar — pick Google Calendar as the calendar, or use Zoom or your own link.");
+        var meetingMessage = (Str(el, "meeting_message") ?? "").Trim();
+        if (meetingMessage.Length > 500) { errors.Add("meeting_message is longer than 500 characters."); meetingMessage = ""; }
+        else if (meetingMessage.Length > 0 && !meetingMessage.Contains("{{link}}"))
+        {
+            errors.Add("meeting_message must contain {{link}} — where the meeting link goes.");
+            meetingMessage = "";
+        }
+
         // a window too short for even one appointment is a mistake worth naming
         foreach (var (day, windows) in hours)
             foreach (var (from, to) in windows)
@@ -249,6 +285,7 @@ public sealed class CalendarAppConfig
             DurationUnitMinutes = unit, MaxUnits = maxUnits,
             SlotStepMinutes = step, BufferMinutes = buffer, MinNoticeMinutes = notice, MaxDaysAhead = ahead,
             MaxActivePerContact = maxActive, EventTitle = title, EventDescription = description,
+            Meeting = meeting, MeetingLink = meetingLink, MeetingMessage = meetingMessage,
         };
     }
 
@@ -342,4 +379,29 @@ public sealed class CalendarAppConfig
             _ => null,
         };
     }
+}
+
+/// <summary>The video meeting a calendar skill gives each booking.</summary>
+public static class MeetingKinds
+{
+    /// <summary>The same link for every booking (a personal Zoom / Teams / Meet room).</summary>
+    public const string Link = "link";
+    /// <summary>A Google Meet on each booking's Google Calendar event.</summary>
+    public const string GoogleMeet = "google_meet";
+    /// <summary>A Zoom meeting of its own per booking (a Zoom connection on the Integrations page).</summary>
+    public const string Zoom = "zoom";
+
+    public static readonly string[] All = { Link, GoogleMeet, Zoom };
+
+    public static bool IsLink(string? url) =>
+        Uri.TryCreate((url ?? "").Trim(), UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttps
+        && u.Host.Contains('.');
+
+    /// <summary>"Zoom" / "Google Meet" / "meeting" — what the AI and the notes call it.</summary>
+    public static string Label(string? kind) => kind switch
+    {
+        Zoom => "Zoom",
+        GoogleMeet => "Google Meet",
+        _ => "meeting",
+    };
 }
