@@ -4,6 +4,11 @@ const nextConfig = {
   // A self-contained server (.next/standalone: server.js + only the runtime
   // node_modules it traces) — what the Dockerfile ships, without src/ or dev deps.
   output: 'standalone',
+  // NEXT_SKIP_CHECKS=1: the build leaves type-checking and lint to CI's own
+  // "Dashboard checks" job (tsc + eslint) instead of running both again — CI's
+  // build job and the deploy's image build set it. Unset = the full checks.
+  eslint: { ignoreDuringBuilds: process.env.NEXT_SKIP_CHECKS === '1' },
+  typescript: { ignoreBuildErrors: process.env.NEXT_SKIP_CHECKS === '1' },
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api',
   },

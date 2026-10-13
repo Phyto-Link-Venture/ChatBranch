@@ -34,9 +34,38 @@ public sealed class BoundedParallelFramework(IMessageSink sink) : XunitTestFrame
         protected override async void RunTestCases(IEnumerable<IXunitTestCase> testCases, IMessageSink executionMessageSink,
             ITestFrameworkExecutionOptions executionOptions)
         {
-            using var runner = new Runner(TestAssembly, testCases, DiagnosticMessageSink, executionMessageSink, executionOptions);
+            using var runner = new Runner(TestAssembly, Shard.Pick(testCases, Environment.GetEnvironmentVariable("TEST_SHARD")),
+                DiagnosticMessageSink, executionMessageSink, executionOptions);
             await runner.RunAsync();
         }
+    }
+
+    /// <summary>
+    /// <c>TEST_SHARD=i/n</c> (CI's parallel jobs): run only the i-th of n slices of the
+    /// test classes — the classes sorted by name and dealt out in turn, so every
+    /// shard of the same run (same <c>--filter</c>) agrees on the split and the n
+    /// shards together run every class exactly once. Unset or malformed = everything.
+    /// </summary>
+    public static class Shard
+    {
+        public static IEnumerable<IXunitTestCase> Pick(IEnumerable<IXunitTestCase> testCases, string? spec)
+        {
+            if (!TryParse(spec, out var index, out var count) || count < 2) return testCases;
+            var all = testCases.ToList();
+            var mine = all.Select(ClassOf).Distinct().OrderBy(c => c, StringComparer.Ordinal)
+                .Where((_, i) => i % count == index - 1).ToHashSet();
+            return all.Where(tc => mine.Contains(ClassOf(tc))).ToList();
+        }
+
+        public static bool TryParse(string? spec, out int index, out int count)
+        {
+            index = count = 0;
+            var parts = (spec ?? "").Split('/');
+            return parts.Length == 2 && int.TryParse(parts[0], out index) && int.TryParse(parts[1], out count)
+                   && count >= 1 && index >= 1 && index <= count;
+        }
+
+        private static string ClassOf(IXunitTestCase tc) => tc.TestMethod.TestClass.Class.Name;
     }
 
     private sealed class Runner(ITestAssembly assembly, IEnumerable<IXunitTestCase> testCases, IMessageSink diagnostics,

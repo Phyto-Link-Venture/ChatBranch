@@ -19,6 +19,9 @@ services:
         # Baked into the client bundle at build time. Same-origin /api path so
         # the browser talks to nginx, which proxies /api -> the C# API.
         - NEXT_PUBLIC_API_URL=https://chatbranch.phytolink-venture.com/api
+        # the deploy waits for a green CI, which already type-checked and linted
+        # the dashboard — the image build skips repeating both (frontend/Dockerfile)
+        - NEXT_SKIP_CHECKS=1
     # !override: base maps 3000:3000, which clashes with phytolink-website.
     ports: !override
       - "127.0.0.1:3010:3000"

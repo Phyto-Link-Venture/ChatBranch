@@ -2328,6 +2328,19 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 ## Verifying changes
 
+- **The fast loop (do this, not the whole suite, before a push).** Push → CI →
+  deploy is the gate: the deploy waits for a green CI, which runs EVERY API test
+  (3 shards × SQLite + PostgreSQL), the dashboard checks + build and the sidecar
+  self-tests — so a red push never reaches production. Locally run only what the
+  change touches: `npm run test:api:changed` (`scripts/test-changed.mjs`: changed
+  test files, test files naming a type declared in a changed API file,
+  PermissionCatalogTests for dashboard changes, McpCoverageTests for
+  `docs/mcp.md`; the shared wiring — Program.cs, AppDbContext, Seed,
+  ScopingService, DatabaseSetup, a .csproj, the test hosts — or most of the
+  suite runs it all; `-- --list` shows the pick, `-- --base <ref>` compares with
+  another commit) plus `tsc --noEmit` / `eslint` for dashboard changes. Batch
+  related fixes into one push, and keep working while CI runs instead of
+  waiting on it. The whole suite locally is ~3 min on 4 cores (~5 min on 2).
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
   **1181 tests** covering auth/RBAC (+ API-key scopes inside handlers),
@@ -2393,9 +2406,22 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   (offline — metadata, prompts, call-ending cues, file IPC, WAV writer, VAD,
   provider wiring; no LiveKit server or keys). Root: `npm run test:agent`.
 - **Baileys gateway:** `node backend/baileys_service/calls.js --selftest`.
-- CI (`.github/workflows/ci.yml`) runs all four on push to master / PRs: API
-  build + tests (on SQLite, and again on PostgreSQL 16), dashboard types + lint +
-  build, the gateway self-test, the voice agent's types + self-test. Containers: `docker compose up` builds the API
+- CI (`.github/workflows/ci.yml`) runs on push to master / PRs, built for
+  wall-clock time (the deploy waits for it): a **What changed** job diffs against
+  the previous commit and the rest runs only where something changed — API
+  (`backend-csharp/`, `docs/mcp.md`) = build + tests in **3 shards on SQLite and
+  3 on PostgreSQL 16**, six jobs side by side (`TEST_SHARD=i/n` →
+  `BoundedParallelFramework.Shard`: the test classes sorted by name and dealt
+  out in turn; unset = everything); a dashboard-only change runs just
+  PermissionCatalogTests on the API side; dashboard (`frontend/`) = "Dashboard
+  checks" (tsc + eslint) beside "Dashboard build" (`NEXT_SKIP_CHECKS=1 next
+  build` — `next.config.js` then skips the type-check + lint it would repeat,
+  about half the build); the gateway and voice agent self-tests on their own
+  folders; a manual run, a new branch, an undiffable push or a change to
+  ci.yml itself = everything. NuGet packages are cached. The production compose
+  (`docker-compose.override.yml`) builds the web image with
+  `NEXT_SKIP_CHECKS=1` too (frontend/Dockerfile `ARG`), since the deploy waits
+  for CI; the base compose and release images keep the full checks. Containers: `docker compose up` builds the API
   and the dashboard (the gateway sits behind the `whatsapp` profile, the voice
   agent behind `voice`); the api service gets `BAILEYS_URL=${BAILEYS_URL:-http://baileys:3020}`
   + `BAILEYS_SECRET` (a URL saved in the dashboard still wins), and the baileys

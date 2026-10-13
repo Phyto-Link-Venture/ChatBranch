@@ -22,8 +22,13 @@ COPY . .
 #   proxy (/api/* → the API, the rest → this server). Release images use /api.
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_MAX_CONCURRENT
+# NEXT_SKIP_CHECKS=1: skip next build's own type-check + lint (≈ half the build)
+# when CI has already run them — the production compose sets it, since the
+# deploy waits for a green CI. Unset (the default) = the full checks.
+ARG NEXT_SKIP_CHECKS
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_MAX_CONCURRENT=$NEXT_PUBLIC_MAX_CONCURRENT \
+    NEXT_SKIP_CHECKS=$NEXT_SKIP_CHECKS \
     NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build

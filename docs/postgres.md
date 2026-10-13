@@ -111,6 +111,7 @@ gunzip -c chatbranch-<time>.sql.gz | docker compose -p <project> exec -T postgre
 - The test suite runs on SQLite by default. `TEST_DATABASE=postgres` with
   `TEST_POSTGRES="Host=…;Username=…;Password=…"` (a user that may create databases)
   gives every API test host its own throwaway database, dropped afterwards. CI runs
-  the suite both ways (`C# API` and `C# API on PostgreSQL`).
+  the suite both ways, three shards each (`C# API (sqlite i/3)` and
+  `C# API (postgres i/3)`).
 - `PostgresTests` covers the settings, the upgrade of an older database, the date
   round trip, both translators and the import.
