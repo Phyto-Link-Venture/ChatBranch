@@ -24,6 +24,23 @@ public class ReplyPartsTests
     }
 
     [Fact]
+    public void Thanks_or_ok_never_gets_a_part_of_its_own()
+    {
+        // "Thanks" + a real question: one thing to answer — no parts rule at all
+        var t = new HumanTurn("whatsapp", reactions: false, quotes: true);
+        t.Known[706] = "Thanks";
+        t.Known[707] = "Will I inform me before the meeting start?";
+        t.Current.Add(706);
+        t.Current.Add(707);
+        Assert.Equal(new[] { 707 }, t.Answerable);
+        Assert.DoesNotContain("ANSWERING IN PARTS", t.Guidance());
+
+        // the model split it anyway: the "Thanks" bubble folds into the answer, which keeps its quote
+        Assert.Null(t.SplitParts("[msg 706] No problem 🙏\n[msg 707] Yes, you'll get a reminder before it starts."));
+        Assert.Equal(707, t.ReplyTo);
+    }
+
+    [Fact]
     public void A_line_starting_with_a_message_id_starts_a_part_quoting_it()
     {
         var parts = Turn().SplitParts(
@@ -119,7 +136,7 @@ public class ReplyPartsTests
 
         Assert.Contains("ANSWERING IN PARTS", r.Llm.Seen[0].System);
         // the waiting messages are named, so the model can't miss one
-        Assert.Contains($"sent 2 messages since your last reply ([msg {first.Id}], [msg {second.Id}])", r.Llm.Seen[0].System);
+        Assert.Contains($"said 2 things that may need an answer ([msg {first.Id}], [msg {second.Id}])", r.Llm.Seen[0].System);
         Assert.Equal(new[]
         {
             "reply[wamid.in.70]:Noted, I'll leave the invoice aside.",

@@ -160,8 +160,9 @@ public static class HumanTouch
             """).RootElement.Clone());
 
     internal static readonly LlmTool QuoteDef = new(QuoteTool,
-        "Quote the customer's message that your reply answers (its first message carries the quote) — use it when "
-        + "they sent several messages since your last reply, or your answer refers to an older message.",
+        "Quote the customer's message that your reply answers (its first message carries the quote) — only when it "
+        + "would otherwise be unclear which message you mean, e.g. you answer an older message, not their latest. "
+        + "Never for \"ok\", thanks, small talk or a simple back-and-forth.",
         JsonDocument.Parse("""
             {"type":"object","properties":{
               "message_id":{"type":"integer","description":"The id shown as [msg <id>] in front of the customer's message."}},
@@ -194,6 +195,11 @@ public sealed class HumanTurn
     public AiReaction? Reaction { get; private set; }
     public int? ReplyTo { get; private set; }
 
+    /// <summary>This turn's messages that need an answer, in order — "ok" / "thanks" / an emoji
+    /// never gets a quoted part of its own (a reply once quoted "Thanks" and "Ok sure").</summary>
+    public List<int> Answerable => Current.OrderBy(id => id)
+        .Where(id => !Known.TryGetValue(id, out var t) || !Humanizer.IsAcknowledgement(t)).ToList();
+
     /// <summary>Show the model the ids at all? (Only when a tool can use them.)</summary>
     public bool TagsMessages => (ReactionsOn && Current.Count > 0) || (QuotesOn && Known.Count > 0);
 
@@ -214,7 +220,7 @@ public sealed class HumanTurn
         {
             "MESSAGE IDS: each customer message below starts with its id, like [msg 123] — the id is not part of "
             + "what they wrote. Never write ids in your reply"
-            + (QuotesOn && Current.Count > 1 ? ", except to start a part as described under ANSWERING IN PARTS." : "."),
+            + (QuotesOn && Answerable.Count > 1 ? ", except to start a part as described under ANSWERING IN PARTS." : "."),
         };
         if (ReactionsOn && Current.Count > 0)
             lines.Add($"REACTIONS: you may react to the customer's latest message(s) with one emoji by calling "
@@ -222,20 +228,23 @@ public sealed class HumanTurn
                       + "\"thanks\", ❤️ on a photo. At most one reaction per reply, never on a complaint or bad news. "
                       + "When a reaction is all their message needs (\"ok thanks!\"), react and reply with no text at all.");
         if (QuotesOn && Known.Count > 0)
-            lines.Add($"QUOTING: when the customer sent several messages since your last reply, or your answer refers "
-                      + $"to an older message of theirs, call {HumanTouch.QuoteTool} with the id of the message your "
-                      + "reply answers. Don't quote in a simple one-message exchange.");
-        if (QuotesOn && Current.Count > 1)
+            lines.Add($"QUOTING: call {HumanTouch.QuoteTool} only when it would otherwise be unclear which message "
+                      + "you're answering — e.g. you answer an older message of theirs, not the latest. Like a person, "
+                      + "don't quote in a normal back-and-forth, and never quote \"ok\", thanks or small talk.");
+        var answerable = QuotesOn ? Answerable : new List<int>();
+        if (answerable.Count > 1)
         {
-            // name the messages: a small model skipped the rule (and a question) when it only read "since your last reply"
-            var waiting = string.Join(", ", Current.Select(id => $"[msg {id}]"));
-            lines.Add($"ANSWERING IN PARTS: the customer sent {Current.Count} messages since your last reply ({waiting}). "
-                      + "Unless they are all about the same thing, you MUST answer in parts, in order: start each part "
-                      + "on a new line with the [msg <id>] of the message it answers, e.g.\n"
-                      + "[msg 101] Noted, I'll leave the invoice aside.\n[msg 102] Sure — 3:45 PM is free, shall I move it?\n"
-                      + $"Each part is sent as its own message quoting that message (at most {AiReplyPart.Max}). Every "
-                      + "question gets an answer; messages about the same thing share ONE part (use the id of the one "
-                      + "it answers best). Only when everything is one topic, reply without [msg].");
+            // name the messages: a small model skipped the rule (and a question) when it only read "since your
+            // last reply"; "ok" / "thanks" aren't listed, and it is the model's call whether they are one thought
+            var waiting = string.Join(", ", answerable.Select(id => $"[msg {id}]"));
+            lines.Add($"ANSWERING IN PARTS: since your last reply the customer asked or said {answerable.Count} things "
+                      + $"that may need an answer ({waiting}). When they are about DIFFERENT things, answer each in its "
+                      + "own short part, in order: start each part on a new line with the [msg <id>] of the message it "
+                      + "answers, e.g.\n[msg 101] Noted, I'll leave the invoice aside.\n[msg 102] Sure — 3:45 PM is free, "
+                      + $"shall I move it?\nEach part is sent as its own message quoting that message (at most "
+                      + $"{AiReplyPart.Max}). Every question gets an answer. Messages that form one thought (\"ok sure\" + "
+                      + "\"let me think about it\"), small talk and thanks get NO part of their own — fold them into "
+                      + "another part or one plain reply. When it is all one topic, reply without any [msg].");
         }
         return string.Join("\n", lines);
     }
@@ -273,6 +282,15 @@ public sealed class HumanTurn
             var to = i + 1 < marks.Count ? marks[i + 1].Index : raw.Length;
             var id = int.TryParse(marks[i].Groups[1].Value, out var n) && Known.ContainsKey(n) ? n : (int?)null;
             Add(raw[from..to], id);
+        }
+        // "Thanks" / "ok" never gets a quoted bubble of its own: fold it into the next part
+        for (var k = parts.Count - 1; k >= 0 && parts.Count > 1; k--)
+        {
+            if (parts[k].ReplyTo is not int pid || !Known.TryGetValue(pid, out var pt) || !Humanizer.IsAcknowledgement(pt))
+                continue;
+            if (k + 1 < parts.Count) parts[k + 1] = parts[k + 1] with { Text = parts[k].Text + " " + parts[k + 1].Text };
+            else parts[k - 1] = parts[k - 1] with { Text = parts[k - 1].Text + "\n\n" + parts[k].Text };
+            parts.RemoveAt(k);
         }
         if (parts.Count > AiReplyPart.Max)
             parts = parts.Take(AiReplyPart.Max - 1)
