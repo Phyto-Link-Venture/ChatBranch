@@ -338,6 +338,76 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
     // ---- Email: IMAP in, SMTP out -----------------------------------------------
 
     [Fact]
+    public void Email_view_embeds_inline_images_holds_back_remote_ones_and_strips_code()
+    {
+        var html = new TextPart("html")
+        {
+            Text = "<html><head><style>p{color:red}</style><script>alert(1)</script></head><body>" +
+                   "<p onclick=\"steal()\">Dear Ms Chow,</p><img src=\"cid:logo@x\">" +
+                   "<img src=\"https://track.test/pixel.gif\"><a href=\"https://stlog.test/pod\">POD</a>" +
+                   "<a href=\"javascript:evil()\">x</a><form action=\"https://phish.test\"><input name=\"pw\"></form></body></html>",
+        };
+        var logo = new MimePart("image", "png")
+        {
+            ContentId = "logo@x", FileName = "logo.png", Content = new MimeContent(new MemoryStream(new byte[] { 1, 2, 3 })),
+        };
+        var mail = new MimeMessage { Subject = "FW: POD", Body = new MultipartRelated { new MultipartAlternative { new TextPart("plain") { Text = "Dear Ms Chow," }, html }, logo } };
+        mail.From.Add(MailboxAddress.Parse("Penny <penny@org.test>"));
+        mail.To.Add(MailboxAddress.Parse("opus@org.test"));
+        mail.Cc.Add(MailboxAddress.Parse("Liew <liew@org.test>"));
+
+        var v = EmailParser.Parse(mail).View!;
+        Assert.Equal("Penny <penny@org.test>", v.From);
+        Assert.Equal("opus@org.test", v.To);
+        Assert.Equal("Liew <liew@org.test>", v.Cc);
+        Assert.Contains("Dear Ms Chow,", v.Html);
+        Assert.Contains("src=\"data:image/png;base64,AQID\"", v.Html);          // the logo, embedded
+        Assert.Contains("data-cb-src=\"https://track.test/pixel.gif\"", v.Html); // held back
+        Assert.DoesNotContain("<img src=\"https://track.test", v.Html);
+        Assert.Contains("href=\"https://stlog.test/pod\"", v.Html);            // links still work
+        foreach (var bad in new[] { "<script", "alert(1)", "onclick", "javascript:", "<form", "<input" })
+            Assert.DoesNotContain(bad, v.Html);
+        Assert.Contains("p{color:red}", v.Html);                                  // the look is kept
+
+        var plain = new MimeMessage { Subject = "Hi", Body = new TextPart("plain") { Text = "just text" } };
+        plain.From.Add(MailboxAddress.Parse("a@b.test"));
+        Assert.Equal("", EmailParser.Parse(plain).View!.Html);                    // text-only: shown as text
+    }
+
+    [Fact]
+    public async Task An_imported_mail_carries_its_card_and_the_view_lists_every_attachment()
+    {
+        var admin = await Authed();
+        await CreateMailbox(admin, "cards@shop.test", "cards-desk@shop.test");
+        var m = Mail("Penny <penny@cards.test>", "cards-desk@shop.test", "FW: POD 42", "See attached.", "card1@cards.test",
+            ("invoice.pdf", Encoding.ASCII.GetBytes("%PDF-1.4 a")), ("pod.pdf", Encoding.ASCII.GetBytes("%PDF-1.4 b")));
+        var body = new BodyBuilder { TextBody = "See attached.", HtmlBody = "<p>See <b>attached</b>.</p>" };
+        body.Attachments.Add("invoice.pdf", Encoding.ASCII.GetBytes("%PDF-1.4 a"));
+        body.Attachments.Add("pod.pdf", Encoding.ASCII.GetBytes("%PDF-1.4 b"));
+        m.Body = body.ToMessageBody();
+        _f.Mailbox.Deliver("cards@shop.test", m);
+        (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { force = true })).EnsureSuccessStatusCode();
+
+        var thread = await admin.GetFromJsonAsync<JsonElement>("/api/messaging/threads/email/penny@cards.test");
+        var bubbles = thread.GetProperty("messages").EnumerateArray().ToList();
+        var card = bubbles.Single(b => b.TryGetProperty("email", out _));
+        var pk = card.GetProperty("pk").GetInt32();
+        Assert.Equal("FW: POD 42", card.GetProperty("email").GetProperty("subject").GetString());
+        Assert.True(card.GetProperty("email").GetProperty("has_html").GetBoolean());
+        var part = bubbles.Single(b => b.TryGetProperty("email_part_of", out _));
+        Assert.Equal(pk, part.GetProperty("email_part_of").GetInt32());
+
+        var view = await admin.GetFromJsonAsync<JsonElement>($"/api/messaging/messages/{pk}/email");
+        Assert.Contains("<b>attached</b>", view.GetProperty("html").GetString());
+        Assert.Equal("Penny <penny@cards.test>", view.GetProperty("from").GetString());
+        Assert.Equal(new[] { "invoice.pdf", "pod.pdf" },
+            view.GetProperty("attachments").EnumerateArray().Select(a => a.GetProperty("name").GetString()));
+        // not an email message → 404
+        var other = await admin.GetAsync($"/api/messaging/messages/{part.GetProperty("pk").GetInt32()}/email");
+        Assert.Equal(HttpStatusCode.NotFound, other.StatusCode);
+    }
+
+    [Fact]
     public async Task Imap_sync_queues_background_ai_tasks_for_every_attachment()
     {
         var admin = await Authed();

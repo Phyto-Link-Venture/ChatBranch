@@ -112,6 +112,7 @@ import { useFormat, useT, type MessageKey } from '@/i18n'
 // quoted replies, reactions, the emoji picker and message cards (bubble extras)
 import MessageActions from '@/components/chats/MessageActions'
 import MessageContent, { isSticker } from '@/components/chats/MessageContent'
+import EmailCard from '@/components/chats/EmailCard'
 import { ReplyPreview, jumpToMessage } from '@/components/chats/QuotedBlock'
 import { EmojiButton, insertAtCursor } from '@/components/chats/EmojiPicker'
 import { REACTION_CHANNELS } from '@/components/chats/inboxTypes'
@@ -1460,8 +1461,17 @@ function ChatsPage() {
     ? [...baseMessages, ...extraItems].sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0))
     : baseMessages
   const aiFeedback = useAiFeedback(displayMessages)
+  // an email's 2nd, 3rd… attachment is its own message: shown inside that mail's card
+  const emailParts = new Map<number, UiMessage[]>()
+  {
+    const cards = new Set(displayMessages.filter((m) => m.email && m.pk).map((m) => m.pk))
+    for (const m of displayMessages)
+      if (m.email_part_of && cards.has(m.email_part_of))
+        emailParts.set(m.email_part_of, [...(emailParts.get(m.email_part_of) ?? []), m])
+  }
   const grouped: { day: string; items: TimelineItem[] }[] = []
   for (const m of displayMessages) {
+    if (m.email_part_of && emailParts.get(m.email_part_of)?.includes(m)) continue
     const day = dayLabel(m.ts, f, t)
     const last = grouped[grouped.length - 1]
     if (last && last.day === day) last.items.push(m)
@@ -2189,7 +2199,7 @@ function ChatsPage() {
                             <div
                               className={`cb-bubble ${m.private ? 'cb-bubble-note' : m.dir === 'out' ? 'cb-bubble-out' : 'cb-bubble-in'}${
                                 isSticker(m) ? ' cb-bubble-sticker' : ''
-                              }`}
+                              }${m.email && !m.recalled ? ' cb-bubble-email' : ''}`}
                             >
                               {combinedOn && m.channel && <ChannelBadge channel={m.channel} />}
                               {m.private && (
@@ -2220,7 +2230,11 @@ function ChatsPage() {
                                   {t(m.recalled.by === 'business' ? 'chats.page.recalled.erasedOurs' : 'chats.page.recalled.erased')}
                                 </span>
                               ) : (
-                                <MessageContent m={m} contactName={active.contact_name || active.name} onJump={jumpToMessage} />
+                                m.email ? (
+                                  <EmailCard m={m} parts={(m.pk && emailParts.get(m.pk)) || []} />
+                                ) : (
+                                  <MessageContent m={m} contactName={active.contact_name || active.name} onJump={jumpToMessage} />
+                                )
                               )}
                               <span className="cb-bubble-time">
                                 {(multiAccount || combinedOn) && !m.private && m.account_id && (

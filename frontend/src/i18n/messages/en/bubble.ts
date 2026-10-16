@@ -3,6 +3,19 @@
 // message action bar (reply · react · copy), the composer's emoji picker and
 // the location / contact-card / sticker renderings.
 export const bubble = {
+  email: {
+    from: 'From',
+    to: 'To',
+    cc: 'Cc',
+    noSubject: '(no subject)',
+    loading: 'Loading the email…',
+    imagesBlocked: 'Pictures from the internet are hidden to protect your privacy.',
+    showImages: 'Show images',
+    showFull: 'Show full email',
+    showLess: 'Show less',
+    attachments_one: '{count} attachment',
+    attachments_other: '{count} attachments',
+  },
   actions: {
     aria: 'Message actions',
     reply: 'Reply',

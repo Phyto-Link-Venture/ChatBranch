@@ -18,9 +18,13 @@ namespace ChatBranch.Api.Endpoints;
 ///   * <c>recalled</c> — <c>{at, by: customer|business, kept}</c> when the message was
 ///     taken back on the channel ("delete for everyone" — <c>Channels/MessageRecalls.cs</c>);
 ///     kept = its words are still here, else they were erased. A quote of it carries
-///     <c>recalled: true</c>.
+///     <c>recalled: true</c>;
+///   * <c>email</c> — an inbound / imported mail's card: <c>{subject, from, to, cc, has_html}</c>
+///     (the HTML itself: <c>GET /api/messaging/messages/{id}/email</c>); and on each of its
+///     extra attachments (their own messages) <c>email_part_of</c> = the mail's pk, so the
+///     inbox shows them inside the card.
 ///
-/// Two batched reads per page, never one per bubble.
+/// Batched reads per page, never one per bubble.
 /// </summary>
 public static class MessageExtras
 {
@@ -37,6 +41,14 @@ public static class MessageExtras
                 ? new Dictionary<int, Message>()
                 : db.Messages.AsNoTracking().Where(m => quotedIds.Contains(m.Id)).ToDictionary(m => m.Id);
             var reactions = MessageReactions.For(db, messages.Select(m => m.Id));
+            var ids = messages.Select(m => m.Id).ToList();
+            var mails = db.EmailHeaders.AsNoTracking()
+                .Where(h => ids.Contains(h.MessageId) && h.FromLine != "")
+                .Select(h => new { h.MessageId, h.Subject, h.FromLine, h.ToLine, h.CcLine, HasHtml = h.Html != "" })
+                .ToList().GroupBy(h => h.MessageId).ToDictionary(g => g.Key, g => g.First());
+            // "<mid>-att2" → the mail whose Message-ID is "<mid>"
+            var mailByExternal = messages.Where(m => mails.ContainsKey(m.Id) && m.ExternalId.Length > 0)
+                .GroupBy(m => m.ExternalId).ToDictionary(g => g.Key, g => g.First().Id);
             for (var i = 0; i < messages.Count; i++)
             {
                 var m = messages[i];
@@ -61,6 +73,17 @@ public static class MessageExtras
                         ["by"] = m.RecalledBy.Length > 0 ? m.RecalledBy : MessageRecalls.ByCustomer,
                         ["kept"] = m.Text.Length > 0 || m.MediaPath.Length > 0,
                     };
+                if (mails.TryGetValue(m.Id, out var mail))
+                    p["email"] = new Dictionary<string, object?>
+                    {
+                        ["subject"] = mail.Subject,
+                        ["from"] = mail.FromLine,
+                        ["to"] = mail.ToLine,
+                        ["cc"] = mail.CcLine,
+                        ["has_html"] = mail.HasHtml,
+                    };
+                else if (EmailPartOf(m.ExternalId) is { } parent && mailByExternal.TryGetValue(parent, out var parentPk))
+                    p["email_part_of"] = parentPk;
                 if (reactions.TryGetValue(m.Id, out var rs))
                     p["reactions"] = rs.Select(r => new Dictionary<string, object?>
                     {
@@ -71,6 +94,15 @@ public static class MessageExtras
             }
         }
         catch { /* a decoration never breaks the thread view */ }
+    }
+
+    /// <summary>"&lt;mid&gt;-att3" → "&lt;mid&gt;" (an email's extra attachment); else null.</summary>
+    public static string? EmailPartOf(string externalId)
+    {
+        var i = externalId.LastIndexOf("-att", StringComparison.Ordinal);
+        return i > 0 && externalId.StartsWith('<') && externalId[i - 1] == '>'
+               && externalId.Length > i + 4 && externalId[(i + 4)..].All(char.IsAsciiDigit)
+            ? externalId[..i] : null;
     }
 
     /// <summary>One message (a send answer).</summary>

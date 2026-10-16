@@ -28,6 +28,11 @@ namespace ChatBranch.Data.Documents;
 /// (a data: URL) survives. This is one layer of three — the printer also injects a
 /// Content-Security-Policy that blocks scripts and every fetch, and runs with every
 /// host name unresolvable.
+/// <para>EMAIL mode (an inbound mail shown in the inbox) differs in three ways: a
+/// link may go to an http(s) page; a remote image's <c>src</c> becomes
+/// <c>data-cb-src</c>, so nothing is fetched until a person asks to show images
+/// (no tracking pixel fires on open); and form controls go (a mail can't draw a
+/// login box inside the dashboard).</para>
 /// </summary>
 public static class HtmlSanitizer
 {
@@ -49,12 +54,14 @@ public static class HtmlSanitizer
     private static readonly Regex StrayTags = new(
         $@"</?({string.Join("|", DropWithContent.Concat(DropTag))})\b[^>]*>",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex FormControls = new(@"</?(form|input|button|select|option|textarea)\b[^>]*>",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Meta = new(@"<meta\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex StyleBlock = new(@"(<style\b[^>]*>)(.*?)(</style\s*>|$)",
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
 
     /// <summary>The cleaned HTML (idempotent: cleaning it again changes nothing).</summary>
-    public static string Sanitize(string? html, bool template = false)
+    public static string Sanitize(string? html, bool template = false, bool email = false)
     {
         if (string.IsNullOrEmpty(html)) return "";
         var s = html;
@@ -66,17 +73,18 @@ public static class HtmlSanitizer
             if (next == s) break;
             s = next;
         }
+        if (email) s = FormControls.Replace(s, "");
         s = Meta.Replace(s, m => Regex.IsMatch(m.Value, @"\b(charset|name\s*=\s*[""']?viewport)\b", RegexOptions.IgnoreCase)
             && !Regex.IsMatch(m.Value, @"http-equiv", RegexOptions.IgnoreCase) ? m.Value : "");
         s = StyleBlock.Replace(s, m => m.Groups[1].Value + Css(m.Groups[2].Value, template) + m.Groups[3].Value);
-        return Attributes(s, template);
+        return Attributes(s, template, email);
     }
 
     // =========================================================================
     // attributes: walk every start tag, splice out what isn't allowed
     // =========================================================================
 
-    private static string Attributes(string s, bool template)
+    private static string Attributes(string s, bool template, bool email)
     {
         var sb = new StringBuilder(s.Length);
         var i = 0;
@@ -89,8 +97,8 @@ public static class HtmlSanitizer
             if (StartsWithTag(s, lt, "style"))
             {
                 var tagEnd = TagEnd(s, lt);
-                if (tagEnd < 0) { sb.Append(Tag(s, lt, s.Length - 1, template, out _)); break; }
-                sb.Append(Tag(s, lt, tagEnd, template, out _));
+                if (tagEnd < 0) { sb.Append(Tag(s, lt, s.Length - 1, template, email, out _)); break; }
+                sb.Append(Tag(s, lt, tagEnd, template, email, out _));
                 var close = s.IndexOf("</style", tagEnd, StringComparison.OrdinalIgnoreCase);
                 var contentStart = tagEnd + 1;
                 var contentEnd = close < 0 ? s.Length : close;
@@ -101,8 +109,8 @@ public static class HtmlSanitizer
             if (lt + 1 < s.Length && char.IsAsciiLetter(s[lt + 1]))
             {
                 var end = TagEnd(s, lt);
-                if (end < 0) { sb.Append(Tag(s, lt, s.Length - 1, template, out _)); break; }
-                sb.Append(Tag(s, lt, end, template, out _));
+                if (end < 0) { sb.Append(Tag(s, lt, s.Length - 1, template, email, out _)); break; }
+                sb.Append(Tag(s, lt, end, template, email, out _));
                 i = end + 1;
                 continue;
             }
@@ -140,7 +148,7 @@ public static class HtmlSanitizer
     }
 
     /// <summary>One start tag with its disallowed attributes removed.</summary>
-    private static string Tag(string s, int lt, int end, bool template, out string name)
+    private static string Tag(string s, int lt, int end, bool template, bool email, out string name)
     {
         var j = lt + 1;
         while (j <= end && (char.IsAsciiLetterOrDigit(s[j]) || s[j] is '-' or ':')) j++;
@@ -191,7 +199,7 @@ public static class HtmlSanitizer
                 }
             }
             var whole = s[start..Math.Min(valueEnd, end + 1)];
-            var keep = Keep(name, attr, value, template, out var replacement);
+            var keep = Keep(name, attr, value, template, email, out var replacement);
             if (replacement != null) sb.Append(replacement);
             else if (keep) sb.Append(whole);
             j = Math.Max(valueEnd, j);
@@ -199,7 +207,7 @@ public static class HtmlSanitizer
         return sb.ToString();
     }
 
-    private static bool Keep(string tag, string attr, string? value, bool template, out string? replacement)
+    private static bool Keep(string tag, string attr, string? value, bool template, bool email, out string? replacement)
     {
         replacement = null;
         var a = attr.ToLowerInvariant();
@@ -218,7 +226,14 @@ public static class HtmlSanitizer
         }
         if (!UrlAttributes.Contains(a)) return true;
         if (hasExpr) return true;
-        return SafeUrl(tag, a, value);
+        if (SafeUrl(tag, a, value)) return true;
+        if (email && IsWeb(value))
+        {
+            if (tag == "a" && a == "href") return true;
+            // held back: the inbox shows it only when a person asks for images
+            if (tag == "img" && a == "src") { replacement = $"data-cb-src=\"{Escape(WebUtility.HtmlDecode(value))}\""; return true; }
+        }
+        return false;
     }
 
     /// <summary>data: anywhere; #fragment on links / references; mailto: / tel: on a link. Nothing else.</summary>
@@ -231,6 +246,12 @@ public static class HtmlSanitizer
         if (v.StartsWith('#')) return attr is "href" or "xlink:href" or "usemap";
         if (tag == "a" && attr == "href" && (v.StartsWith("mailto:") || v.StartsWith("tel:"))) return true;
         return false;
+    }
+
+    private static bool IsWeb(string raw)
+    {
+        var v = WebUtility.HtmlDecode(raw).Trim();
+        return Uri.TryCreate(v, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttps || u.Scheme == Uri.UriSchemeHttp);
     }
 
     private static string Escape(string s) => s.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;");

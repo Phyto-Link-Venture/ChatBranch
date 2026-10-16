@@ -43,6 +43,9 @@ public static class McpExclusions
         "holding the phone — the writes refuse API keys (403), so an AI acting as them never changes it";
     private const string SecurityPolicy =
         "the organization's sign-in security policy (require_2fa) is set by a person (security.manage), never by an AI acting as one";
+    private const string MailView =
+        "the inbox's mail-app view — cleaned HTML for a sandboxed frame; tools read the same mail's text " +
+        "with conversations_list_messages";
     private const string Binary =
         "binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file";
     private const string Export =
@@ -121,6 +124,7 @@ public static class McpExclusions
         new("GET", "/api/whatsapp/stream", "server-sent event stream (the inbox's live change token) — MCP here is request/response; poll the list tools"),
         new("GET", "/api/whatsapp/media/{id:int}", Binary),
         new("GET", "/api/messaging/media/{id:int}", Binary),
+        new("GET", "/api/messaging/messages/{id:int}/email", MailView),
         new("GET", "/api/calls/recording/{callId}", Binary),
         new("GET", "/api/whatsapp/calls/recording/{name}", Binary),
         new("GET", "/api/documents/{id:int}/file", Binary + " (documents_list gives each document's number, total and status)"),

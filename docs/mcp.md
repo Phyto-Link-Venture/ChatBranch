@@ -651,6 +651,7 @@ conversation route.
 | `GET /api/whatsapp/stream` | server-sent event stream (the inbox's live change token) — MCP here is request/response; poll the list tools |
 | `GET /api/whatsapp/media/{id:int}` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `GET /api/messaging/media/{id:int}` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
+| `GET /api/messaging/messages/{id:int}/email` | the inbox's mail-app view — cleaned HTML for a sandboxed frame; tools read the same mail's text with conversations_list_messages |
 | `GET /api/calls/recording/{callId}` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `GET /api/whatsapp/calls/recording/{name}` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `GET /api/documents/{id:int}/file` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file (documents_list gives each document's number, total and status) |

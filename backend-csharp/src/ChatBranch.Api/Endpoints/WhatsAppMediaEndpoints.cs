@@ -4,6 +4,7 @@ using ChatBranch.Data;
 using ChatBranch.Data.Channels;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
+using ChannelIds = ChatBranch.Domain.Channels;
 using Thread = ChatBranch.Domain.Thread;
 
 namespace ChatBranch.Api.Endpoints;
@@ -44,6 +45,11 @@ public static class WhatsAppMediaEndpoints
             .RequireAuthorization(AuthPolicies.Authenticated)
             .RequireCapability("chats.view");
         app.MapGet("/api/messaging/media/{id:int}", ServeMessageMedia)
+            .RequireAuthorization(AuthPolicies.Authenticated)
+            .RequireCapability("chats.view");
+
+        // an email as a mail app shows it: cleaned HTML, address lines and every attachment
+        app.MapGet("/api/messaging/messages/{id:int}/email", ServeEmailView)
             .RequireAuthorization(AuthPolicies.Authenticated)
             .RequireCapability("chats.view");
 
@@ -108,6 +114,48 @@ public static class WhatsAppMediaEndpoints
         var full = store.Resolve(msg.Thread.Channel, msg.MediaPath);
         if (full == null) return NotFound();
         return ServeFile(ctx, msg, full, download: false);
+    }
+
+    /// <summary>
+    /// <c>GET /api/messaging/messages/{id}/email</c> — the mail-app view of one email:
+    /// <c>{subject, from, to, cc, date, html, attachments: [{pk, name, mime, size, type}]}</c>.
+    /// <c>html</c> was cleaned in email mode when the mail arrived ("" = show the text);
+    /// remote images arrive as <c>data-cb-src</c>, for the inbox to show on request.
+    /// Same rule as the media: <c>chats.view</c> + the conversation in scope, else 404.
+    /// </summary>
+    private static async Task<IResult> ServeEmailView(int id, AppDbContext db, ScopingService sc, ClaimsPrincipal me)
+    {
+        var msg = await db.Messages.AsNoTracking().Include(m => m.Thread).FirstOrDefaultAsync(m => m.Id == id);
+        if (msg?.Thread == null || msg.Thread.Channel != ChannelIds.Email) return NotFound();
+        if (!await CanSeeThread(db, sc, me, msg.Thread)) return NotFound();
+        var head = await db.EmailHeaders.AsNoTracking().Where(h => h.MessageId == id).OrderBy(h => h.Id).FirstOrDefaultAsync();
+        if (head == null) return NotFound();
+        var prefix = msg.ExternalId + "-att";
+        var parts = msg.ExternalId.Length == 0 ? new List<Message>() : await db.Messages.AsNoTracking()
+            .Where(m => m.ThreadId == msg.ThreadId && m.ExternalId.StartsWith(prefix)).ToListAsync();
+        var files = new[] { msg }.Concat(parts.Where(m => MessageExtras.EmailPartOf(m.ExternalId) == msg.ExternalId)
+                .OrderBy(m => m.Id))
+            .Where(m => m.MediaPath.Length > 0 && m.RecalledAt == null)
+            .Select(m => new
+            {
+                pk = m.Id,
+                name = m.MediaName.Length > 0 ? m.MediaName : Path.GetFileName(m.MediaPath),
+                mime = m.MediaMime,
+                size = m.MediaSize,
+                type = m.MediaType,
+            }).ToList();
+        return Results.Ok(new
+        {
+            pk = msg.Id,
+            subject = head.Subject,
+            from = head.FromLine,
+            to = head.ToLine,
+            cc = head.CcLine,
+            date = DateTime.SpecifyKind(msg.CreatedAt, DateTimeKind.Utc),
+            html = head.Html,
+            text = msg.Text,
+            attachments = files,
+        });
     }
 
     /// <summary>The file itself: inline when the type is safe to render from our origin,

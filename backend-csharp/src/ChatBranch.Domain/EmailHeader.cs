@@ -16,5 +16,11 @@ public class EmailHeader
     public string HeaderMessageId { get; set; } = ""; // "<id@host>" as on the wire
     public string Subject { get; set; } = "";
     public string InReplyTo { get; set; } = "";
+    // the mail as a mail app shows it (inbound / imported mail only; "" = show the text):
+    // sanitized HTML with inline images embedded, and its address lines
+    public string Html { get; set; } = "";
+    public string FromLine { get; set; } = "";
+    public string ToLine { get; set; } = "";
+    public string CcLine { get; set; } = "";
     public DateTime CreatedAt { get; set; }
 }

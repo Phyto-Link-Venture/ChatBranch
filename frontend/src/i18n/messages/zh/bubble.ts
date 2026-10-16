@@ -2,6 +2,19 @@ import type { bubble as source } from '../en/bubble'
 import type { Dict } from '../../types'
 
 export const bubble: Dict<typeof source> = {
+  email: {
+    from: '发件人',
+    to: '收件人',
+    cc: '抄送',
+    noSubject: '（无主题）',
+    loading: '正在加载邮件…',
+    imagesBlocked: '为保护您的隐私，已隐藏来自互联网的图片。',
+    showImages: '显示图片',
+    showFull: '显示完整邮件',
+    showLess: '收起',
+    attachments_one: '{count} 个附件',
+    attachments_other: '{count} 个附件',
+  },
   actions: {
     aria: '消息操作',
     reply: '回复',

@@ -196,7 +196,8 @@ public sealed class EmailChannel
     }
 
     /// <summary>Remember a mail's envelope so the next reply threads under it.</summary>
-    public void RecordHeader(Message msg, Thread thread, string headerMessageId, string subject, string inReplyTo)
+    public void RecordHeader(Message msg, Thread thread, string headerMessageId, string subject, string inReplyTo,
+        EmailView? view = null)
     {
         try
         {
@@ -207,12 +208,16 @@ public sealed class EmailChannel
                 HeaderMessageId = headerMessageId.Length > 500 ? headerMessageId[..500] : headerMessageId,
                 Subject = subject.Length > 500 ? subject[..500] : subject,
                 InReplyTo = inReplyTo.Length > 500 ? inReplyTo[..500] : inReplyTo,
+                Html = view?.Html ?? "",
+                FromLine = Cap(view?.From), ToLine = Cap(view?.To), CcLine = Cap(view?.Cc),
                 CreatedAt = DateTime.UtcNow,
             });
             _db.SaveChanges();
         }
         catch { /* threading metadata is best-effort */ }
     }
+
+    private static string Cap(string? s) => s is { Length: > 2000 } ? s[..2000] : s ?? "";
 
     private Message WithMedia(Message msg, OutboundMedia? media)
     {

@@ -126,6 +126,18 @@ export interface UiMessage {
   /** Taken back on the channel ("delete for everyone"): kept = still readable here (the
    *  inbox keeps deleted messages), else its words and file were erased. */
   recalled?: UiRecall | null
+  /** An inbound / imported email shown as a mail card (the HTML is fetched by the card). */
+  email?: UiEmail | null
+  /** One of an email's extra attachments: the pk of the mail whose card shows it. */
+  email_part_of?: number | null
+}
+
+export interface UiEmail {
+  subject: string
+  from: string
+  to: string
+  cc: string
+  has_html: boolean
 }
 
 export interface UiRecall {

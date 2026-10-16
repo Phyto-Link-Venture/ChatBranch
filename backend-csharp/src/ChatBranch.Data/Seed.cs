@@ -144,6 +144,11 @@ public static class Seed
             + "\"in_reply_to\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL");
         AddIndexIfMissing(db, "ix_emailheader_thread", "crm_emailheader", "\"thread_id\"");
         AddIndexIfMissing(db, "ix_emailheader_message", "crm_emailheader", "\"message_id\"");
+        // the mail-app view of an email: its cleaned HTML and address lines
+        AddColumnIfMissing(db, "crm_emailheader", "html", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_emailheader", "from_line", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_emailheader", "to_line", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_emailheader", "cc_line", "TEXT NOT NULL DEFAULT ''");
         // Meta delivery-status failures (WhatsApp Cloud statuses[].errors) on the message row
         AddColumnIfMissing(db, "crm_message", "error", "TEXT NOT NULL DEFAULT ''");
         // delivery receipts (Cloud statuses, Baileys ticks, Messenger) find the message by provider id

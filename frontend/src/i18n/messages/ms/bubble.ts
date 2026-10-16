@@ -2,6 +2,19 @@ import type { bubble as source } from '../en/bubble'
 import type { Dict } from '../../types'
 
 export const bubble: Dict<typeof source> = {
+  email: {
+    from: 'Daripada',
+    to: 'Kepada',
+    cc: 'Sk',
+    noSubject: '(tiada subjek)',
+    loading: 'Memuatkan e-mel…',
+    imagesBlocked: 'Gambar dari internet disembunyikan untuk melindungi privasi anda.',
+    showImages: 'Tunjukkan gambar',
+    showFull: 'Tunjukkan e-mel penuh',
+    showLess: 'Tunjukkan kurang',
+    attachments_one: '{count} lampiran',
+    attachments_other: '{count} lampiran',
+  },
   actions: {
     aria: 'Tindakan mesej',
     reply: 'Balas',

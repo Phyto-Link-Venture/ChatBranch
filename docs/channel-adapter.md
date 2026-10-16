@@ -25,7 +25,7 @@ another.
 
 | | WhatsApp Cloud | WhatsApp Baileys | Website widget | Telegram | Messenger / IG | Email |
 |---|---|---|---|---|---|---|
-| Receive text | ✅ webhook | ✅ gateway push | ✅ widget API | ✅ webhook | ✅ webhook | ✅ IMAP sync (`/email/sync`): Inbox in, Sent folder as outbound, read-only (never marks mail read) |
+| Receive text | ✅ webhook | ✅ gateway push | ✅ widget API | ✅ webhook | ✅ webhook | ✅ IMAP sync (`/email/sync`): Inbox in, Sent folder as outbound, read-only (never marks mail read); shown as a mail card — the mail's cleaned HTML, From / To / Cc and its attachments (`GET /api/messaging/messages/{id}/email`) |
 | Send text | ✅ Graph API | ✅ gateway | ✅ (stored; the widget polls them) | ✅ Bot API | ✅ Send API (page token) | ✅ SMTP (threaded replies; text + escaped HTML alternative; a copy filed in the mailbox's Sent folder over IMAP) |
 | Templates | ✅ real template messages; live registry (list/create/edit/delete) with a `waba_id` | rendered as free text | — | — | — | — |
 | Send media | ✅ upload → send by id | ✅ gateway `send-media` (base64, ≤16 MB) | — | ✅ sendPhoto / sendDocument | ✅ uploaded file (multipart) or public URL | ✅ attachment |

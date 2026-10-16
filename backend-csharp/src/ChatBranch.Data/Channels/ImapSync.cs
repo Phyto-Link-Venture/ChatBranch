@@ -14,7 +14,14 @@ namespace ChatBranch.Data.Channels;
 
 /// <summary>One inbound mail, parsed into what the inbox stores.</summary>
 public sealed record ParsedEmail(string FromAddress, string FromName, string Subject, string Body,
-    string MessageId, string InReplyTo, DateTime? Date, IReadOnlyList<EmailAttachment> Attachments);
+    string MessageId, string InReplyTo, DateTime? Date, IReadOnlyList<EmailAttachment> Attachments)
+{
+    /// <summary>The mail as a mail app shows it; null = text only.</summary>
+    public EmailView? View { get; init; }
+}
+
+/// <summary>An email's cleaned HTML (inline images embedded; "" = plain text) and its address lines.</summary>
+public sealed record EmailView(string Html, string From, string To, string Cc);
 
 /// <summary>
 /// MIME → inbox text. Prefers text/plain (HTML-only mail is flattened), strips
@@ -28,6 +35,10 @@ public static partial class EmailParser
     public const long MaxAttachmentBytes = 10L * 1024 * 1024;
     /// <summary>A body image (cid-referenced) smaller than this is decoration — a signature logo or icon.</summary>
     public const long MinInlineImageBytes = 100 * 1024;
+    /// <summary>Inline (cid:) images embedded into the mail-app view, in total.</summary>
+    public const long MaxEmbeddedBytes = 3L * 1024 * 1024;
+    /// <summary>A view bigger than this is not kept (the text still is).</summary>
+    public const int MaxViewChars = 6 * 1024 * 1024;
 
     [GeneratedRegex(@"^\s*On\b.{0,300}\bwrote:\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex WroteLine();
@@ -98,7 +109,45 @@ public static partial class EmailParser
             string.IsNullOrWhiteSpace(msg.MessageId) ? "" : $"<{EmailComposer.Bare(msg.MessageId)}>",
             string.IsNullOrWhiteSpace(msg.InReplyTo) ? "" : $"<{EmailComposer.Bare(msg.InReplyTo)}>",
             date,
-            attachments);
+            attachments) { View = View(msg) };
+    }
+
+    /// <summary>
+    /// The mail-app view: the HTML part with every inline (cid:) image the body
+    /// shows embedded as a data: URL (logos included — that is how the mail looks),
+    /// cleaned in EMAIL mode (no scripts, handlers or forms; remote images held
+    /// back until asked for). A text-only mail has no HTML — the inbox shows its text.
+    /// </summary>
+    public static EmailView View(MimeMessage msg)
+    {
+        static string Line(InternetAddressList list) => string.Join(", ", list.Mailboxes.Select(m =>
+            string.IsNullOrWhiteSpace(m.Name) ? m.Address : $"{m.Name.Trim()} <{m.Address}>"));
+        var html = "";
+        try
+        {
+            var raw = msg.HtmlBody ?? "";
+            if (raw.Trim().Length > 0)
+            {
+                var budget = MaxEmbeddedBytes;
+                foreach (var part in msg.BodyParts.OfType<MimePart>())
+                {
+                    if (string.IsNullOrWhiteSpace(part.ContentId) || part.Content == null
+                        || !part.ContentType.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) continue;
+                    var cid = "cid:" + part.ContentId;
+                    if (raw.IndexOf(cid, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    using var ms = new MemoryStream();
+                    part.Content.DecodeTo(ms);
+                    if (ms.Length == 0 || ms.Length > budget) continue;
+                    budget -= ms.Length;
+                    raw = raw.Replace(cid, $"data:{part.ContentType.MimeType};base64,{Convert.ToBase64String(ms.ToArray())}",
+                        StringComparison.OrdinalIgnoreCase);
+                }
+                html = Documents.HtmlSanitizer.Sanitize(raw, email: true);
+                if (html.Length > MaxViewChars) html = "";
+            }
+        }
+        catch { html = ""; /* the text is still there */ }
+        return new EmailView(html, Line(msg.From), Line(msg.To), Line(msg.Cc));
     }
 
     /// <summary>"a@x.test &lt;mailto:a@x.test&gt; &gt;" → "a@x.test&gt;"; elsewhere one space.</summary>
@@ -548,7 +597,7 @@ public sealed class EmailSyncService
         var msg = _inbound.ProcessInbound(ChannelIds.Email, threadKey, MessageText(mail), name, mailbox.AccountId,
             mail.MessageId, mail.Date);
         var thread = _db.Threads.First(t => t.Id == msg.ThreadId);
-        _email.RecordHeader(msg, thread, mail.MessageId, mail.Subject, mail.InReplyTo);
+        _email.RecordHeader(msg, thread, mail.MessageId, mail.Subject, mail.InReplyTo, mail.View);
         StoreAttachments(mail, thread, msg, mailbox, MessageDirection.In, MessageSource.Customer, "received");
 
         if (mailbox.AccountId is int accountId) HealInbound(accountId);
@@ -583,7 +632,7 @@ public sealed class EmailSyncService
             var thread = SentThread(address, name, mailbox);
             var msg = _threads.AppendMessage(thread, MessageDirection.Out, MessageSource.ExternalClient, text,
                 status: "sent", externalId: mail.MessageId, accountId: mailbox.AccountId, providerTs: mail.Date);
-            _email.RecordHeader(msg, thread, mail.MessageId, mail.Subject, mail.InReplyTo);
+            _email.RecordHeader(msg, thread, mail.MessageId, mail.Subject, mail.InReplyTo, mail.View);
             StoreAttachments(mail, thread, msg, mailbox, MessageDirection.Out, MessageSource.ExternalClient, "sent");
         }
         return IngestOutcome.Kept;
