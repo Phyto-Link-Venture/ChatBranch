@@ -26,6 +26,8 @@ public static partial class EmailParser
     public const int MaxBodyChars = 5000;
     public const int MaxAttachments = 5;
     public const long MaxAttachmentBytes = 10L * 1024 * 1024;
+    /// <summary>A body image (cid-referenced) smaller than this is decoration — a signature logo or icon.</summary>
+    public const long MinInlineImageBytes = 100 * 1024;
 
     [GeneratedRegex(@"^\s*On\b.{0,300}\bwrote:\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex WroteLine();
@@ -39,6 +41,10 @@ public static partial class EmailParser
     private static partial Regex OutlookFrom();
     [GeneratedRegex(@"^\s*(Sent|Date):\s.+$", RegexOptions.IgnoreCase)]
     private static partial Regex OutlookSent();
+    [GeneratedRegex(@"^\s*fwd?\s*:", RegexOptions.IgnoreCase)]
+    private static partial Regex ForwardSubject();
+    [GeneratedRegex(@"[ \t]*<mailto:[^>\s]*>[ \t]*", RegexOptions.IgnoreCase)]
+    private static partial Regex MailtoNoise();
     [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
     private static partial Regex Comments();
     [GeneratedRegex(@"<(script|style|head|title|noscript|template|svg)\b[^>]*>.*?</\1\s*>",
@@ -72,7 +78,8 @@ public static partial class EmailParser
         var body = msg.TextBody;
         if (string.IsNullOrWhiteSpace(body) && !string.IsNullOrWhiteSpace(msg.HtmlBody))
             body = HtmlToText(msg.HtmlBody);
-        var text = StripQuotes(body ?? "");
+        // Outlook's plain text repeats every address as "<mailto:…>"
+        var text = StripQuotes(MailtoNoise().Replace(body ?? "", " "), ForwardSubject().IsMatch(msg.Subject ?? ""));
         if (text.Length > MaxBodyChars) text = text[..MaxBodyChars];
 
         DateTime? date = msg.Date == DateTimeOffset.MinValue ? null : msg.Date.UtcDateTime;
@@ -95,28 +102,25 @@ public static partial class EmailParser
     /// typed. Conservative: cut only at an unmistakable marker ("On … wrote:",
     /// "-----Original Message-----", an Outlook From:/Sent: header block, or a
     /// TRAILING run of "&gt;" lines), and only when something is left above it —
-    /// an inline reply interleaved with quotes is kept whole.
+    /// an inline reply interleaved with quotes is kept whole. A FORWARD keeps the
+    /// forwarded mail (its header block and text ARE the content) and cuts only
+    /// at the next marker — the forwarded mail's own history.
     /// </summary>
-    public static string StripQuotes(string body)
+    public static string StripQuotes(string body, bool forwarded = false)
     {
         var lines = body.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
         var cut = -1;
+        var keepFirst = forwarded;
         for (var i = 0; i < lines.Length && cut < 0; i++)
         {
-            var line = lines[i];
-            if (WroteLine().IsMatch(line)) cut = i;
-            else if (i + 1 < lines.Length && WroteStart().IsMatch(line) && !line.TrimEnd().EndsWith("wrote:")
-                     && WroteEnd().IsMatch(lines[i + 1])) cut = i; // "On …\n… wrote:" wrapped
-            else if (OriginalMessage().IsMatch(line)) cut = i;
-            else if (OutlookFrom().IsMatch(line) && i + 1 < lines.Length
-                     && (OutlookSent().IsMatch(lines[i + 1])
-                         || (i + 2 < lines.Length && OutlookSent().IsMatch(lines[i + 2]))))
-            {
-                cut = i;
-                if (i > 0 && lines[i - 1].Trim().Trim('_').Length == 0) cut = i - 1;
-            }
+            var at = MarkerAt(lines, i);
+            if (at < 0) continue;
+            if (!keepFirst) { cut = at; break; }
+            // the forwarded mail: step past its header block, then look for the next marker
+            keepFirst = false;
+            while (i + 1 < lines.Length && lines[i + 1].Trim().Length > 0) i++;
         }
-        if (cut < 0)
+        if (cut < 0 && !forwarded)
         {
             // a trailing block made only of quoted (or blank) lines
             var j = lines.Length - 1;
@@ -125,6 +129,21 @@ public static partial class EmailParser
         }
         var kept = cut >= 0 ? string.Join("\n", lines.Take(cut)).Trim() : string.Join("\n", lines).Trim();
         return kept.Length > 0 ? kept : string.Join("\n", lines).Trim();
+    }
+
+    /// <summary>Where quoted history starts when line <paramref name="i"/> opens it, else -1.</summary>
+    private static int MarkerAt(string[] lines, int i)
+    {
+        var line = lines[i];
+        if (WroteLine().IsMatch(line)) return i;
+        if (i + 1 < lines.Length && WroteStart().IsMatch(line) && !line.TrimEnd().EndsWith("wrote:")
+            && WroteEnd().IsMatch(lines[i + 1])) return i; // "On …\n… wrote:" wrapped
+        if (OriginalMessage().IsMatch(line)) return i;
+        if (OutlookFrom().IsMatch(line) && i + 1 < lines.Length
+            && (OutlookSent().IsMatch(lines[i + 1])
+                || (i + 2 < lines.Length && OutlookSent().IsMatch(lines[i + 2]))))
+            return i > 0 && lines[i - 1].Trim().Trim('_').Length == 0 ? i - 1 : i;
+        return -1;
     }
 
     /// <summary>
@@ -164,21 +183,33 @@ public static partial class EmailParser
         return ManyBreaks().Replace(s, "\n\n").Trim();
     }
 
-    /// <summary>Named parts only (attachments, or a named inline image such as a photographed receipt).</summary>
+    /// <summary>
+    /// Named parts: real attachments first, then a named inline image that is
+    /// content (a pasted photo of a receipt). An image the HTML body shows by
+    /// <c>cid:</c> under <see cref="MinInlineImageBytes"/> is decoration — a
+    /// signature logo or social icon — and is never kept, so it neither clutters
+    /// the chat nor uses up the cap before the real attachments.
+    /// </summary>
     public static IReadOnlyList<EmailAttachment> Attachments(MimeMessage msg)
     {
         var outv = new List<EmailAttachment>();
         try
         {
-            foreach (var part in msg.BodyParts.OfType<MimePart>())
+            var html = msg.HtmlBody ?? "";
+            var parts = msg.BodyParts.OfType<MimePart>()
+                .Where(p => !string.IsNullOrWhiteSpace(p.FileName) && p.Content != null)
+                .Select(p => (Part: p, Inline: !string.IsNullOrWhiteSpace(p.ContentId)
+                    && html.Contains("cid:" + p.ContentId, StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(x => x.Inline) // stable: real attachments first, in mail order
+                .ToList();
+            foreach (var (part, inline) in parts)
             {
                 if (outv.Count >= MaxAttachments) break;
-                var name = part.FileName;
-                if (string.IsNullOrWhiteSpace(name) || part.Content == null) continue;
                 using var ms = new MemoryStream();
                 part.Content.DecodeTo(ms);
                 if (ms.Length == 0 || ms.Length > MaxAttachmentBytes) continue;
-                outv.Add(new EmailAttachment(name.Trim(), ms.ToArray(), part.ContentType.MimeType));
+                if (inline && ms.Length < MinInlineImageBytes) continue;
+                outv.Add(new EmailAttachment(part.FileName.Trim(), ms.ToArray(), part.ContentType.MimeType));
             }
         }
         catch { /* a malformed part must not lose the mail itself */ }

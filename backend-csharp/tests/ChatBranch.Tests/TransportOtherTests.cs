@@ -751,6 +751,53 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
     }
 
     [Fact]
+    public void Email_parser_keeps_a_forwarded_mail_and_skips_signature_images()
+    {
+        // an Outlook forward: the sender's signature, then the forwarded mail's header block
+        // and text (the content), then that mail's own history
+        const string plain =
+            "\u00a0\n\nThanks & Best Regards\n\nPenny\n\n" +
+            "From: ops@carrier.test <ops@carrier.test> \nSent: Friday, October 16, 2026 11:45 AM\n" +
+            "To: desk@org.test\nSubject: RE: Shipment 42\n\n\u00a0\n\n" +
+            "Dear Ms Chow,\n\nPlease find attachment invoice & POD.\n\n\u00a0\n\n" +
+            "From: azlan@carrier.test <mailto:azlan@carrier.test> <azlan@carrier.test <mailto:azlan@carrier.test> > \n" +
+            "Sent: Thursday, 15 October, 2026 4:11 PM\nTo: desk@org.test\n\nolder history";
+        Assert.Equal("Thanks & Best Regards", EmailParser.StripQuotes(plain).Split('\n')[0]);
+        Assert.DoesNotContain("invoice", EmailParser.StripQuotes(plain));      // a reply still cuts
+        var fw = EmailParser.StripQuotes(plain, forwarded: true);
+        Assert.Contains("From: ops@carrier.test", fw);
+        Assert.Contains("Please find attachment invoice & POD.", fw);
+        Assert.DoesNotContain("older history", fw);
+
+        var alt = new MultipartAlternative
+        {
+            new TextPart("plain") { Text = plain },
+            new TextPart("html") { Text = "<p>Penny</p><img src=\"cid:logo@x\"><img src=\"cid:icon@x\"><img src=\"cid:photo@x\">" },
+        };
+        MimePart Img(string name, string cid, int bytes) => new("image", "png")
+        {
+            FileName = name, ContentId = cid, Content = new MimeContent(new MemoryStream(new byte[bytes])),
+        };
+        var related = new MultipartRelated { alt };
+        for (var i = 0; i < 6; i++) related.Add(Img($"icon{i}.png", i == 0 ? "logo@x" : "icon@x", 1500));
+        related.Add(Img("pasted.png", "photo@x", 150 * 1024));               // a pasted photo is content
+        var mixed = new Multipart("mixed") { related };
+        foreach (var n in new[] { "invoice.pdf", "pod.pdf" })
+            mixed.Add(new MimePart("application", "pdf")
+            {
+                FileName = n, ContentDisposition = new ContentDisposition(ContentDisposition.Attachment),
+                Content = new MimeContent(new MemoryStream(new byte[2048])),
+            });
+        var mail = new MimeMessage { Subject = "FW: Shipment 42", Body = mixed, MessageId = "fw1@org.test" };
+        mail.From.Add(MailboxAddress.Parse("Penny <penny@org.test>"));
+
+        var parsed = EmailParser.Parse(mail);
+        Assert.Contains("Please find attachment invoice & POD.", parsed.Body);
+        Assert.DoesNotContain("mailto:", parsed.Body);
+        Assert.Equal(new[] { "invoice.pdf", "pod.pdf", "pasted.png" }, parsed.Attachments.Select(a => a.FileName));
+    }
+
+    [Fact]
     public void Email_composer_threads_and_never_stacks_re()
     {
         Assert.Equal("Re: Order 7", EmailComposer.ReplySubject("Order 7"));
