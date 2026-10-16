@@ -7,6 +7,9 @@
   <ItemGroup>
     <PackageReference Include="Jint" Version="4.1.0" />
     <PackageReference Include="MailKit" Version="4.17.0" />
+    <!-- MimeKit brings System.Security.Cryptography.Pkcs 8.0.1, which has a High advisory
+         (GHSA-846f-f764-76mx, CVE-2026-84008 .NET DoS): pin the patched 8.0.x. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="8.0.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.11" />
     <!-- the native SQLite EF Core 8.0.11 brings (2.1.6) has a High advisory (GHSA-2m69-gcr7-jv3q):
          pin the patched 2.1.x line. The Security workflow fails on any High / Critical package. -->
