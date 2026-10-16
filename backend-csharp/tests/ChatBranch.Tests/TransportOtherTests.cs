@@ -767,7 +767,11 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
         var fw = EmailParser.StripQuotes(plain, forwarded: true);
         Assert.Contains("From: ops@carrier.test", fw);
         Assert.Contains("Please find attachment invoice & POD.", fw);
-        Assert.DoesNotContain("older history", fw);
+        Assert.Contains("older history", fw);                                  // a forward is kept whole
+        // a forward of a forward: the content sits two header blocks down
+        var resend = EmailParser.StripQuotes("RESEND\n\nPenny\n\nFrom: Penny\nSent: Friday 8:43 PM\nTo: desk\n\nPenny\n\n" +
+            "From: ops@carrier.test\nSent: Friday 11:45 AM\nTo: desk\n\nPlease find attachment invoice & POD.", forwarded: true);
+        Assert.Contains("Please find attachment invoice & POD.", resend);
 
         var alt = new MultipartAlternative
         {
@@ -794,6 +798,7 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
         var parsed = EmailParser.Parse(mail);
         Assert.Contains("Please find attachment invoice & POD.", parsed.Body);
         Assert.DoesNotContain("mailto:", parsed.Body);
+        Assert.Contains("From: azlan@carrier.test <azlan@carrier.test>", parsed.Body);
         Assert.Equal(new[] { "invoice.pdf", "pod.pdf", "pasted.png" }, parsed.Attachments.Select(a => a.FileName));
     }
 

@@ -79,7 +79,7 @@ public static partial class EmailParser
         if (string.IsNullOrWhiteSpace(body) && !string.IsNullOrWhiteSpace(msg.HtmlBody))
             body = HtmlToText(msg.HtmlBody);
         // Outlook's plain text repeats every address as "<mailto:…>"
-        var text = StripQuotes(MailtoNoise().Replace(body ?? "", " "), ForwardSubject().IsMatch(msg.Subject ?? ""));
+        var text = StripQuotes(DropMailto(body ?? ""), ForwardSubject().IsMatch(msg.Subject ?? ""));
         if (text.Length > MaxBodyChars) text = text[..MaxBodyChars];
 
         DateTime? date = msg.Date == DateTimeOffset.MinValue ? null : msg.Date.UtcDateTime;
@@ -97,30 +97,27 @@ public static partial class EmailParser
             Attachments(msg));
     }
 
+    /// <summary>"a@x.test &lt;mailto:a@x.test&gt; &gt;" → "a@x.test&gt;"; elsewhere one space.</summary>
+    private static string DropMailto(string body) =>
+        MailtoNoise().Replace(body, m =>
+            m.Index + m.Length < body.Length && body[m.Index + m.Length] == '>' ? "" : " ");
+
     /// <summary>
     /// Drop quoted reply history so the thread shows what the contact actually
     /// typed. Conservative: cut only at an unmistakable marker ("On … wrote:",
     /// "-----Original Message-----", an Outlook From:/Sent: header block, or a
     /// TRAILING run of "&gt;" lines), and only when something is left above it —
-    /// an inline reply interleaved with quotes is kept whole. A FORWARD keeps the
-    /// forwarded mail (its header block and text ARE the content) and cuts only
-    /// at the next marker — the forwarded mail's own history.
+    /// an inline reply interleaved with quotes is kept whole. A FORWARD is kept
+    /// WHOLE (up to <see cref="MaxBodyChars"/>): the forwarded chain is the content,
+    /// and a forward of a forward has it two or more header blocks down.
     /// </summary>
     public static string StripQuotes(string body, bool forwarded = false)
     {
         var lines = body.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        if (forwarded) return string.Join("\n", lines).Trim();
         var cut = -1;
-        var keepFirst = forwarded;
-        for (var i = 0; i < lines.Length && cut < 0; i++)
-        {
-            var at = MarkerAt(lines, i);
-            if (at < 0) continue;
-            if (!keepFirst) { cut = at; break; }
-            // the forwarded mail: step past its header block, then look for the next marker
-            keepFirst = false;
-            while (i + 1 < lines.Length && lines[i + 1].Trim().Length > 0) i++;
-        }
-        if (cut < 0 && !forwarded)
+        for (var i = 0; i < lines.Length && cut < 0; i++) cut = MarkerAt(lines, i);
+        if (cut < 0)
         {
             // a trailing block made only of quoted (or blank) lines
             var j = lines.Length - 1;
