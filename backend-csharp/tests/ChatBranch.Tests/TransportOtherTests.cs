@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using ChatBranch.Data;
+using ChatBranch.Data.Ai.Tasks;
 using ChatBranch.Data.Channels;
 using ChatBranch.Data.Stores;
 using ChatBranch.Domain;
@@ -335,6 +336,46 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
     }
 
     // ---- Email: IMAP in, SMTP out -----------------------------------------------
+
+    [Fact]
+    public async Task Imap_sync_queues_background_ai_tasks_for_every_attachment()
+    {
+        var admin = await Authed();
+        await CreateMailbox(admin, "pods@shop.test", "pods-desk@shop.test");
+        // the keyword fences this task to this test's mail only (the factory is shared)
+        var taskId = InDb(db =>
+        {
+            var t = new AiTask
+            {
+                Name = "Save PODs", Enabled = true, Attachment = "any", Keywords = new() { "PODBATCH-7" },
+                Channels = new() { "email" }, Instructions = "Save each POD.", Tools = new() { AiTaskTools.Note },
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            };
+            db.AiTasks.Add(t);
+            db.SaveChanges();
+            return t.Id;
+        });
+        try
+        {
+            var files = Enumerable.Range(1, 10).Select(i => ($"pod{i}.pdf", Encoding.ASCII.GetBytes($"%PDF-1.4 pod {i}"))).ToArray();
+            _f.Mailbox.Deliver("pods@shop.test", Mail("Penny <penny@carrier.test>", "pods-desk@shop.test",
+                "PODBATCH-7 ten PODs", "All ten attached.", "batch7@carrier.test", files));
+            (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { force = true })).EnsureSuccessStatusCode();
+
+            var (withFiles, runs) = InDb(db =>
+            {
+                var t = db.Threads.AsNoTracking().First(x => x.Channel == "email" && x.Key == "penny@carrier.test");
+                var msgs = db.Messages.AsNoTracking().Where(m => m.ThreadId == t.Id && m.MediaPath != "").Select(m => m.Id).ToList();
+                return (msgs, db.AiTaskRuns.AsNoTracking().Where(r => r.TaskId == taskId).Select(r => r.MessageId).ToList());
+            });
+            Assert.Equal(10, withFiles.Count);                         // every file kept
+            Assert.Equal(withFiles.OrderBy(x => x), runs.OrderBy(x => x)); // one run per file
+        }
+        finally
+        {
+            InDb(db => db.AiTasks.Where(t => t.Id == taskId).ExecuteDelete());
+        }
+    }
 
     [Fact]
     public async Task Imap_sync_keeps_every_sender_dedups_and_the_reply_threads_under_it()
@@ -800,6 +841,26 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
         Assert.DoesNotContain("mailto:", parsed.Body);
         Assert.Contains("From: azlan@carrier.test <azlan@carrier.test>", parsed.Body);
         Assert.Equal(new[] { "invoice.pdf", "pod.pdf", "pasted.png" }, parsed.Attachments.Select(a => a.FileName));
+    }
+
+    [Fact]
+    public void Email_parser_keeps_up_to_twenty_attachments_and_names_the_rest()
+    {
+        var mixed = new Multipart("mixed") { new TextPart("plain") { Text = "Ten PODs" } };
+        MimePart File(string name, int bytes) => new("application", "pdf")
+        {
+            FileName = name, ContentDisposition = new ContentDisposition(ContentDisposition.Attachment),
+            Content = new MimeContent(new MemoryStream(new byte[bytes])),
+        };
+        for (var i = 1; i <= 22; i++) mixed.Add(File($"pod{i}.pdf", 100));
+        mixed.Add(File("huge.pdf", (int)EmailParser.MaxAttachmentBytes + 1));
+        var mail = new MimeMessage { Subject = "PODs", Body = mixed, MessageId = "many@org.test" };
+        mail.From.Add(MailboxAddress.Parse("ops@org.test"));
+
+        var parsed = EmailParser.Parse(mail);
+        Assert.Equal(20, parsed.Attachments.Count);
+        Assert.Equal("pod20.pdf", parsed.Attachments[^1].FileName);
+        Assert.Contains("[Not kept: pod21.pdf (over 20 files), pod22.pdf (over 20 files), huge.pdf (over 10 MB)]", parsed.Body);
     }
 
     [Fact]

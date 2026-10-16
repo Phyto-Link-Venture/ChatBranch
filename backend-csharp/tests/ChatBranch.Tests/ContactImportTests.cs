@@ -133,7 +133,7 @@ public class ContactImportTests : IdentityApiBase, IClassFixture<IdentityFactory
     // ---- xlsx --------------------------------------------------------------------
 
     /// <summary>A minimal real .xlsx: shared strings, an inline string and a NUMERIC phone cell.</summary>
-    private static byte[] Xlsx(string[] header, params object[][] rows)
+    internal static byte[] Xlsx(string[] header, params object[][] rows)
     {
         const string ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
         const string rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";

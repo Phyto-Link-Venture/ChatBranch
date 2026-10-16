@@ -24,7 +24,7 @@ public sealed record ParsedEmail(string FromAddress, string FromName, string Sub
 public static partial class EmailParser
 {
     public const int MaxBodyChars = 5000;
-    public const int MaxAttachments = 5;
+    public const int MaxAttachments = 20;
     public const long MaxAttachmentBytes = 10L * 1024 * 1024;
     /// <summary>A body image (cid-referenced) smaller than this is decoration — a signature logo or icon.</summary>
     public const long MinInlineImageBytes = 100 * 1024;
@@ -81,6 +81,10 @@ public static partial class EmailParser
         // Outlook's plain text repeats every address as "<mailto:…>"
         var text = StripQuotes(DropMailto(body ?? ""), ForwardSubject().IsMatch(msg.Subject ?? ""));
         if (text.Length > MaxBodyChars) text = text[..MaxBodyChars];
+        var (attachments, skipped) = AttachmentsAndSkipped(msg);
+        // never a silent loss: the chat names every file that could not be kept
+        if (skipped.Count > 0)
+            text = $"{text}\n\n[Not kept: {string.Join(", ", skipped)}]".Trim();
 
         DateTime? date = msg.Date == DateTimeOffset.MinValue ? null : msg.Date.UtcDateTime;
         // a sender clock far in the future would pin the thread to the top forever
@@ -94,7 +98,7 @@ public static partial class EmailParser
             string.IsNullOrWhiteSpace(msg.MessageId) ? "" : $"<{EmailComposer.Bare(msg.MessageId)}>",
             string.IsNullOrWhiteSpace(msg.InReplyTo) ? "" : $"<{EmailComposer.Bare(msg.InReplyTo)}>",
             date,
-            Attachments(msg));
+            attachments);
     }
 
     /// <summary>"a@x.test &lt;mailto:a@x.test&gt; &gt;" → "a@x.test&gt;"; elsewhere one space.</summary>
@@ -187,9 +191,13 @@ public static partial class EmailParser
     /// signature logo or social icon — and is never kept, so it neither clutters
     /// the chat nor uses up the cap before the real attachments.
     /// </summary>
-    public static IReadOnlyList<EmailAttachment> Attachments(MimeMessage msg)
+    public static IReadOnlyList<EmailAttachment> Attachments(MimeMessage msg) => AttachmentsAndSkipped(msg).Kept;
+
+    /// <summary>The attachments kept, and "name (why)" for each real one that was not.</summary>
+    public static (IReadOnlyList<EmailAttachment> Kept, IReadOnlyList<string> Skipped) AttachmentsAndSkipped(MimeMessage msg)
     {
         var outv = new List<EmailAttachment>();
+        var skipped = new List<string>();
         try
         {
             var html = msg.HtmlBody ?? "";
@@ -201,16 +209,18 @@ public static partial class EmailParser
                 .ToList();
             foreach (var (part, inline) in parts)
             {
-                if (outv.Count >= MaxAttachments) break;
+                var name = part.FileName.Trim();
                 using var ms = new MemoryStream();
                 part.Content.DecodeTo(ms);
-                if (ms.Length == 0 || ms.Length > MaxAttachmentBytes) continue;
-                if (inline && ms.Length < MinInlineImageBytes) continue;
-                outv.Add(new EmailAttachment(part.FileName.Trim(), ms.ToArray(), part.ContentType.MimeType));
+                if (inline && ms.Length < MinInlineImageBytes) continue; // decoration, not a file
+                if (ms.Length == 0) continue;
+                if (ms.Length > MaxAttachmentBytes) { skipped.Add($"{name} (over {MaxAttachmentBytes / 1024 / 1024} MB)"); continue; }
+                if (outv.Count >= MaxAttachments) { skipped.Add($"{name} (over {MaxAttachments} files)"); continue; }
+                outv.Add(new EmailAttachment(name, ms.ToArray(), part.ContentType.MimeType));
             }
         }
         catch { /* a malformed part must not lose the mail itself */ }
-        return outv;
+        return (outv, skipped);
     }
 }
 
@@ -648,6 +658,10 @@ public sealed class EmailSyncService
                     MediaStore.Stamp(extra, type, rel, MessagingMedia.ContentTypeFor(att.FileName), att.FileName,
                         att.Content.LongLength);
                     _db.SaveChanges();
+                    // every file is something a background AI task may need to read (the first
+                    // rides on the mail's own message, queued by the inbound path)
+                    if (direction == MessageDirection.In)
+                        Ai.Tasks.AiTaskService.Enqueue(_db, _scoping, thread, extra, MessageText(mail));
                 }
             }
             catch { /* an attachment that cannot be stored must not lose the mail */ }

@@ -93,7 +93,7 @@ public class AiTaskService
     /// attachment and linked-contact conditions are checked when the run is due.
     /// Returns how many runs were queued. Never throws.
     /// </summary>
-    public static int Enqueue(AppDbContext db, ScopingService sc, Thread thread, Message msg)
+    public static int Enqueue(AppDbContext db, ScopingService sc, Thread thread, Message msg, string? matchText = null)
     {
         try
         {
@@ -102,7 +102,8 @@ public class AiTaskService
             if (tasks.Count == 0) return 0;
             var queued = 0;
             var due = DateTime.UtcNow.AddSeconds(DelaySeconds);
-            foreach (var task in tasks.Where(t => KeywordsMatch(t, msg.Text)))
+            // an email's 2nd, 3rd… attachment is its own message: its keywords are the mail's
+            foreach (var task in tasks.Where(t => KeywordsMatch(t, matchText ?? msg.Text)))
             {
                 if (db.AiTaskRuns.Any(r => r.TaskId == task.Id && r.MessageId == msg.Id)) continue;
                 db.AiTaskRuns.Add(new AiTaskRun
@@ -157,6 +158,8 @@ public class AiTaskService
     {
         public bool IsPdf => Mime == "application/pdf";
         public bool IsImage => Mime.StartsWith("image/");
+        /// <summary>The image formats every vision model takes (HEIC, BMP, TIFF… are refused by providers).</summary>
+        public bool IsVisionImage => Mime is "image/jpeg" or "image/png" or "image/webp" or "image/gif";
     }
 
     public static bool AttachmentMatches(AiTask task, Attachment? a) => (task.Attachment ?? "") switch
@@ -185,7 +188,11 @@ public class AiTaskService
             var info = new FileInfo(full);
             if (info.Length > MediaStore.MaxBytes) return null;
             var ext = Path.GetExtension(full).ToLowerInvariant();
-            return new Attachment($"{thread.Channel}-{msg.Id}{ext}", MediaStore.MimeFor(full), File.ReadAllBytes(full));
+            // the sender's own file name (what Drive saves it as), else a made-up one
+            var name = Path.GetFileName((msg.MediaName ?? "").Trim());
+            if (name.Length == 0 || !Path.GetExtension(name).Equals(ext, StringComparison.OrdinalIgnoreCase))
+                name = $"{thread.Channel}-{msg.Id}{ext}";
+            return new Attachment(name, MediaStore.MimeFor(full), File.ReadAllBytes(full));
         }
         catch { return null; }
     }
@@ -500,7 +507,7 @@ public class AiTaskService
             return sb.ToString();
         }
         var kb = Math.Max(1, a.Bytes.Length / 1024);
-        if (a.IsPdf || a.Mime is "text/plain" or "text/csv")
+        if (a.IsPdf || a.Mime is "text/plain" or "text/csv" || DocumentExtractor.ReadableByTasks(a.FileName))
         {
             var doc = DocumentExtractor.Extract(a.FileName, a.Bytes);
             if (doc.Ok)
@@ -525,7 +532,13 @@ public class AiTaskService
         }
         else if (a.IsImage)
         {
-            if (_llm.SupportsVision && a.Bytes.Length <= MaxImageBytes)
+            if (!a.IsVisionImage)
+            {
+                var why = $"the image format ({a.Mime}) cannot be shown to the model — only JPEG, PNG, WebP and GIF";
+                notes.Add(why);
+                sb.Append($"ATTACHMENT: an image ({a.FileName}, {kb} KB) — {why}.\n");
+            }
+            else if (_llm.SupportsVision && a.Bytes.Length <= MaxImageBytes)
             {
                 images = new List<string> { $"data:{a.Mime};base64,{Convert.ToBase64String(a.Bytes)}" };
                 sb.Append($"ATTACHMENT: an image ({a.FileName}, {kb} KB), shown below.\n");
