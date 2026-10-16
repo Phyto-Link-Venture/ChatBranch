@@ -457,14 +457,23 @@ public sealed class DocumentTemplateAi
     /// <c>DOCUMENT_PDF_RASTERIZER</c> = a pdftoppm path, else <c>pdftoppm</c> on the
     /// PATH; "off" disables). Null when none is available or it fails.
     /// </summary>
-    public static byte[]? Rasterize(byte[] pdf)
+    public static byte[]? Rasterize(byte[] pdf) =>
+        RasterizePages(pdf, 1, 80, jpeg: false) is [var first] ? first.Bytes : null;
+
+    /// <summary>
+    /// The first <paramref name="maxPages"/> pages as images (PNG, or JPEG — far
+    /// smaller for a scan), each ≤ 4 MB, in page order; empty when the server has
+    /// no rasterizer (see <see cref="Rasterize"/>) or it fails.
+    /// </summary>
+    public static IReadOnlyList<(byte[] Bytes, string Mime)> RasterizePages(byte[] pdf, int maxPages, int dpi, bool jpeg)
     {
+        var none = Array.Empty<(byte[], string)>();
         var tool = (Environment.GetEnvironmentVariable("DOCUMENT_PDF_RASTERIZER") ?? "").Trim();
-        if (tool.Equals("off", StringComparison.OrdinalIgnoreCase)) return null;
+        if (tool.Equals("off", StringComparison.OrdinalIgnoreCase)) return none;
         if (tool.Length == 0)
             tool = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
                 .Select(d => Path.Combine(d, "pdftoppm")).FirstOrDefault(File.Exists) ?? "";
-        if (tool.Length == 0 || !File.Exists(tool)) return null;
+        if (tool.Length == 0 || !File.Exists(tool)) return none;
         var dir = Path.Combine(Path.GetTempPath(), "cb-raster-" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -475,16 +484,25 @@ public sealed class DocumentTemplateAi
             {
                 RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false,
             };
-            foreach (var a in new[] { "-png", "-r", "80", "-f", "1", "-l", "1", "-singlefile", input, Path.Combine(dir, "out") })
-                psi.ArgumentList.Add(a);
+            var args = new List<string> { jpeg ? "-jpeg" : "-png" };
+            if (jpeg) args.AddRange(new[] { "-jpegopt", "quality=80" });
+            args.AddRange(new[] { "-r", dpi.ToString(), "-f", "1", "-l", Math.Max(1, maxPages).ToString() });
+            if (maxPages <= 1) args.Add("-singlefile");
+            args.AddRange(new[] { input, Path.Combine(dir, "out") });
+            foreach (var a in args) psi.ArgumentList.Add(a);
             using var p = Process.Start(psi);
-            if (p == null) return null;
-            if (!p.WaitForExit(15_000)) { try { p.Kill(true); } catch { } return null; }
-            var output = Path.Combine(dir, "out.png");
-            return p.ExitCode == 0 && File.Exists(output) && new FileInfo(output).Length <= 4_000_000
-                ? File.ReadAllBytes(output) : null;
+            if (p == null) return none;
+            if (!p.WaitForExit(30_000)) { try { p.Kill(true); } catch { } return none; }
+            if (p.ExitCode != 0) return none;
+            // pdftoppm names pages out-1 / out-01 / out-001 by the page count; -singlefile = out
+            return Directory.GetFiles(dir, "out*." + (jpeg ? "jpg" : "png"))
+                .OrderBy(f => f.Length).ThenBy(f => f, StringComparer.Ordinal)
+                .Select(f => new FileInfo(f))
+                .Where(f => f.Length is > 0 and <= 4_000_000)
+                .Select(f => (File.ReadAllBytes(f.FullName), jpeg ? "image/jpeg" : "image/png"))
+                .ToList();
         }
-        catch { return null; }
+        catch { return none; }
         finally { try { Directory.Delete(dir, true); } catch { } }
     }
 

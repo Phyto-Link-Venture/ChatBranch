@@ -6,6 +6,7 @@ using ChatBranch.Data;
 using ChatBranch.Data.Ai;
 using ChatBranch.Data.Ai.Tasks;
 using ChatBranch.Data.Channels;
+using ChatBranch.Data.Documents;
 using ChatBranch.Data.Flows;
 using ChatBranch.Data.Integrations;
 using ChatBranch.Data.Stores;
@@ -401,6 +402,30 @@ public class AiTaskTests
         Task.Run(() => svc.TestAsync(task, "payment slip", jpeg, null)).GetAwaiter().GetResult();
         var img = Assert.Single(vision.Last!.Images!);
         Assert.StartsWith("data:image/jpeg;base64,", img);
+    }
+
+    [Fact]
+    public void A_scanned_pdf_is_shown_to_a_vision_model_as_page_images()
+    {
+        using var rig = new AiTaskRig();
+        var task = rig.Task(tools: new[] { AiTaskTools.Note });
+        var scan = new AiTaskService.Attachment("pod.pdf", "application/pdf", AiTaskRig.Pdf()); // no text layer
+        var vision = new VisionLlm();
+        var svc = new AiTaskService(rig.Db, rig.Sc, vision,
+            new IntegrationActions(rig.Db, new IntegrationResolver(rig.Db, rig.Sc), new GoogleOAuth(rig.Db, rig.Sc, rig.Http), rig.Http),
+            rig.Http, rig.Media);
+        Task.Run(() => svc.TestAsync(task, "POD attached", scan, null)).GetAwaiter().GetResult();
+        var user = vision.Last!;
+        if (DocumentTemplateAi.RasterizePages(scan.Bytes, 1, 72, jpeg: true).Count == 0)
+        {
+            // no pdftoppm on this machine: said honestly, never a silent blank
+            Assert.Null(user.Images);
+            Assert.Contains("could not be read", user.Content);
+            return;
+        }
+        var img = Assert.Single(user.Images!);                                  // one page
+        Assert.StartsWith("data:image/jpeg;base64,", img);
+        Assert.Contains("scanned PDF", user.Content);
     }
 
     private sealed class VisionLlm : ILlmClient

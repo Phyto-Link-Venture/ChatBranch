@@ -1395,7 +1395,10 @@ When you fix one of these, update this table, `README.md` and
   reached, or no model is configured — it runs whether the chatbot is on or off
   for the chat, and on opted-out chats (it messages no one). Input: the message
   text fenced as data + the attachment (PDF / .txt / .csv text via PdfPig
-  `DocumentExtractor`, ≤20 000 chars; an image ≤4 MB as an OpenAI-compatible
+  `DocumentExtractor`, ≤20 000 chars; a SCANNED PDF (no text layer) goes to a vision
+  model as its first 3 pages, JPEG at 150 dpi, via pdftoppm —
+  `DocumentTemplateAi.RasterizePages`; no rasterizer / no vision = the "could not be
+  read" note; an image ≤4 MB as an OpenAI-compatible
   `image_url` data URL when `ILlmClient.SupportsVision` — OpenRouter / OpenAI /
   Gemini — else noted "not readable without a vision model"; `LlmMessage.Images`),
   the `ToolLoop` with ≤6 tool calls at temperature 0.1, and a closing JSON

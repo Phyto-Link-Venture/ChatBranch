@@ -7,6 +7,7 @@ using ChatBranch.Data.Ai.Learning;
 using ChatBranch.Data.Audit;
 using ChatBranch.Data.Channels;
 using ChatBranch.Data.Contacts;
+using ChatBranch.Data.Documents;
 using ChatBranch.Data.Integrations;
 using ChatBranch.Data.Mcp;
 using ChatBranch.Domain;
@@ -53,6 +54,9 @@ public class AiTaskService
     public const int MaxAttachmentChars = 20_000;
     /// <summary>An image above this is not sent to the model.</summary>
     public const int MaxImageBytes = 4 * 1024 * 1024;
+    /// <summary>A scanned PDF (no text layer) is shown to a vision model as its first pages, this sharp.</summary>
+    public const int MaxScannedPages = 3;
+    public const int ScanDpi = 150;
     /// <summary>How long a run whose task needs a file waits for the attachment to arrive.</summary>
     public static readonly TimeSpan MediaWait = TimeSpan.FromSeconds(90);
     /// <summary>A run claimed but not finished after this is failed as interrupted.</summary>
@@ -504,6 +508,14 @@ public class AiTaskService
                 var body = doc.Text.Length > MaxAttachmentChars ? doc.Text[..MaxAttachmentChars] + "\n… (cut)" : doc.Text;
                 sb.Append($"ATTACHMENT: {a.FileName} ({a.Mime}, {kb} KB{(doc.Pages > 0 ? $", {doc.Pages} page(s)" : "")}). Its text:\n<<<\n")
                     .Append(body).Append("\n>>>\n");
+            }
+            else if (a.IsPdf && _llm.SupportsVision
+                     && DocumentTemplateAi.RasterizePages(a.Bytes, MaxScannedPages, ScanDpi, jpeg: true) is { Count: > 0 } pages)
+            {
+                // a scan: no text layer, so the model READS the pages as images
+                images = pages.Select(pg => $"data:{pg.Mime};base64,{Convert.ToBase64String(pg.Bytes)}").ToList();
+                sb.Append($"ATTACHMENT: {a.FileName} ({a.Mime}, {kb} KB) — a scanned PDF with no text layer; " +
+                          $"its first {pages.Count} page(s) are shown below as images. Read them.\n");
             }
             else
             {
