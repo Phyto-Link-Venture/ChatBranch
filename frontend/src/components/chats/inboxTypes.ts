@@ -28,6 +28,11 @@ export type Channel =
   | 'tiktok'
   | 'douyin'
   | 'zalo'
+  // marketplace seller channels: buyer chat carried by the seller service
+  | 'shopee'
+  | 'lazada'
+  | 'tiktok_shop'
+  | 'shopify'
 export type ThreadStatus = 'open' | 'pending' | 'snoozed' | 'resolved'
 
 export const CHANNELS: Channel[] = [
@@ -44,6 +49,10 @@ export const CHANNELS: Channel[] = [
   'tiktok',
   'douyin',
   'zalo',
+  'shopee',
+  'lazada',
+  'tiktok_shop',
+  'shopify',
 ]
 
 /** Channels with a platform reply window enforced server-side (WeChat 48 h, Zalo 7 d, TikTok / Douyin 48 h). */
@@ -66,6 +75,13 @@ export const CHANNEL_META: Record<Channel, { lbl: string; beta?: boolean }> = {
   tiktok: { lbl: 'TikTok', beta: true },
   douyin: { lbl: 'Douyin', beta: true },
   zalo: { lbl: 'Zalo' },
+  // The shops are connected in the seller service, which holds the marketplace
+  // grant; here they are ordinary inboxes. Shopify has no buyer-chat API, so a
+  // Shopify shop never carries a conversation — it is listed for completeness.
+  shopee: { lbl: 'Shopee', beta: true },
+  lazada: { lbl: 'Lazada', beta: true },
+  tiktok_shop: { lbl: 'TikTok Shop', beta: true },
+  shopify: { lbl: 'Shopify', beta: true },
 }
 
 /** Our `facebook` channel is Messenger — show Messenger's mark, not Facebook's. */

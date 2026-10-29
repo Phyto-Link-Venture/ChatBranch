@@ -760,6 +760,9 @@ public static class VoiceMessagingEndpoints
         "email", "facebook", "instagram", "telegram",
         // LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo — MoreChannelAccounts
         "line", "viber", "sms", "wechat", "tiktok", "douyin", "zalo",
+        // Marketplace shops — listed and inbox-editable here, never credential-edited
+        // (CommerceChannels): the seller service holds the grant.
+        "shopee", "lazada", "tiktok_shop", "shopify",
     };
 
     private static string CfgStr(Dictionary<string, object?> cfg, string key)
@@ -846,6 +849,8 @@ public static class VoiceMessagingEndpoints
             // Messenger / Instagram: the Meta app secret that verifies the webhook
             if (a.Channel is "facebook" or "instagram") outv["app_secret_masked"] = Mask(a.AppSecret);
             if (MoreChannelAccounts.Handles(a.Channel)) MoreChannelAccounts.AddPayload(outv, a);
+            // a marketplace shop has no credential to mask: the seller service holds it
+            else if (MoreChannelAccounts.Commerce(a.Channel)) ChatBranch.Data.Channels.CommerceChannels.AddPayload(outv, a);
         }
         return outv;
     }
@@ -951,6 +956,12 @@ public static class VoiceMessagingEndpoints
                 return Results.Ok(AccountPayload(account));
             }
 
+            // A marketplace shop is never created here: it appears by itself once the
+            // seller connects it in the seller service (CommerceChannels).
+            if (MoreChannelAccounts.Commerce(channel))
+                return Results.Json(new { detail = ChatBranch.Data.Channels.CommerceChannels.NotEditable(channel) },
+                    statusCode: 400);
+
             if (MoreChannelAccounts.Handles(channel))
             {
                 // LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo: per-channel credential fields
@@ -1031,6 +1042,19 @@ public static class VoiceMessagingEndpoints
                                || body.Has(ChatBranch.Data.Channels.InboxSettings.AiDefaultKey)
                                || body.Has(ChatBranch.Data.Channels.InboxSettings.KeepRecalledKey);
             if (inboxTouched && ApplyInbox(db, account, body) is IResult inboxErr) return inboxErr;
+
+            // A marketplace shop's inbox settings (team, AI default, kept recalls)
+            // are edited like any other inbox — applied above — but its grant
+            // belongs to the seller service, so there is nothing else to change.
+            if (MoreChannelAccounts.Commerce(account.Channel))
+            {
+                if (!inboxTouched)
+                    return Results.Json(new { detail = ChatBranch.Data.Channels.CommerceChannels.NotEditable(account.Channel) },
+                        statusCode: 400);
+                await db.SaveChangesAsync();
+                Audit(db, me, ctx, "account.update", $"{account.Channel}:{account.Name}", "keys: inbox");
+                return Results.Ok(AccountPayload(account));
+            }
 
             if (MoreChannelAccounts.Handles(account.Channel))
             {

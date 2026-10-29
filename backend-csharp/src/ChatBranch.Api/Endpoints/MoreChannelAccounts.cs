@@ -95,7 +95,17 @@ public static class MoreChannelAccounts
         },
     };
 
-    public static bool Handles(string? channel) => MoreChannels.Handles(channel);
+    /// <summary>
+    /// The channels whose credentials are TYPED IN here. A marketplace seller
+    /// channel is in <see cref="MoreChannels"/> for routing and sending, but its
+    /// grant lives in the seller service — so it has no field table, and the
+    /// accounts API must not offer to create one (see <see cref="Commerce"/>).
+    /// </summary>
+    public static bool Handles(string? channel) =>
+        MoreChannels.Handles(channel) && !MoreChannels.IsCommerce(channel);
+
+    /// <summary>A marketplace shop: listed and editable as an inbox, never credential-edited.</summary>
+    public static bool Commerce(string? channel) => MoreChannels.IsCommerce(channel);
 
     public static bool CanSetWebhook(string channel) => channel is ChannelIds.Line or ChannelIds.Viber;
 

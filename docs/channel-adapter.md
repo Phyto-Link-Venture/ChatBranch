@@ -21,6 +21,57 @@ another.
 
 ---
 
+## 0. Marketplace buyer chat (Shopee, Lazada, TikTok Shop, Shopify)
+
+These four are channels like any other in the inbox, with one structural
+difference worth understanding before you touch them: **the credentials are not
+here.** A marketplace grant lives in the `e-comerce-seller-mcp` sidecar, which
+owns the OAuth flow, the token refresh and the provider APIs — the same division
+of labour as `backend/baileys_service` for a QR-paired WhatsApp number.
+
+| | Shopee | Lazada | TikTok Shop | Shopify |
+|---|---|---|---|---|
+| The account | one `ChannelAccount` per SHOP; `ExternalId` is the shop handle (`shopee:123456`, `shopify:my-store.myshopify.com`) | same | same | same |
+| The conversation | `Thread.Key` = the marketplace's CONVERSATION id — that is what a reply needs | same | same | n/a |
+| Receive | the sidecar's webhook → `POST /api/commerce/inbound` | the sidecar POLLS (Lazada's IM API has no seller webhook) → the same push | the sidecar's webhook → the same push | — |
+| Send text | ✅ through the sidecar (`POST /api/bridge/send`) | ✅ | ✅ | ❌ Shopify has no public buyer-chat API — refused honestly as `Unsupported` |
+| Send media | ❌ (each marketplace wants its own upload step); inbound media is LINKED, not downloaded | ❌ | ❌ | — |
+| Reply window | none published | none published | none published | — |
+| Health | the sidecar's own verdict (`CommerceTransport.ProbeAsync` → its `/api/bridge/accounts`): `connected` → healthy, `revoked` → disconnected. An unreachable sidecar is TRANSIENT — the shop is fine | same | same | same |
+| Auth on inbound | `X-Commerce-Secret` (Setting `commerce_secret` → env `COMMERCE_SECRET`) | same | same | same |
+
+**Where the code is.** `Channels/Commerce/CommerceChannels.cs` is the
+vocabulary (ids, labels, the `marketplace:shop_id` handle, what carries chat);
+`Channels/Commerce/CommerceTransport.cs` is one `IChannelTransport` per channel
+over `Sidecars/ICommerceGateway.cs`; `Endpoints/CommerceEndpoints.cs` is the
+bridge. They are listed in `MoreChannels.All`, so routing, `MoreChannelSender`,
+the health prober and the channel labels carry them unchanged —
+`MoreChannels.IsCommerce` is what marks them as credential-free, which is why
+`MoreChannelAccounts.Handles` is false for them and the accounts API refuses to
+create one.
+
+**The push answers honestly.** The sidecar checks the answer and retries, so
+`/api/commerce/inbound` returns 200 only when the message was stored, 400 when
+the push can never work (unknown channel, no conversation key, malformed body)
+and 500 when a retry might. A silent 200 over a dropped buyer message is the one
+thing it must not do.
+
+**A shop appears by itself.** Its grant cannot be typed into ChatBranch, so the
+first buyer message creates the inbox (audited `account.create`), and
+`POST /api/commerce/shops/sync` pulls in the shops that have not chatted yet.
+Everything else about the inbox — the team, the AI default, kept recalls, its
+entity — is edited exactly like any other channel's.
+
+**What is NOT here.** Products, stock, orders and sales are the sidecar's own
+REST API and MCP server; ChatBranch's side is the conversation. See
+`docs/mcp.md` there, and `docs/chatbranch-bridge.md` for the contract.
+
+Tests: `CommerceBridgeTests` (a fake seller service — the secret closed / wrong /
+right, the push's honest answer, dedup, a shop becoming an inbox, our own sends
+not coming back as buyer messages, Shopify's refusal, health verdicts).
+
+---
+
 ## 1. What each channel can do
 
 | | WhatsApp Cloud | WhatsApp Baileys | Website widget | Telegram | Messenger / IG | Email |

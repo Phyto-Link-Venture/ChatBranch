@@ -3,8 +3,8 @@
 An industry-agnostic **multi-channel conversation platform** you can clone and
 configure for your own business. One operator dashboard, one AI brain and one
 contact record shared across WhatsApp, a website chat widget, email, Telegram,
-Messenger, Instagram, LINE, Viber, SMS (Twilio), WeChat, Zalo, TikTok and Douyin
-**and real phone calls**.
+Messenger, Instagram, LINE, Viber, SMS (Twilio), WeChat, Zalo, TikTok and Douyin,
+**marketplace buyer chat** (Shopee, Lazada, TikTok Shop) **and real phone calls**.
 
 It is a template, not a product: the domain logic lives in editable
 configuration (AI skills, a knowledge base, visual flows, tags, custom fields),
@@ -286,6 +286,7 @@ requires a restart.
 | **WhatsApp (Twilio)** | Account SID, Auth Token, the WhatsApp sender (or a Messaging Service SID); point the sender's incoming-message webhook at the URL the inbox shows | live, untested against Twilio: signed inbound (incl. media), delivery statuses, text, Content templates (by ContentSid; authored in Twilio), media by a signed public link (needs a public https base URL) |
 | **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text + media (photos, videos + video notes, voice notes, documents, stickers), text + media send, quoted replies + emoji reactions both ways, calls + recordings live; "Keep phone notifications" keeps the phone ringing (ChatBranch is online only while it sends); replies you type on the phone show up in the chat as your reply (the AI won't answer that message again); a message the customer deletes for everyone is erased here too — or kept, marked "Deleted by the customer", with the inbox's "Keep messages the customer deletes" (LINE, Messenger and Instagram unsends too) |
 | **Website widget** | Nothing — paste the snippet the inbox gives you | live |
+| **Marketplace buyer chat** (Shopee · Lazada · TikTok Shop · Shopify) | Run the `e-comerce-seller-mcp` service, sign in there and approve access for each shop; then point ChatBranch at it with `commerce_url` + `commerce_secret` (Settings, or `COMMERCE_URL` / `COMMERCE_SECRET`) | live, untested against the marketplaces: each shop becomes an inbox by itself, buyer chats arrive as ordinary conversations the AI answers, replies go out through the service. Shopify has no public buyer-chat API and says so. Products, stock, orders and sales are that service's own API and MCP server |
 | **Telegram** | A BotFather token, then "Register webhook" in the inbox (needs a public https URL — `PUBLIC_BASE_URL` or the one you type) | live: inbound text + media, replies and attachments via the Bot API, quoted replies + emoji reactions both ways, typing indicator |
 | **Email** | Per-mailbox SMTP credentials (+ an IMAP host, per mailbox or the default under Channels → Advanced) | live: SMTP send (text + escaped HTML alternative, threaded replies, mailboxes routed and failed over like WhatsApp numbers), two-way IMAP sync that never marks mail read (a UID cursor per folder, so mail already read in Outlook still arrives): the Inbox from every sender (a non-contact lands as an unlinked chat; HTML-only mail flattened to text), the Sent folder as outbound messages (what someone sent from Outlook shows in the chat; ChatBranch's own replies are recognised by Message-ID), and a copy of each ChatBranch reply filed in the mailbox's Sent folder |
 | **Messenger / Instagram** | A page token, the page / IG account id, the Meta app secret, and a public webhook (`/api/messaging/webhook`) | live: signed inbound (incl. attachments), Send API text + files (URL or upload) inside Meta's 24h / 7-day human-agent window, typing indicator, receipts |

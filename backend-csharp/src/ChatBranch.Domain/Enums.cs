@@ -35,6 +35,27 @@ public static class Channels
     public const string Douyin = "douyin";
     /// <summary>Zalo Official Account.</summary>
     public const string Zalo = "zalo";
+
+    // ---- marketplace seller channels (Channels/Commerce) --------------------
+    // Buyer chat on a marketplace, carried by the e-comerce-seller-mcp sidecar,
+    // which holds the marketplace grant. The shop is the ChannelAccount.
+
+    /// <summary>Shopee buyer chat (seller chat), through the seller service.</summary>
+    public const string Shopee = "shopee";
+    /// <summary>Lazada buyer chat (IM), through the seller service.</summary>
+    public const string Lazada = "lazada";
+    /// <summary>
+    /// TikTok Shop buyer chat (Seller Center), through the seller service — a
+    /// different platform from <see cref="TikTok"/>, which is TikTok Business
+    /// Messaging on a marketing account.
+    /// </summary>
+    public const string TikTokShop = "tiktok_shop";
+    /// <summary>
+    /// A Shopify store, through the seller service. It carries orders and
+    /// products; Shopify has no public buyer-chat API, so it never carries a
+    /// conversation.
+    /// </summary>
+    public const string Shopify = "shopify";
 }
 
 public static class Providers

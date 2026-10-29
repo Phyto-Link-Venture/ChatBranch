@@ -100,8 +100,9 @@ public class ApiSmokeTests : IClassFixture<ApiFactory>
 
 /// <summary>
 /// Boots Program with a throwaway SQLite file and data directory per test run,
-/// and a LiveKit client that is never configured — a developer's backend/.env
-/// must not let the suite place real calls. <c>TEST_DATABASE=postgres</c> runs
+/// and a LiveKit client and marketplace seller gateway that are never configured
+/// — a developer's backend/.env or a sidecar running on this machine must not let
+/// the suite place real calls or reach a real shop. <c>TEST_DATABASE=postgres</c> runs
 /// every host against its OWN throwaway Postgres database instead, on the server
 /// <c>TEST_POSTGRES</c> names (an Npgsql connection string whose user may create
 /// databases) — the CI job that proves the Postgres build.
@@ -138,9 +139,17 @@ public class ApiFactory : WebApplicationFactory<Program>
         Path.Combine(Path.GetTempPath(), $"chatbranch-test-data-{Environment.ProcessId}");
 
     protected override void ConfigureWebHost(IWebHostBuilder builder) =>
-        builder.ConfigureTestServices(services => services.AddSingleton(sp => new LiveKitClient(
-            sp.GetRequiredService<IHttpClientFactory>(),
-            () => new LiveKitSettings("", "", "", LiveKitSettings.DefaultAgentName, ""))));
+        builder.ConfigureTestServices(services =>
+        {
+            services.AddSingleton(sp => new LiveKitClient(
+                sp.GetRequiredService<IHttpClientFactory>(),
+                () => new LiveKitSettings("", "", "", LiveKitSettings.DefaultAgentName, "")));
+            // The marketplace seller service is never attached: a sidecar listening
+            // on this machine's default port must not be reachable from the suite.
+            // CommerceBridgeTests swaps in its own fake where it needs one.
+            services.AddSingleton<ChatBranch.Data.Sidecars.ICommerceGateway,
+                ChatBranch.Data.Sidecars.NullCommerceGateway>();
+        });
 
     protected override IHost CreateHost(IHostBuilder builder)
     {

@@ -491,7 +491,7 @@ conversation route.
 | `views_delete` | Delete a saved view | write · **destructive** | signed in |
 | `views_reorder` | Reorder saved views | write | signed in |
 
-#### channels (20)
+#### channels (23)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -515,6 +515,9 @@ conversation route.
 | `channels_delete_widget` | Delete a website chat widget | write · **destructive** | `channels.manage` |
 | `channels_get_unknown_customers` | Read an inbox's unknown-customer setting | read | `channels.view` |
 | `channels_set_unknown_customers` | Set an inbox's unknown-customer setting | write | `channels.manage` |
+| `commerce_get_status` | Marketplace bridge status | read | `channels.view` |
+| `commerce_sync_shops` | Sync marketplace shops | write | `channels.manage` |
+| `commerce_poll_chats` | Fetch marketplace chats now | write | `channels.manage` |
 
 #### integrations (11)
 
