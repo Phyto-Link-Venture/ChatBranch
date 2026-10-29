@@ -1,12 +1,12 @@
 using System.Text.Json;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
+using ChatBranch.Data.Audit;
 using ChatBranch.Data.Channels;
 using ChatBranch.Data.Sidecars;
 using ChatBranch.Data.Stores;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
-using ChannelIds = ChatBranch.Domain.Channels;
 
 namespace ChatBranch.Api.Endpoints;
 

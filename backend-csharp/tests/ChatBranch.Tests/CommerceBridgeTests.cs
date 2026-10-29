@@ -161,7 +161,8 @@ public class CommerceBridgeTests : IClassFixture<CommerceFactory>
         Assert.Equal(ChannelIds.TikTokShop, CommerceChannels.ChannelFor("tiktokshop"));
         Assert.Equal(ChannelIds.TikTokShop, CommerceChannels.ChannelFor("tiktok_shop"));
         Assert.Equal("tiktokshop", CommerceChannels.Marketplace(ChannelIds.TikTokShop));
-        Assert.Equal("tiktok_shop:2001", CommerceChannels.AccountKey(ChannelIds.TikTokShop, "2001"));
+        // the handle carries the MARKETPLACE id the sidecar knows, not the channel id
+        Assert.Equal("tiktokshop:2001", CommerceChannels.AccountKey(ChannelIds.TikTokShop, "2001"));
         // and it is NOT the existing TikTok Business Messaging channel
         Assert.NotEqual(ChannelIds.TikTok, ChannelIds.TikTokShop);
         Assert.Null(CommerceChannels.ChannelFor("whatsapp"));
@@ -308,8 +309,8 @@ public class CommerceBridgeTests : IClassFixture<CommerceFactory>
     public async Task An_inbound_buyer_message_heals_the_shop_and_keeps_its_name_current()
     {
         SetSecret(Secret);
-        await Push(BuyerMessage("tiktok_shop", "tiktok_shop:2001", "conv-tt", "Still available?", "tt-1"));
-        var account = InDb(db => db.ChannelAccounts.First(a => a.ExternalId == "tiktok_shop:2001"));
+        await Push(BuyerMessage("tiktokshop", "tiktokshop:2001", "conv-tt", "Still available?", "tt-1"));
+        var account = InDb(db => db.ChannelAccounts.First(a => a.ExternalId == "tiktokshop:2001"));
         InDb(db =>
         {
             var row = db.ChannelAccounts.First(a => a.Id == account.Id);
@@ -320,8 +321,8 @@ public class CommerceBridgeTests : IClassFixture<CommerceFactory>
 
         await Push(new
         {
-            channel = "tiktok_shop",
-            account = "tiktok_shop:2001",
+            channel = "tiktokshop",
+            account = "tiktokshop:2001",
             key = "conv-tt",
             message_id = "tt-2",
             from_me = false,
