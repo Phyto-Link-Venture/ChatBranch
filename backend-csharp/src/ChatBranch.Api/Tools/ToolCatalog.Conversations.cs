@@ -201,9 +201,9 @@ public static partial class ToolCatalog
             args: new[]
             {
                 A.Int("pk", "The message's pk.", req: true),
-                A.Str("to_channel", "The target conversation's channel (the same one).", req: true, @as: "toChannel"),
-                A.Str("to_key", "The target conversation's key.", req: true, @as: "toKey"),
-                A.Int("to_thread_id", "Its conversation id, when the customer talks to several companies.", @as: "toThreadId"),
+                A.Str("to_channel", "The target conversation's channel (the same one).", req: true),
+                A.Str("to_key", "The target conversation's key.", req: true),
+                A.Int("to_thread_id", "Its conversation id, when the customer talks to several companies."),
                 A.Bool("force", "Override the target's opt-out (a manual, audited exception)."),
             });
 
@@ -224,7 +224,7 @@ public static partial class ToolCatalog
                 A.Str("organization", "contact: a company name."),
                 A.Str("question", "poll: the question."),
                 A.StrList("options", "poll: 2–12 answers (duplicates are dropped)."),
-                A.Int("selectable_count", "poll: how many a customer may pick (default 1).", @as: "selectableCount"),
+                A.Int("selectable_count", "poll: how many a customer may pick (default 1)."),
                 A.Bool("force", "Override an opt-out (a manual, audited exception)."),
             });
 

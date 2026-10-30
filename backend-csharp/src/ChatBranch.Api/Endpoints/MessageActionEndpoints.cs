@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json.Serialization;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Audit;
@@ -36,13 +37,18 @@ public static class MessageActionEndpoints
 {
     public record EditRequest(string? Text);
 
-    public record ForwardRequest(string? ToChannel, string? ToKey, int? ToThreadId, bool Force = false);
+    public record ForwardRequest(
+        [property: JsonPropertyName("to_channel")] string? ToChannel,
+        [property: JsonPropertyName("to_key")] string? ToKey,
+        [property: JsonPropertyName("to_thread_id")] int? ToThreadId = null,
+        bool Force = false);
 
     public record CardRequest(
         string? Kind,
         double? Lat, double? Lng, string? Name, string? Address,
         List<string>? Phones, string? Organization,
-        string? Question, List<string>? Options, int? SelectableCount,
+        string? Question, List<string>? Options,
+        [property: JsonPropertyName("selectable_count")] int? SelectableCount = null,
         bool Force = false);
 
     public static void MapMessageActionEndpoints(this IEndpointRouteBuilder app)

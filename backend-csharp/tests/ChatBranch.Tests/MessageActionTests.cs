@@ -540,6 +540,43 @@ public class MessageActionTests : IDisposable
         Assert.Empty(_gw.Forwards);
     }
 
+    // ---- the shape the routes actually read ----------------------------------
+
+    /// <summary>
+    /// The API serializes with <c>JsonSerializerDefaults.Web</c> (camelCase), so a
+    /// multi-word body field only binds when the record spells its snake_case name
+    /// out. Everything that calls these routes — the dashboard, the MCP tools and the
+    /// REST shape in docs/API_CONVENTIONS.md — sends snake_case, and without the
+    /// attributes a forward reads as "to_channel is required" and a multi-pick poll
+    /// silently becomes single-pick. This pins the contract.
+    /// </summary>
+    [Fact]
+    public void The_routes_read_the_snake_case_names_their_callers_send()
+    {
+        var web = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+
+        var forward = System.Text.Json.JsonSerializer.Deserialize<ChatBranch.Api.Endpoints.MessageActionEndpoints.ForwardRequest>(
+            """{"to_channel":"whatsapp","to_key":"60123456789","to_thread_id":7,"force":true}""", web);
+        Assert.NotNull(forward);
+        Assert.Equal("whatsapp", forward!.ToChannel);
+        Assert.Equal("60123456789", forward.ToKey);
+        Assert.Equal(7, forward.ToThreadId);
+        Assert.True(forward.Force);
+
+        var poll = System.Text.Json.JsonSerializer.Deserialize<ChatBranch.Api.Endpoints.MessageActionEndpoints.CardRequest>(
+            """{"kind":"poll","question":"Which slot?","options":["9am","2pm"],"selectable_count":2}""", web);
+        Assert.NotNull(poll);
+        Assert.Equal("poll", poll!.Kind);
+        Assert.Equal(2, poll.Options!.Count);
+        Assert.Equal(2, poll.SelectableCount);
+
+        var location = System.Text.Json.JsonSerializer.Deserialize<ChatBranch.Api.Endpoints.MessageActionEndpoints.CardRequest>(
+            """{"kind":"location","lat":3.1578,"lng":101.7117,"name":"KLCC","address":"KL"}""", web);
+        Assert.Equal(3.1578, location!.Lat);
+        Assert.Equal(101.7117, location.Lng);
+        Assert.Equal("KLCC", location.Name);
+    }
+
     // ---- the operator's voice note -------------------------------------------
 
     [Fact]
