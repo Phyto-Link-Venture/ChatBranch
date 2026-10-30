@@ -297,6 +297,8 @@ app.MapCommerceEndpoints();
 app.MapWhatsAppBspWebhookEndpoints();
 app.MapMessagingTransportEndpoints();
 app.MapMessageReactionEndpoints();
+// Delete for everyone + edit, on a message already sent (QR numbers).
+app.MapMessageActionEndpoints();
 app.MapMetaWebhookEndpoints();
 app.MapWhatsAppMediaEndpoints();
 // the Test lab: scripted end-to-end scenarios + a fenced demo dataset (superadmin; TEST_LAB=0 = not mapped)

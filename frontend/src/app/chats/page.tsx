@@ -53,6 +53,7 @@ import {
   type CallRec,
   type SipCall,
 } from '@/components/chats/MessageParts'
+import { VoiceRecorder } from '@/components/chats/VoiceRecorder'
 import {
   CHANNELS,
   CHANNEL_META,
@@ -120,6 +121,20 @@ import './chats.css'
 
 /** First page of the list; "Load more" pages by the same step. */
 const PAGE = 50
+
+/**
+ * WhatsApp's own limits on a message already sent: a person may edit for about
+ * 15 minutes and delete for everyone for about two days. Checked here only to
+ * decide whether to OFFER the action — the server checks again, and WhatsApp has
+ * the last word.
+ */
+const EDIT_WINDOW_MS = 15 * 60 * 1000
+const RECALL_WINDOW_MS = 2 * 24 * 60 * 60 * 1000
+
+const within = (ts: string, ms: number) => {
+  const sent = Date.parse(ts)
+  return Number.isFinite(sent) && Date.now() - sent < ms
+}
 
 /** Channels whose thread has a send-media route (the composer's paperclip). */
 const MEDIA_CHANNELS: Channel[] = ['whatsapp', 'facebook', 'instagram', 'telegram', 'email', 'wechat', 'zalo']
@@ -986,6 +1001,25 @@ function ChatsPage() {
   const appendToActive = (m: UiMessage) =>
     setActive((prev) => (prev && !prev.messages.some((x) => x.id === m.id) ? { ...prev, messages: [...prev.messages, m] } : prev))
 
+  /**
+   * A voice note the operator just recorded. Its own route, because WhatsApp's
+   * voice note is Ogg/Opus and a browser records webm or mp4 — the server
+   * re-containers it, and refuses with a reason if it cannot (rather than
+   * sending something that is an audio file and not a voice note).
+   */
+  const sendVoiceNote = (file: File) =>
+    run(async () => {
+      if (!active) return
+      const form = new FormData()
+      form.append('file', file)
+      if (active.opted_out === true) {
+        if (!window.confirm(t('chats.page.confirmOptedOut'))) return
+        form.append('force', '1')
+      }
+      const r = await apiUpload<{ message: UiMessage }>(threadApi(active, '/send-voice'), form)
+      appendToActive(r.message)
+    })
+
   const sendMessage = () =>
     run(async () => {
       if (!active) return
@@ -1057,6 +1091,29 @@ function ChatsPage() {
       await api(withThreadId(`messaging/threads/${active.channel}/${encodeURIComponent(active.key)}/messages/${m.pk}/react`, active.thread_id), {
         method: 'POST',
         body: JSON.stringify({ emoji }),
+      })
+    })
+
+  /**
+   * Edit / delete a message we already sent. Both live on the messaging path for
+   * every channel (like reactions), and both re-read the conversation after, so
+   * the bubble shows what the customer now sees.
+   */
+  const editMessage = (m: UiMessage, text: string) =>
+    run(async () => {
+      if (!active || m.pk == null) return
+      await api(withThreadId(`messaging/threads/${active.channel}/${encodeURIComponent(active.key)}/messages/${m.pk}/edit`, active.thread_id), {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      })
+    })
+
+  const deleteMessage = (m: UiMessage) =>
+    run(async () => {
+      if (!active || m.pk == null) return
+      await api(withThreadId(`messaging/threads/${active.channel}/${encodeURIComponent(active.key)}/messages/${m.pk}/recall`, active.thread_id), {
+        method: 'POST',
+        body: JSON.stringify({}),
       })
     })
 
@@ -1323,6 +1380,8 @@ function ChatsPage() {
     !!active && WINDOWED_CHANNELS.includes(active.channel) && !activeSandbox && active.window_open === false
   const composerLocked = windowClosed || socialClosed || platformClosed
   const canAttach = !!active && MEDIA_CHANNELS.includes(active.channel)
+  // the voice-note route is WhatsApp's own (whatsapp/threads/{key}/send-voice)
+  const canRecordVoice = active?.channel === 'whatsapp'
 
   const activeFilterCount = countActive(chips)
   const unfiltered = activeFilterCount === 0 && !q.trim()
@@ -2189,6 +2248,20 @@ function ChatsPage() {
                               meName={meName}
                               canReply={!combinedOn && !m.recalled && access.can('chats.send') && REACTION_CHANNELS.includes(active.channel)}
                               canReact={!combinedOn && !m.recalled && access.can('chats.send') && REACTION_CHANNELS.includes(active.channel)}
+                              // WhatsApp's edit and delete-for-everyone exist only on a
+                              // QR-paired number: Meta's API publishes neither
+                              canEdit={
+                                !combinedOn && !m.recalled && m.dir === 'out' && !m.media && !!m.text
+                                && active.provider === 'baileys' && access.can('chats.send')
+                                && within(m.ts, EDIT_WINDOW_MS)
+                              }
+                              canDelete={
+                                !combinedOn && !m.recalled && m.dir === 'out'
+                                && active.provider === 'baileys' && access.can('chats.send')
+                                && within(m.ts, RECALL_WINDOW_MS)
+                              }
+                              onEdit={editMessage}
+                              onDelete={deleteMessage}
                               onReply={(msg) => {
                                 setComposerMode('reply')
                                 setReplyTo(msg)
@@ -2399,6 +2472,13 @@ function ChatsPage() {
                       >
                         <LayoutTemplate size={15} aria-hidden />
                       </button>
+                    )}
+                    {canRecordVoice && !noteMode && (
+                      <VoiceRecorder
+                        disabled={busy || composerLocked}
+                        onError={setError}
+                        onRecorded={sendVoiceNote}
+                      />
                     )}
                     {canAttach && !noteMode && (
                       <>

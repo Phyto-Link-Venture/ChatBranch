@@ -78,4 +78,30 @@ export const bubble = {
       objects: 'Objects',
     },
   },
+  /** What an operator can do to a message already sent (QR-paired WhatsApp numbers). */
+  sent: {
+    delete: 'Delete for everyone',
+    deleteConfirm:
+      'Delete this message for everyone? It disappears from the customer\u2019s phone too, and this can\u2019t be undone.',
+    deleting: 'Deleting\u2026',
+    edit: 'Edit',
+    editAria: 'Edit this message',
+    editSave: 'Save',
+    editCancel: 'Cancel',
+    editHint: 'WhatsApp allows an edit for about 15 minutes after sending.',
+    edited: 'edited',
+    editedAt: 'Edited {time}',
+  },
+  /** The composer's voice recorder. */
+  voice: {
+    record: 'Record a voice note',
+    recording: 'Recording',
+    stop: 'Stop and send',
+    cancel: 'Discard the recording',
+    sending: 'Sending the voice note\u2026',
+    denied: 'ChatBranch needs permission to use your microphone. Allow it in your browser, then try again.',
+    unsupported: 'This browser can\u2019t record audio. Try Chrome, Edge or Firefox.',
+    maxLength: 'A voice note can be at most 5 minutes \u2014 sending what was recorded.',
+    failed: 'The recording could not be sent.',
+  },
 } as const

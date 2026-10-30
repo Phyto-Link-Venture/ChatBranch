@@ -5,10 +5,16 @@
  * with the quick reactions + "more", Reply and Copy text; reaction chips sit
  * under the bubble. Wraps the bubble the page renders; carries the
  * `msg-<pk>` anchor a quote's "jump to original" scrolls to.
+ *
+ * On a message the SHOP sent, over a channel that allows it, the bar also
+ * carries Edit and "Delete for everyone" — WhatsApp's own two, and the page
+ * decides whether they apply (direction, channel, and WhatsApp's time
+ * windows). Editing happens inline, in place of the bubble, so the operator
+ * sees the wording they are changing rather than a dialog over it.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Check, Copy, Reply } from 'lucide-react'
-import { useT } from '@/i18n'
+import { Check, Copy, Pencil, Reply, Trash2 } from 'lucide-react'
+import { useFormat, useT } from '@/i18n'
 import { EmojiPicker } from './EmojiPicker'
 import { QuickReactions, ReactionChips, myReaction } from './ReactionBar'
 import type { UiMessage } from './inboxTypes'
@@ -22,8 +28,12 @@ export default function MessageActions({
   meName,
   canReply,
   canReact,
+  canEdit = false,
+  canDelete = false,
   onReply,
   onReact,
+  onEdit,
+  onDelete,
   children,
 }: {
   m: UiMessage
@@ -31,14 +41,24 @@ export default function MessageActions({
   meName: string | null
   canReply: boolean
   canReact: boolean
+  /** Our own text message, on a channel that can edit, inside WhatsApp's window. */
+  canEdit?: boolean
+  /** Our own message, on a channel that can delete for everyone, inside its window. */
+  canDelete?: boolean
   onReply: (m: UiMessage) => void
   onReact: (m: UiMessage, emoji: string) => void
+  onEdit?: (m: UiMessage, text: string) => Promise<void>
+  onDelete?: (m: UiMessage) => Promise<void>
   children: ReactNode
 }) {
   const t = useT()
+  const f = useFormat()
   const [open, setOpen] = useState(false) // long-press / keyboard-opened bar
   const [picker, setPicker] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editText, setEditText] = useState('')
+  const [working, setWorking] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const pressTimer = useRef<number | null>(null)
   const align = m.dir === 'out' ? 'end' : 'start'
@@ -83,7 +103,37 @@ export default function MessageActions({
     }
   }
 
-  const anyAction = reactable || replyable || copyable
+  const editable = canEdit && hasPk && !m.private && !!onEdit
+  const deletable = canDelete && hasPk && !m.private && !!onDelete
+  const anyAction = reactable || replyable || copyable || editable || deletable
+
+  const saveEdit = async () => {
+    const next = editText.trim()
+    if (!onEdit || next.length === 0 || next === m.text.trim()) {
+      setEditing(false)
+      return
+    }
+    setWorking(true)
+    try {
+      await onEdit(m, next)
+      setEditing(false)
+    } finally {
+      // the page reports why; the editor stays open so the wording is not lost
+      setWorking(false)
+    }
+  }
+
+  const remove = async () => {
+    if (!onDelete) return
+    setOpen(false)
+    if (!window.confirm(t('bubble.sent.deleteConfirm'))) return
+    setWorking(true)
+    try {
+      await onDelete(m)
+    } finally {
+      setWorking(false)
+    }
+  }
 
   return (
     <div
@@ -106,8 +156,48 @@ export default function MessageActions({
       }}
     >
       <div className={`relative flex w-full ${align === 'end' ? 'justify-end' : 'justify-start'}`}>
-        {children}
-        {anyAction && (
+        {editing ? (
+          <div className="w-full max-w-[85%] rounded-xl border border-line-strong bg-card p-2">
+            <textarea
+              autoFocus
+              rows={2}
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  void saveEdit()
+                }
+                if (e.key === 'Escape') setEditing(false)
+              }}
+              aria-label={t('bubble.sent.editAria')}
+              className="w-full resize-none bg-transparent text-[13px] text-text-primary outline-none"
+            />
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <span className="text-[10.5px] text-text-faint">{t('bubble.sent.editHint')}</span>
+              <span className="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setEditing(false)}
+                  className="rounded-md px-2 py-1 text-[11.5px] font-semibold text-text-mid transition-colors hover:bg-fill-hover"
+                >
+                  {t('bubble.sent.editCancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveEdit()}
+                  disabled={working || editText.trim().length === 0}
+                  className="rounded-md bg-primary px-2 py-1 text-[11.5px] font-semibold text-on-primary transition-opacity hover:opacity-90 disabled:opacity-40"
+                >
+                  {t('bubble.sent.editSave')}
+                </button>
+              </span>
+            </div>
+          </div>
+        ) : (
+          children
+        )}
+        {anyAction && !editing && (
           <div
             role="toolbar"
             aria-label={t('bubble.actions.aria')}
@@ -140,6 +230,33 @@ export default function MessageActions({
                 {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
               </button>
             )}
+            {editable && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  setEditText(m.text)
+                  setEditing(true)
+                }}
+                title={t('bubble.sent.edit')}
+                aria-label={t('bubble.sent.edit')}
+                className="grid h-8 w-8 place-items-center rounded-full text-text-mid transition-colors hover:bg-fill-hover hover:text-text-high"
+              >
+                <Pencil size={14} aria-hidden />
+              </button>
+            )}
+            {deletable && (
+              <button
+                type="button"
+                onClick={() => void remove()}
+                disabled={working}
+                title={working ? t('bubble.sent.deleting') : t('bubble.sent.delete')}
+                aria-label={t('bubble.sent.delete')}
+                className="grid h-8 w-8 place-items-center rounded-full text-text-mid transition-colors hover:bg-fill-hover hover:text-red-300 disabled:opacity-40"
+              >
+                <Trash2 size={14} aria-hidden />
+              </button>
+            )}
             {picker && (
               <EmojiPicker
                 align={align === 'end' ? 'right' : 'left'}
@@ -151,6 +268,14 @@ export default function MessageActions({
           </div>
         )}
       </div>
+      {m.edited_at && !editing && (
+        <span
+          className="mt-0.5 px-1 text-[10px] italic text-text-faint"
+          title={t('bubble.sent.editedAt', { time: f.time(m.edited_at) })}
+        >
+          {t('bubble.sent.edited')}
+        </span>
+      )}
       {m.reactions && m.reactions.length > 0 && (
         <ReactionChips
           reactions={m.reactions}

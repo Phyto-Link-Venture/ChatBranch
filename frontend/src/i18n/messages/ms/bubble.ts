@@ -77,4 +77,28 @@ export const bubble: Dict<typeof source> = {
       objects: 'Objek',
     },
   },
+  sent: {
+    delete: 'Padam untuk semua',
+    deleteConfirm:
+      'Padam mesej ini untuk semua? Ia juga hilang daripada telefon pelanggan, dan ini tidak boleh dibatalkan.',
+    deleting: 'Memadam\u2026',
+    edit: 'Sunting',
+    editAria: 'Sunting mesej ini',
+    editSave: 'Simpan',
+    editCancel: 'Batal',
+    editHint: 'WhatsApp membenarkan suntingan selama kira-kira 15 minit selepas dihantar.',
+    edited: 'disunting',
+    editedAt: 'Disunting {time}',
+  },
+  voice: {
+    record: 'Rakam nota suara',
+    recording: 'Merakam',
+    stop: 'Henti dan hantar',
+    cancel: 'Buang rakaman',
+    sending: 'Menghantar nota suara\u2026',
+    denied: 'ChatBranch perlukan kebenaran untuk guna mikrofon anda. Benarkan dalam pelayar, kemudian cuba lagi.',
+    unsupported: 'Pelayar ini tidak boleh merakam audio. Cuba Chrome, Edge atau Firefox.',
+    maxLength: 'Nota suara paling lama 5 minit \u2014 menghantar apa yang dirakam.',
+    failed: 'Rakaman tidak dapat dihantar.',
+  },
 }

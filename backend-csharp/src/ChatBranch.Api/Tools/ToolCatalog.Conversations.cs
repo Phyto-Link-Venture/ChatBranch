@@ -173,6 +173,25 @@ public static partial class ToolCatalog
                 A.Bool("force", "Override an opt-out (a manual, audited exception)."),
             }, idempotent: true);
 
+        yield return T(g, "conversations_recall_message", "Delete a sent message for everyone",
+            "WhatsApp's \"delete for everyone\" on a message the shop SENT (pk from " +
+            "conversations_list_messages): it disappears from the customer's phone too. QR-paired numbers only — " +
+            "Meta's Cloud API has no delete and says so — and only within about two days of sending. What is left " +
+            "here follows the inbox's \"keep messages the customer deletes\" switch. This cannot be undone.",
+            "POST", "/api/messaging/threads/{channel}/{key}/messages/{pk:int}/recall", send, thread: true,
+            args: new[] { A.Int("pk", "The message's pk.", req: true) }, destructive: true);
+
+        yield return T(g, "conversations_edit_message", "Edit a sent message",
+            "Change the wording of a TEXT message the shop sent (pk from conversations_list_messages). The customer " +
+            "sees the new wording marked as edited; the old one stays in the activity log. QR-paired numbers only, " +
+            "and only within about 15 minutes of sending — past that, send a correction or delete it for everyone.",
+            "POST", "/api/messaging/threads/{channel}/{key}/messages/{pk:int}/edit", send, thread: true,
+            args: new[]
+            {
+                A.Int("pk", "The message's pk.", req: true),
+                A.Str("text", "The corrected wording (the whole message, not a patch).", req: true),
+            });
+
         yield return T(g, "conversations_link_contact", "Link a conversation to a contact",
             "Attach the conversation to a contact (contact_id), or unlink it (contact_id null). Linking moves the " +
             "chat to the contact's entity and closes an unknown-customer handover.",

@@ -60,18 +60,42 @@ public static class AudioTranscoder
     /// or null when ffmpeg is missing or failed. One conversion per file at a time;
     /// written to a temp name and moved, so a reader never sees half a file.
     /// </summary>
-    public static async Task<string?> ToM4aAsync(string source, CancellationToken ct = default)
+    public static Task<string?> ToM4aAsync(string source, CancellationToken ct = default) =>
+        ConvertAsync(source, ".m4a",
+            new[] { "-vn", "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart", "-f", "mp4" }, ct);
+
+    /// <summary>
+    /// Ogg/Opus, mono, 48 kHz — what WhatsApp and Telegram want for a VOICE NOTE
+    /// (a push-to-talk bubble with a waveform, not an audio file). Browsers record
+    /// webm/opus or mp4/aac depending on the browser, so an operator's recording
+    /// has to be re-containered before it can go out as a voice note. Returns null
+    /// when there is no ffmpeg — the caller then sends it as a plain audio file
+    /// rather than failing.
+    /// </summary>
+    public static Task<string?> ToOggOpusAsync(string source, CancellationToken ct = default) =>
+        ConvertAsync(source, ".ogg",
+            // 32 kbit mono is voice-note quality and keeps a long note small
+            new[] { "-vn", "-c:a", "libopus", "-b:a", "32k", "-ar", "48000", "-ac", "1", "-f", "ogg" }, ct);
+
+    /// <summary>
+    /// One ffmpeg run, cached next to the source (<c>{source}{suffix}</c>) and
+    /// serialised per target so two requests cannot encode the same file twice.
+    /// Never throws: a missing ffmpeg, a refused codec or a timeout is null, and
+    /// the caller decides what to do without it.
+    /// </summary>
+    private static async Task<string?> ConvertAsync(string source, string suffix, string[] encodeArgs,
+        CancellationToken ct = default)
     {
         var ffmpeg = FfmpegPath();
         if (ffmpeg == null || !File.Exists(source)) return null;
-        var target = source + ".m4a";
+        var target = source + suffix;
         if (Fresh(source, target)) return target;
         var gate = Locks.GetOrAdd(target, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct);
         try
         {
             if (Fresh(source, target)) return target;
-            var tmp = $"{target}.{Guid.NewGuid():N}.tmp.m4a";
+            var tmp = $"{target}.{Guid.NewGuid():N}.tmp{suffix}";
             var psi = new ProcessStartInfo(ffmpeg)
             {
                 RedirectStandardError = true,
@@ -79,8 +103,8 @@ public static class AudioTranscoder
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
-            foreach (var a in new[] { "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", source,
-                         "-vn", "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart", "-f", "mp4", tmp })
+            foreach (var a in new[] { "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", source }
+                         .Concat(encodeArgs).Append(tmp))
                 psi.ArgumentList.Add(a);
             try
             {

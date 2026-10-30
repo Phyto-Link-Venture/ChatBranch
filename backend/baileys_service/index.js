@@ -37,7 +37,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import pino from 'pino'
 import { buildMediaMessage, MediaRequestError, MAX_SEND_MEDIA_BODY, readJsonBodyCapped } from './media.js'
-import { buildQuoted, buildReact, KeyStore, mediaKind, messageSeconds, parseInbound, phoneSent, postWithRetry, recallOf, setNormalizer, unwrap } from './messages.js'
+import { buildContact, buildDelete, buildEdit, buildLocation, buildPoll, buildQuoted, buildReact, KeyStore, mediaKind, messageSeconds, parseInbound, phoneSent, postWithRetry, recallOf, setNormalizer, unwrap } from './messages.js'
 import { createPresence, DEFAULT_IDLE_MS } from './presence.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -620,6 +620,45 @@ async function sendReaction(id, to, msgId, fromMe, emoji, rawJid = null) {
   return result?.key?.id || ''
 }
 
+/**
+ * "Delete for everyone" on a message WE sent. WhatsApp keeps its own window
+ * (about two days) and refuses past it — that refusal is returned as a failure
+ * rather than smoothed over, because the message is still on the customer's
+ * phone and the operator needs to know.
+ */
+async function revokeMessage(id, to, msgId, fromMe, rawJid = null) {
+  const { a, d, jid } = await resolveTarget(id, to, rawJid)
+  await a.presence?.active()
+  const result = await a.sock.sendMessage(jid, buildDelete({ jid, id: msgId, fromMe }))
+  if (result) ownSends.remember(result)
+  logEvent('revoke', { acct: id, to: d, jid, target: msgId })
+  return result?.key?.id || ''
+}
+
+/**
+ * Edit a TEXT message we sent. WhatsApp allows it for about 15 minutes; the
+ * edit arrives as its own message, so the id returned is the EDIT's — the
+ * original keeps its own id, which is what the backend's row is keyed on.
+ */
+async function editMessage(id, to, msgId, fromMe, text, rawJid = null) {
+  const { a, d, jid } = await resolveTarget(id, to, rawJid)
+  await a.presence?.active()
+  const result = await a.sock.sendMessage(jid, buildEdit({ jid, id: msgId, fromMe, text }))
+  if (result) ownSends.remember(result)
+  logEvent('edit', { acct: id, to: d, jid, target: msgId })
+  return result?.key?.id || ''
+}
+
+/** A pinned location, a contact card or a poll — one builder each, one send. */
+async function sendBuilt(id, to, content, what, rawJid = null) {
+  const { a, d, jid } = await resolveTarget(id, to, rawJid)
+  await humanPause(a, jid)
+  const result = await a.sock.sendMessage(jid, content)
+  if (result) ownSends.remember(result)
+  logEvent(what, { acct: id, to: d, jid, id: result?.key?.id || '' })
+  return result?.key?.id || ''
+}
+
 /** An image / video / audio / document already validated by media.js
  *  buildMediaMessage — Baileys encrypts and uploads it to WhatsApp's CDN. */
 async function sendMedia(id, to, built, rawJid = null) {
@@ -720,7 +759,7 @@ const readBody = (req) =>
 http
   .createServer(async (req, res) => {
     if (req.headers['x-baileys-secret'] !== SECRET) return json(res, 403, { detail: 'bad secret' })
-    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|send-media|react|presence|logout|check|call|call-end|call-status|settings)$/)
+    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|send-media|react|revoke|edit|send-location|send-contact|send-poll|presence|logout|check|call|call-end|call-status|settings)$/)
     if (!m) return json(res, 404, { detail: 'not found' })
     const [, id, action] = m
     try {
@@ -765,6 +804,34 @@ http
         if (!to || !msg_id) return json(res, 400, { detail: 'to and msg_id are required' })
         if (emoji != null && typeof emoji !== 'string') return json(res, 400, { detail: 'emoji must be a string' })
         return json(res, 200, { id: await sendReaction(id, to, msg_id, !!from_me, emoji || '', raw_jid || null) })
+      }
+      if (action === 'revoke') {
+        const { to, msg_id, from_me, raw_jid } = await readBody(req)
+        if (!to || !msg_id) return json(res, 400, { detail: 'to and msg_id are required' })
+        return json(res, 200, { id: await revokeMessage(id, to, msg_id, from_me !== false, raw_jid || null) })
+      }
+      if (action === 'edit') {
+        const { to, msg_id, from_me, text, raw_jid } = await readBody(req)
+        if (!to || !msg_id) return json(res, 400, { detail: 'to and msg_id are required' })
+        if (typeof text !== 'string' || text.trim() === '') return json(res, 400, { detail: 'text is required' })
+        return json(res, 200, { id: await editMessage(id, to, msg_id, from_me !== false, text, raw_jid || null) })
+      }
+      if (action === 'send-location' || action === 'send-contact' || action === 'send-poll') {
+        const body = await readBody(req)
+        if (!body.to) return json(res, 400, { detail: 'to is required' })
+        let content
+        try {
+          content = action === 'send-location'
+            ? buildLocation(body)
+            : action === 'send-contact'
+              ? buildContact(body)
+              : buildPoll(body)
+        } catch (e) {
+          // the builders refuse bad input by throwing — that is the operator's mistake
+          return json(res, 400, { detail: e.message })
+        }
+        const what = action.replace('send-', '')
+        return json(res, 200, { id: await sendBuilt(id, body.to, content, what, body.raw_jid || null) })
       }
       if (action === 'send-media') {
         // capped read: a file rides in this body (base64, ≤16 MB) — never a path or URL

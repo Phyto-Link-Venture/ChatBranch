@@ -142,6 +142,9 @@ export interface UiMessage {
   /** Taken back on the channel ("delete for everyone"): kept = still readable here (the
    *  inbox keeps deleted messages), else its words and file were erased. */
   recalled?: UiRecall | null
+  /** When WE edited this message on the channel (WhatsApp's ~15-minute edit).
+   *  `text` is already the NEW wording — the old one lives in the activity log. */
+  edited_at?: string | null
   /** An inbound / imported email shown as a mail card (the HTML is fetched by the card). */
   email?: UiEmail | null
   /** One of an email's extra attachments: the pk of the mail whose card shows it. */

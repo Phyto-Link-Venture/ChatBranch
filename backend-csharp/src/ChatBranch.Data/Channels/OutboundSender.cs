@@ -37,6 +37,15 @@ namespace ChatBranch.Data.Channels;
 /// </summary>
 public sealed record ReactionSend(bool Ok, bool Live, string Detail, bool Conflict = false);
 
+/// <summary>
+/// One provider action on a message already sent (delete for everyone, edit).
+/// <see cref="Live"/> false = the conversation has no live number, so the
+/// message never left this inbox and only the stored row changes.
+/// <see cref="Conflict"/> = the caller asked for something this channel or this
+/// moment cannot do (a 409), not a provider outage.
+/// </summary>
+public sealed record MessageActionSend(bool Ok, bool Live, string Detail, bool Conflict = false);
+
 public class OutboundSender
 {
     private readonly AppDbContext _db;
@@ -224,6 +233,86 @@ public class OutboundSender
         else MetaErrors.ApplyToAccount(_db, account!, outcome.ErrorCode, outcome.ErrorSubcode, outcome.Detail);
         return new ReactionSend(outcome.Ok, true, outcome.Ok ? "sent" : outcome.Detail,
             Conflict: outcome.ErrorCode == MetaErrors.WindowClosed);
+    }
+
+    /// <summary>
+    /// WhatsApp's "delete for everyone" on a message WE sent. QR (Baileys)
+    /// numbers only: Meta's Cloud API — and every other channel here — exposes no
+    /// delete at all, so this refuses rather than pretending, and the message
+    /// stays on the customer's phone.
+    /// </summary>
+    public MessageActionSend Revoke(Thread thread, Message target)
+    {
+        if (target.Direction != MessageDirection.Out)
+            return new MessageActionSend(false, false,
+                "Only a message you sent can be deleted for everyone.", Conflict: true);
+        if (target.Private || target.Source == MessageSource.System)
+            return new MessageActionSend(false, false,
+                "Notes and system messages only exist in this inbox — there is nothing to delete on WhatsApp.",
+                Conflict: true);
+
+        var account = Account(thread.AccountId) ?? Account(target.AccountId);
+        if (!BaileysLive(thread, account))
+        {
+            // a Cloud / BSP number, another channel, or nothing live at all
+            if (CloudLive(thread, account))
+                return new MessageActionSend(false, true,
+                    $"{WhatsAppProviders.Label(account!.Provider)} cannot delete a sent message — Meta's API has no "
+                    + "endpoint for it. Only a QR-paired number can.", Conflict: true);
+            if (account != null && account.Channel != ChatBranch.Domain.Channels.WhatsApp)
+                return new MessageActionSend(false, true,
+                    $"Deleting a sent message isn't supported on {account.Channel}.", Conflict: true);
+            // sandbox: it never left, so removing it here is the whole truth
+            return new MessageActionSend(true, false, "sandbox");
+        }
+        if (target.ExternalId.Length == 0 || target.ExternalId.StartsWith("db-", StringComparison.Ordinal))
+            return new MessageActionSend(false, true,
+                "That message has no WhatsApp id (it never left this inbox), so there is nothing to delete.",
+                Conflict: true);
+
+        var r = _baileys.RevokeMessageAsync(account!.ExternalId, thread.Key,
+            new ChatBranch.Data.Sidecars.BaileysQuote(target.ExternalId, true)).GetAwaiter().GetResult();
+        return new MessageActionSend(r.Ok, true, r.Ok ? "deleted" : r.Detail);
+    }
+
+    /// <summary>
+    /// Edit the text of a message WE sent. QR (Baileys) numbers only, and only
+    /// text — WhatsApp has no edit for media captions through this path, and no
+    /// other channel here offers an edit at all.
+    /// </summary>
+    public MessageActionSend Edit(Thread thread, Message target, string text)
+    {
+        if (target.Direction != MessageDirection.Out)
+            return new MessageActionSend(false, false, "Only a message you sent can be edited.", Conflict: true);
+        if (target.Private || target.Source == MessageSource.System)
+            return new MessageActionSend(false, false,
+                "Notes and system messages aren't on WhatsApp, so there is nothing to edit.", Conflict: true);
+        if (target.MediaPath.Length > 0)
+            return new MessageActionSend(false, false,
+                "WhatsApp can't edit a message that carries a file — delete it and send a new one.", Conflict: true);
+        if (target.RecalledAt != null)
+            return new MessageActionSend(false, false, "That message was already deleted.", Conflict: true);
+
+        var account = Account(thread.AccountId) ?? Account(target.AccountId);
+        if (!BaileysLive(thread, account))
+        {
+            if (CloudLive(thread, account))
+                return new MessageActionSend(false, true,
+                    $"{WhatsAppProviders.Label(account!.Provider)} cannot edit a sent message — Meta's API has no "
+                    + "endpoint for it. Only a QR-paired number can.", Conflict: true);
+            if (account != null && account.Channel != ChatBranch.Domain.Channels.WhatsApp)
+                return new MessageActionSend(false, true,
+                    $"Editing a sent message isn't supported on {account.Channel}.", Conflict: true);
+            return new MessageActionSend(true, false, "sandbox");
+        }
+        if (target.ExternalId.Length == 0 || target.ExternalId.StartsWith("db-", StringComparison.Ordinal))
+            return new MessageActionSend(false, true,
+                "That message has no WhatsApp id (it never left this inbox), so there is nothing to edit.",
+                Conflict: true);
+
+        var r = _baileys.EditMessageAsync(account!.ExternalId, thread.Key,
+            new ChatBranch.Data.Sidecars.BaileysQuote(target.ExternalId, true), text).GetAwaiter().GetResult();
+        return new MessageActionSend(r.Ok, true, r.Ok ? "edited" : r.Detail);
     }
 
     /// <summary>

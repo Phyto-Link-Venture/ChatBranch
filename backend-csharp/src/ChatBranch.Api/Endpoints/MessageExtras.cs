@@ -19,6 +19,9 @@ namespace ChatBranch.Api.Endpoints;
 ///     taken back on the channel ("delete for everyone" — <c>Channels/MessageRecalls.cs</c>);
 ///     kept = its words are still here, else they were erased. A quote of it carries
 ///     <c>recalled: true</c>;
+///   * <c>edited_at</c> — when the shop edited this message on the channel
+///     (WhatsApp's ~15-minute edit; <c>Channels/MessageEdits.cs</c>). The text is
+///     already the NEW wording — the old one lives in the activity log;
 ///   * <c>email</c> — an inbound / imported mail's card: <c>{subject, from, to, cc, has_html}</c>
 ///     (the HTML itself: <c>GET /api/messaging/messages/{id}/email</c>); and on each of its
 ///     extra attachments (their own messages) <c>email_part_of</c> = the mail's pk, so the
@@ -73,6 +76,10 @@ public static class MessageExtras
                         ["by"] = m.RecalledBy.Length > 0 ? m.RecalledBy : MessageRecalls.ByCustomer,
                         ["kept"] = m.Text.Length > 0 || m.MediaPath.Length > 0,
                     };
+                // an edit the shop made: the text above is already the new wording,
+                // so the bubble only needs to say that it changed (Channels/MessageEdits.cs)
+                if (m.EditedAt is DateTime editedAt)
+                    p["edited_at"] = DateTime.SpecifyKind(editedAt, DateTimeKind.Utc).ToString("o");
                 if (mails.TryGetValue(m.Id, out var mail))
                     p["email"] = new Dictionary<string, object?>
                     {

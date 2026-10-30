@@ -86,6 +86,9 @@ not coming back as buyer messages, Shopify's refusal, health verdicts).
 | Typing / read | ✅ Graph `typing_indicator` | ✅ gateway presence | — | ✅ `sendChatAction` (typing) | ✅ `mark_seen` + `typing_on` (24h window only) | — |
 | Quoted replies | ✅ in `context.id` · out `context.message_id` | ✅ in `contextInfo.stanzaId` · out gateway `quoted_id` | — | ✅ in `reply_to_message` · out `reply_parameters` | in only (`reply_to.mid`); our replies go unquoted | — |
 | Reactions | ✅ in `type: reaction` · out `type: reaction` (24h window, else 409) | ✅ in `reactionMessage` · out gateway `react` | — | ✅ in `message_reaction` · out `setMessageReaction` (Telegram's own emoji set) | — (409) | — (409) |
+| Delete for everyone (ours) | ❌ Meta publishes no delete | ✅ gateway `revoke` → `MessageRecalls.RecordOurs` (~2-day window) | — | ❌ | ❌ | — |
+| Edit a sent message | ❌ Meta publishes no edit | ✅ gateway `edit` → `MessageEdits` (~15-minute window) | — | ❌ | ❌ | — |
+| Operator's own voice note | ✅ upload → `type: audio` | ✅ gateway `send-media` `ptt: true` (the browser's recording re-containered to Ogg/Opus by ffmpeg; no ffmpeg ⇒ 503) | — | ✅ `sendVoice` | ❌ | ❌ |
 | AI voice replies (`ai_voice_replies`) | ✅ upload Ogg/Opus → `type: audio` (a voice note) | ✅ gateway `send-media` with `ptt: true` (`audio/ogg; codecs=opus`) | text | ✅ `sendVoice` (Ogg/Opus, no caption) | ✅ MP3 audio attachment (inside the window) | text |
 | Inbound voice notes → words | ✅ transcribed (`crm_message.transcript`) | ✅ | — | ✅ | ✅ (audio attachments) | — |
 | 24h window | ✅ enforced (409 → use a template); 131047 closes it | none | none | none | ✅ ≤24h anything; 24h–7d a person only (`HUMAN_AGENT` tag), AI/automation refused; >7d refused | — |

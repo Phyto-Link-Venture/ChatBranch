@@ -150,6 +150,14 @@ public class Message
     public DateTime? RecalledAt { get; set; }
     /// <summary>Who recalled it: <c>customer</c> or <c>business</c> ("" = not recalled).</summary>
     public string RecalledBy { get; set; } = "";
+    /// <summary>
+    /// When a message WE sent was last edited on the channel (WhatsApp's own
+    /// ~15-minute edit window; <c>Channels/MessageEdits.cs</c>). Null = never
+    /// edited. <see cref="Text"/> holds the current wording — the previous one is
+    /// kept in the audit row, so the chat shows what the customer now sees while
+    /// the trail still says what it used to say.
+    /// </summary>
+    public DateTime? EditedAt { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
