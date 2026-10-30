@@ -63,40 +63,72 @@ public static class MessageRecalls
             rows = rows.Where(m => m.RecalledAt == null && !m.Private).ToList();
             if (rows.Count == 0) return rows;
 
-            var now = nowUtc ?? DateTime.UtcNow;
-            var keep = InboxSettings.KeepRecalled(account);
             var who = by == ByBusiness ? ByBusiness : ByCustomer;
-            var words = rows.ToDictionary(m => m.Id, m => m.Text.Trim());   // before erasing: where else they were copied
-            foreach (var m in rows)
-            {
-                m.RecalledAt = now;
-                m.RecalledBy = who;
-                if (!keep) Erase(db, m, dataDir);
-            }
-            foreach (var group in rows.GroupBy(m => m.ThreadId))
-            {
-                var thread = db.Threads.FirstOrDefault(x => x.Id == group.Key);
-                if (thread == null) continue;
-                thread.UpdatedAt = now;   // the open chat redraws (the SSE change token)
-                var ids = group.Select(m => m.Id).ToList();
-                if (!keep) ScrubCopies(db, thread, group.Select(m => (m.Id, words[m.Id])).ToList());
-                AuditTrail.Add(db, AuditAction, $"{thread.Channel}:{thread.Key}",
-                    $"{(who == ByBusiness ? "Recalled from our number" : "The customer recalled")} "
-                    + $"{(ids.Count == 1 ? "a message" : $"{ids.Count} messages")} (#{string.Join(", #", ids)}) — "
-                    + (keep ? "kept (the inbox keeps recalled messages)" : "erased"),
-                    actor: who == ByBusiness ? "agent:phone" : "contact", source: "webhook", entityId: thread.EntityId);
-            }
-            db.SaveChanges();
-            if (gate != null)
-                foreach (var group in rows.Where(m => m.Direction == MessageDirection.In).GroupBy(m => m.ThreadId))
-                    if (db.Threads.FirstOrDefault(x => x.Id == group.Key) is { } thread)
-                        gate.ExpireForRecall(thread, group.Select(m => m.Id).ToList());
+            Apply(db, rows, account, who,
+                actor: who == ByBusiness ? "agent:phone" : "contact", source: "webhook",
+                reason: who == ByBusiness ? "Recalled from our number" : "The customer recalled",
+                gate: gate, dataDir: dataDir, nowUtc: nowUtc);
             return rows;
         }
         catch
         {
             return new();
         }
+    }
+
+    /// <summary>
+    /// Delete-for-everyone that WE asked for, from the inbox: the gateway has
+    /// already told WhatsApp, so this records the same outcome a customer's recall
+    /// records — the inbox's keep-or-erase switch, the audit row, the redraw —
+    /// under the person who did it. Returns false when the row was already
+    /// recalled or is a note (nothing to do).
+    /// </summary>
+    public static bool RecordOurs(AppDbContext db, ChannelAccount account, Message message, string username,
+        AiGate? gate = null, string? dataDir = null, DateTime? nowUtc = null)
+    {
+        if (message.RecalledAt != null || message.Private) return false;
+        Apply(db, new List<Message> { message }, account, ByBusiness,
+            actor: $"agent:{username}", source: "user", reason: "Deleted for everyone",
+            gate: gate, dataDir: dataDir, nowUtc: nowUtc);
+        return true;
+    }
+
+    /// <summary>
+    /// Mark rows recalled: erase or keep them per the inbox's switch, scrub the
+    /// copies the words reached, bump the conversation so the open chat redraws,
+    /// audit it, and expire an AI draft that was answering one. ONE path, so a
+    /// recall the customer made and a recall we made cannot drift apart.
+    /// </summary>
+    private static void Apply(AppDbContext db, List<Message> rows, ChannelAccount account, string who,
+        string actor, string source, string reason, AiGate? gate, string? dataDir, DateTime? nowUtc)
+    {
+        var now = nowUtc ?? DateTime.UtcNow;
+        var keep = InboxSettings.KeepRecalled(account);
+        var words = rows.ToDictionary(m => m.Id, m => m.Text.Trim());   // before erasing: where else they were copied
+        foreach (var m in rows)
+        {
+            m.RecalledAt = now;
+            m.RecalledBy = who;
+            if (!keep) Erase(db, m, dataDir);
+        }
+        foreach (var group in rows.GroupBy(m => m.ThreadId))
+        {
+            var thread = db.Threads.FirstOrDefault(x => x.Id == group.Key);
+            if (thread == null) continue;
+            thread.UpdatedAt = now;   // the open chat redraws (the SSE change token)
+            var ids = group.Select(m => m.Id).ToList();
+            if (!keep) ScrubCopies(db, thread, group.Select(m => (m.Id, words[m.Id])).ToList());
+            AuditTrail.Add(db, AuditAction, $"{thread.Channel}:{thread.Key}",
+                $"{reason} {(ids.Count == 1 ? "a message" : $"{ids.Count} messages")} "
+                + $"(#{string.Join(", #", ids)}) — "
+                + (keep ? "kept (the inbox keeps recalled messages)" : "erased"),
+                actor: actor, source: source, entityId: thread.EntityId);
+        }
+        db.SaveChanges();
+        if (gate != null)
+            foreach (var group in rows.Where(m => m.Direction == MessageDirection.In).GroupBy(m => m.ThreadId))
+                if (db.Threads.FirstOrDefault(x => x.Id == group.Key) is { } thread)
+                    gate.ExpireForRecall(thread, group.Select(m => m.Id).ToList());
     }
 
     /// <summary>The words, the transcript, the file (from disk too) and the reactions.</summary>

@@ -146,6 +146,23 @@ public static partial class ToolCatalog
                 A.Str("identify_message", "Custom question."),
             }, idempotent: true);
 
+        // ---- marketplace shops (the seller-service bridge) -------------------------
+        // The shops themselves are connected in the seller service, which holds the
+        // marketplace grant; these three are the ChatBranch side of that bridge.
+        yield return T(ch, "commerce_get_status", "Marketplace bridge status",
+            "Whether the marketplace seller service is attached, which Shopee / Lazada / TikTok Shop / Shopify " +
+            "shops it holds a grant for, and which of them already appear as inboxes here. Says plainly when it " +
+            "is not attached and what to set.", "GET", "/api/commerce/status", chView,
+            link: (_, _) => Page("Open channels", "/channels"));
+        yield return T(ch, "commerce_sync_shops", "Sync marketplace shops",
+            "Pull the connected shops from the seller service and give each one an inbox here, so a shop shows up " +
+            "before its first buyer message. Existing inboxes keep their team, entity and AI settings.",
+            "POST", "/api/commerce/shops/sync", chManage, idempotent: true);
+        yield return T(ch, "commerce_poll_chats", "Fetch marketplace chats now",
+            "Ask the seller service to check the marketplaces that have no chat webhook (Lazada) for new buyer " +
+            "messages right now, instead of waiting for its next poll.",
+            "POST", "/api/commerce/poll", chManage, idempotent: true);
+
         // ---- integrations ---------------------------------------------------------
         const string ig = "integrations";
         yield return T(ig, "integrations_list", "List integrations",

@@ -198,6 +198,8 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/whatsapp/voice-settings", new[] { "channels.view" }),
         ("/api/widgets", new[] { "channels.view" }),
         ("/api/inboxes/999999/identify", new[] { "channels.view" }),
+        // the marketplace bridge (Shopee / Lazada / TikTok Shop / Shopify shops)
+        ("/api/commerce/status", new[] { "channels.view" }),
         ("/api/whatsapp/assignments", new[] { "account_assignment.manage" }),
         ("/api/whatsapp/routing-rules", new[] { "account_assignment.manage" }),
         ("/api/whatsapp/recovery", new[] { "account_assignment.manage", "analytics.view" }),

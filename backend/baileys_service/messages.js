@@ -11,6 +11,9 @@
  *                             can carry the real quoted message
  *   buildQuoted(...)       -> the `quoted` option for sock.sendMessage
  *   buildReact(...)        -> the `{ react }` content for sock.sendMessage
+ *   buildDelete/buildEdit  -> "delete for everyone" and an edit of our own message
+ *   buildLocation/buildContact/buildPoll
+ *                          -> the richer things an operator can send
  *   mediaKind(message)     -> which attachment an (unwrapped) message carries:
  *                             { key, type, ext, node } — image | video | audio | document
  *   postWithRetry(...)     -> POST to the API, checking res.ok, retrying with backoff
@@ -114,6 +117,22 @@ export function contactText(name, phone) {
   return p ? `[contact] ${n || p} · ${p}` : `[contact] ${n}`
 }
 
+/**
+ * A poll, in the same shape our own outbound poll stores, so one bubble reads
+ * the same whoever sent it. WhatsApp does not hand back the VOTES (each
+ * `pollUpdateMessage` is encrypted against the poll's creation message, which
+ * this gateway only holds until it restarts), so the question and the options
+ * are all there is to show.
+ */
+function pollText(poll) {
+  const q = String(poll?.name ?? '').trim()
+  const options = (Array.isArray(poll?.options) ? poll.options : [])
+    .map((o) => String(o?.optionName ?? '').trim())
+    .filter(Boolean)
+  if (!q && options.length === 0) return '[poll]'
+  return options.length > 0 ? `[poll] ${q} \u2014 ${options.join(' / ')}` : `[poll] ${q}`
+}
+
 function locationText(loc) {
   const lat = Number(loc?.degreesLatitude)
   const lng = Number(loc?.degreesLongitude)
@@ -126,6 +145,8 @@ function locationText(loc) {
 export function extractText(msg) {
   if (!msg) return '[message]'
   if (msg.locationMessage || msg.liveLocationMessage) return locationText(msg.locationMessage || msg.liveLocationMessage)
+  const poll = msg.pollCreationMessage || msg.pollCreationMessageV2 || msg.pollCreationMessageV3
+  if (poll) return pollText(poll)
   if (msg.contactMessage) {
     const { name, phone } = vcardFields(msg.contactMessage.vcard)
     return contactText(msg.contactMessage.displayName || name, phone)
@@ -222,6 +243,35 @@ export function recallOf(m, type, nowS = Math.floor(Date.now() / 1000)) {
   return { id, fromMe: !!m.key?.fromMe }
 }
 
+/** proto.Message.ProtocolMessage.Type.MESSAGE_EDIT — WhatsApp's "edit". */
+export const MESSAGE_EDIT = 14
+
+/**
+ * An edit WhatsApp is reporting: `{id, fromMe, text}` of the message re-worded —
+ * fromMe = it was edited on our own number (the phone / WhatsApp Web), else the
+ * customer edited theirs — or null.
+ *
+ * Same gate as a recall: only a live (`notify`) edit in a 1:1 chat inside the
+ * sync window counts, so history replayed on connect never rewrites the chat.
+ * The new wording is read with the ordinary `extractText`, so an edited caption
+ * reads like any caption.
+ */
+export function editOf(m, type, nowS = Math.floor(Date.now() / 1000)) {
+  if (type !== 'notify') return null
+  const p = unwrap(m?.message)?.protocolMessage
+  if (!p || !(p.type === MESSAGE_EDIT || p.type === 'MESSAGE_EDIT')) return null
+  const id = p.key?.id
+  if (!id) return null
+  const jid = String(m.key?.remoteJid || '')
+  if (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid')) return null
+  const ts = messageSeconds(m)
+  if (ts > 0 && nowS - ts > PHONE_SYNC_WINDOW_S) return null
+  const text = extractText(unwrap(p.editedMessage))
+  // an edit we cannot read the new wording of would blank the bubble
+  if (!text || text === '[message]') return null
+  return { id, fromMe: p.key?.fromMe ?? !!m.key?.fromMe, text }
+}
+
 /** A bounded map of recent WAMessages by id (oldest evicted first). */
 export class KeyStore {
   constructor(max = 2000) {
@@ -258,6 +308,98 @@ export function buildQuoted({ jid, id, fromMe = false, text = '' }, store) {
 export function buildReact({ jid, id, fromMe = false, emoji = '' }) {
   if (!id) throw new Error('msg_id is required')
   return { react: { text: String(emoji || ''), key: { remoteJid: jid, id, fromMe: !!fromMe } } }
+}
+
+/** `{ delete }` content — WhatsApp's "delete for everyone" on a message we sent. */
+export function buildDelete({ jid, id, fromMe = true }) {
+  if (!id) throw new Error('msg_id is required')
+  return { delete: { remoteJid: jid, id, fromMe: !!fromMe } }
+}
+
+/**
+ * `{ edit }` content — WhatsApp's edit of a message we already sent. Only a
+ * TEXT message can be edited, and only inside WhatsApp's own window (about 15
+ * minutes); past that WhatsApp refuses and the error comes back as a failure.
+ */
+export function buildEdit({ jid, id, fromMe = true, text }) {
+  if (!id) throw new Error('msg_id is required')
+  const body = typeof text === 'string' ? text : ''
+  if (body.trim() === '') throw new Error('text is required')
+  return { text: body, edit: { remoteJid: jid, id, fromMe: !!fromMe } }
+}
+
+/** `{ location }` content — a pinned point, optionally named. */
+export function buildLocation({ lat, lng, name = '', address = '' }) {
+  const la = Number(lat)
+  const ln = Number(lng)
+  if (!Number.isFinite(la) || la < -90 || la > 90) throw new Error('lat must be between -90 and 90')
+  if (!Number.isFinite(ln) || ln < -180 || ln > 180) throw new Error('lng must be between -180 and 180')
+  return {
+    location: {
+      degreesLatitude: la,
+      degreesLongitude: ln,
+      ...(name ? { name: String(name).slice(0, 200) } : {}),
+      ...(address ? { address: String(address).slice(0, 400) } : {}),
+    },
+  }
+}
+
+/** One vCard line, with the characters vCard gives meaning to escaped. */
+function vcardValue(text) {
+  return String(text ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;')
+    .slice(0, 300)
+}
+
+/**
+ * `{ contacts }` content — a contact card. WhatsApp reads the `waid` on each
+ * TEL line to make the number tappable, so the digits are carried twice: as
+ * `waid` and as the displayed value.
+ */
+export function buildContact({ name, phones, organization = '' }) {
+  const display = String(name ?? '').trim()
+  if (display === '') throw new Error('name is required')
+  const list = (Array.isArray(phones) ? phones : [phones])
+    .map((p) => String(p ?? '').trim())
+    .filter(Boolean)
+    .slice(0, 10)
+  if (list.length === 0) throw new Error('at least one phone is required')
+
+  const lines = ['BEGIN:VCARD', 'VERSION:3.0', `FN:${vcardValue(display)}`]
+  if (organization) lines.push(`ORG:${vcardValue(organization)};`)
+  list.forEach((phone, i) => {
+    const waid = phone.replace(/\D/g, '')
+    lines.push(`item${i + 1}.TEL;type=CELL;type=VOICE${waid ? `;waid=${waid}` : ''}:${vcardValue(phone)}`)
+  })
+  lines.push('END:VCARD')
+  const vcard = lines.join('\n')
+  return { contacts: { displayName: display, contacts: [{ vcard }] } }
+}
+
+/**
+ * `{ poll }` content. WhatsApp takes 2–12 options and `selectableCount` 1 (a
+ * single choice) or more (multiple). Duplicate options are dropped, because
+ * WhatsApp shows them as one and the votes then cannot be told apart.
+ */
+export function buildPoll(body) {
+  const { question, options } = body ?? {}
+  // the gateway's own routes are snake_case; the C# client sends camelCase
+  const selectableCount = body?.selectable_count ?? body?.selectableCount ?? 1
+  const name = String(question ?? '').trim()
+  if (name === '') throw new Error('question is required')
+  const values = []
+  for (const raw of Array.isArray(options) ? options : []) {
+    const value = String(raw ?? '').trim().slice(0, 100)
+    if (value !== '' && !values.includes(value)) values.push(value)
+  }
+  if (values.length < 2) throw new Error('a poll needs at least 2 different options')
+  if (values.length > 12) throw new Error('a poll takes at most 12 options')
+  const pick = Number(selectableCount)
+  const selectable = Number.isFinite(pick) && pick >= 1 ? Math.min(Math.trunc(pick), values.length) : 1
+  return { poll: { name: name.slice(0, 255), values, selectableCount: selectable } }
 }
 
 // ---- offline selftest (node messages.js --selftest; also run by calls.js --selftest) ----
@@ -352,6 +494,31 @@ export function selftest() {
   check(recallOf({ ...revoke('customer'), message: { ephemeralMessage: { message: { protocolMessage: { type: 'REVOKE', key: { id: 'G2' } } } } } },
     'notify', now)?.id === 'G2', 'a recall inside a disappearing-message wrapper')
   check(recallOf(revoke('customer'), 'append', now) === null, 'history is not a recall')
+  // a poll reads as a poll, whoever sent it (its votes never come back)
+  check(parseInbound({ pollCreationMessage: { name: 'Which slot?', options: [{ optionName: '9am' }, { optionName: '2pm' }] } }).text
+    === '[poll] Which slot? \u2014 9am / 2pm', 'poll text')
+  check(parseInbound({ pollCreationMessageV3: { name: 'Pick one', options: [] } }).text === '[poll] Pick one',
+    'a poll with no options still names its question')
+  check(parseInbound({ pollCreationMessage: {} }).text === '[poll]', 'an unreadable poll is still marked as one')
+  // an edit: made on our own phone, or by the customer on their own message
+  const edited = (fromMe, extra = {}) => ({
+    key: { id: 'EV1', fromMe, remoteJid: '60123@s.whatsapp.net' }, messageTimestamp: now - 2,
+    message: { protocolMessage: { type: MESSAGE_EDIT, key: { id: 'OLD1', fromMe }, editedMessage: { conversation: 'the new wording' } } },
+    ...extra,
+  })
+  const ev = editOf(edited(true), 'notify', now)
+  check(ev && ev.id === 'OLD1' && ev.fromMe === true && ev.text === 'the new wording',
+    'an edit on our phone names the message and its new wording')
+  check(editOf(edited(false), 'notify', now)?.fromMe === false, "the customer's own edit is theirs")
+  check(editOf(edited(true), 'append', now) === null, 'history is not an edit')
+  check(editOf(revoke('customer'), 'notify', now) === null, 'a recall is not an edit')
+  check(editOf(edited(true, { messageTimestamp: now - 3600 }), 'notify', now) === null, 'an hour-old edit is history')
+  check(editOf({ ...edited(true), key: { id: 'EV2', fromMe: true, remoteJid: '1203@g.us' } }, 'notify', now) === null,
+    'a group edit is not synced')
+  check(editOf({ ...edited(true), message: { protocolMessage: { type: MESSAGE_EDIT, key: { id: 'OLD2' }, editedMessage: {} } } },
+    'notify', now) === null, 'an edit whose new wording cannot be read is dropped, not blanked')
+  check(editOf({ ...edited(true), message: { ephemeralMessage: { message: { protocolMessage: { type: MESSAGE_EDIT, key: { id: 'OLD3' }, editedMessage: { conversation: 'x' } } } } } },
+    'notify', now)?.id === 'OLD3', 'an edit inside a disappearing-message wrapper')
   check(recallOf({ ...revoke('customer'), message: { protocolMessage: { type: 14, key: { id: 'E1' } } } }, 'notify', now) === null,
     'an edit (MESSAGE_EDIT) is not a recall')
   check(recallOf({ ...revoke('customer'), message: { protocolMessage: { type: 5 } } }, 'notify', now) === null,
@@ -359,6 +526,65 @@ export function selftest() {
   check(recallOf({ ...revoke('customer'), key: { id: 'RV2', remoteJid: '1203@g.us' } }, 'notify', now) === null,
     'a group recall is not ours to file')
   check(recallOf(mine('P8'), 'notify', now) === null, 'an ordinary message is not a recall')
+  return true
+}
+
+/** The outbound builders: what an operator can send beyond text and media. */
+export function selftestOutbound() {
+  const jid = '60123456789@s.whatsapp.net'
+
+  // delete for everyone + edit address a message by its key
+  check(buildDelete({ jid, id: 'M1' }).delete.id === 'M1', 'delete carries the message id')
+  check(buildDelete({ jid, id: 'M1' }).delete.fromMe === true, 'we only delete our own')
+  let threw = false
+  try { buildDelete({ jid, id: '' }) } catch { threw = true }
+  check(threw, 'delete without an id is refused')
+
+  const edit = buildEdit({ jid, id: 'M2', text: 'fixed' })
+  check(edit.text === 'fixed' && edit.edit.id === 'M2', 'edit carries the new text and the key')
+  threw = false
+  try { buildEdit({ jid, id: 'M2', text: '   ' }) } catch { threw = true }
+  check(threw, 'an edit to blank text is refused')
+
+  // location: the degrees are numbers, and out-of-range is refused
+  const loc = buildLocation({ lat: '3.1578', lng: '101.7117', name: 'KLCC' })
+  check(loc.location.degreesLatitude === 3.1578 && loc.location.degreesLongitude === 101.7117, 'location degrees')
+  check(loc.location.name === 'KLCC' && loc.location.address === undefined, 'an empty address is left out')
+  for (const bad of [{ lat: 91, lng: 0 }, { lat: 0, lng: 181 }, { lat: 'x', lng: 0 }]) {
+    threw = false
+    try { buildLocation(bad) } catch { threw = true }
+    check(threw, `location ${JSON.stringify(bad)} is refused`)
+  }
+
+  // contact card: a tappable waid plus the number as typed
+  const card = buildContact({ name: 'Ana Lim', phones: ['+60 12-345 6789'], organization: 'Acme' })
+  check(card.displayName === undefined, 'the card is wrapped in contacts')
+  check(card.contacts.displayName === 'Ana Lim', 'display name')
+  const vcard = card.contacts.contacts[0].vcard
+  check(vcard.includes('FN:Ana Lim') && vcard.includes('waid=60123456789'), 'vcard has the name and waid')
+  check(vcard.includes('ORG:Acme;'), 'organization line')
+  // a name with vCard's own punctuation cannot break the document
+  const risky = buildContact({ name: 'Lim; Ana, Sdn\nBhd', phones: ['+60123'] }).contacts.contacts[0].vcard
+  check(risky.includes('FN:Lim\\; Ana\\, Sdn\\nBhd'), 'vcard values are escaped')
+  check(risky.split('\n').filter((l) => l.startsWith('FN:')).length === 1, 'a newline cannot add a vcard line')
+  threw = false
+  try { buildContact({ name: 'No Number', phones: [] }) } catch { threw = true }
+  check(threw, 'a contact card needs a phone')
+
+  // poll: 2–12 distinct options, selectableCount bounded by them
+  const poll = buildPoll({ question: 'Which slot?', options: ['9am', '2pm', '9am', ''] })
+  check(poll.poll.values.length === 2 && poll.poll.selectableCount === 1, 'duplicate and empty options dropped')
+  check(buildPoll({ question: 'q', options: ['a', 'b', 'c'], selectableCount: 9 }).poll.selectableCount === 3,
+    'selectableCount never exceeds the options')
+  // the route's own snake_case and the C# client's camelCase mean the same thing
+  check(buildPoll({ question: 'q', options: ['a', 'b', 'c'], selectable_count: 2 }).poll.selectableCount === 2,
+    'selectable_count is read too')
+  for (const bad of [{ question: '', options: ['a', 'b'] }, { question: 'q', options: ['only'] },
+    { question: 'q', options: Array.from({ length: 13 }, (_, i) => `o${i}`) }]) {
+    threw = false
+    try { buildPoll(bad) } catch { threw = true }
+    check(threw, `poll ${JSON.stringify(bad).slice(0, 40)} is refused`)
+  }
   return true
 }
 
@@ -384,6 +610,7 @@ export async function selftestRetry() {
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
     && process.argv.includes('--selftest')) {
   selftest()
+  selftestOutbound()
   await selftestRetry()
   console.log(`messages selftest OK (${path.basename(fileURLToPath(import.meta.url))})`)
 }

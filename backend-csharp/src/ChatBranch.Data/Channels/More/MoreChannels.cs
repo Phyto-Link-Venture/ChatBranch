@@ -39,12 +39,18 @@ public static class MoreChannels
     {
         ChannelIds.Line, ChannelIds.Viber, ChannelIds.Sms, ChannelIds.WeChat,
         ChannelIds.TikTok, ChannelIds.Douyin, ChannelIds.Zalo,
+        // The marketplace seller channels ride the same send path, routing and
+        // health, so they belong in this registry — but their credentials live
+        // in the seller-service sidecar, not on the account. Everything below
+        // that differs for them defers to CommerceChannels.
+        ChannelIds.Shopee, ChannelIds.Lazada, ChannelIds.TikTokShop, ChannelIds.Shopify,
     };
 
     public static bool Handles(string? channel) => channel != null && Array.IndexOf(All, channel) >= 0;
 
     /// <summary>Gated platforms: the API only works after the platform approves the app.</summary>
-    public static bool RequiresApproval(string? channel) => channel is ChannelIds.TikTok or ChannelIds.Douyin;
+    public static bool RequiresApproval(string? channel) =>
+        channel is ChannelIds.TikTok or ChannelIds.Douyin or ChannelIds.TikTokShop;
 
     /// <summary>
     /// The conversation identity is minted by the receiving account (a LINE userId,
@@ -52,6 +58,13 @@ public static class MoreChannels
     /// SMS is the exception: any of our numbers can text a phone number.
     /// </summary>
     public static bool AccountBound(string? channel) => Handles(channel) && channel != ChannelIds.Sms;
+
+    /// <summary>
+    /// A marketplace seller channel (<see cref="CommerceChannels"/>): it sends and
+    /// routes like the rest, but the grant lives in the seller-service sidecar, so
+    /// it has no typed credentials and no per-account webhook of its own.
+    /// </summary>
+    public static bool IsCommerce(string? channel) => CommerceChannels.Handles(channel);
 
     /// <summary>Phone-keyed channels link a contact by phone like WhatsApp does.</summary>
     public static bool PhoneKeyed(string? channel) => channel == ChannelIds.Sms;
@@ -65,7 +78,7 @@ public static class MoreChannels
         ChannelIds.TikTok => "TikTok",
         ChannelIds.Douyin => "Douyin",
         ChannelIds.Zalo => "Zalo",
-        _ => channel,
+        _ => CommerceChannels.Handles(channel) ? CommerceChannels.Label(channel) : channel,
     };
 
     public static string Cfg(ChannelAccount a, string key) => EmailConfig.Cfg(a.Config ?? new(), key);
@@ -73,6 +86,9 @@ public static class MoreChannels
     /// <summary>Credentials present to send for real (sandbox otherwise).</summary>
     public static bool Configured(ChannelAccount a)
     {
+        // a marketplace shop holds no credential here — it names a shop the
+        // sidecar can act for (CommerceChannels.Configured)
+        if (CommerceChannels.Handles(a.Channel)) return CommerceChannels.Configured(a);
         var token = !string.IsNullOrWhiteSpace(a.AccessToken);
         return a.Channel switch
         {
@@ -88,8 +104,14 @@ public static class MoreChannels
         };
     }
 
-    /// <summary>The account's inbound webhook path (each verifies with that account's own secret).</summary>
-    public static string WebhookPath(ChannelAccount a) => $"/api/messaging/webhook/{a.Channel}/{a.Id}";
+    /// <summary>
+    /// The account's inbound webhook path (each verifies with that account's own
+    /// secret). A marketplace shop has none: the seller service verifies the
+    /// marketplace's signature and pushes to <c>/api/commerce/inbound</c>, so
+    /// there is no URL for the operator to paste anywhere.
+    /// </summary>
+    public static string WebhookPath(ChannelAccount a) =>
+        CommerceChannels.Handles(a.Channel) ? "" : $"/api/messaging/webhook/{a.Channel}/{a.Id}";
 
     // ---- invite codes riding on the first message ---------------------------------
 

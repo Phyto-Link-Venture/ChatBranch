@@ -4,7 +4,15 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace ChatBranch.Data.Sidecars;
 
-public record BaileysResult(bool Ok, string Detail, string ExternalId = "");
+public record BaileysResult(bool Ok, string Detail, string ExternalId = "")
+{
+    /// <summary>
+    /// The gateway answered 409: the request can never succeed as asked (a message
+    /// it no longer holds), as opposed to a provider failure worth retrying. Lets a
+    /// caller turn it into a 409 with the reason instead of a 502.
+    /// </summary>
+    public bool Conflict { get; init; }
+}
 
 /// <summary>Pairing state as the gateway reports it: {state, qr?, me?, error?}.</summary>
 public record BaileysStatus(string State, string? Qr, string? Me, string? Error);
@@ -95,6 +103,52 @@ public interface IBaileysGateway
     Task<BaileysResult> SendVoiceNoteAsync(string accountExternalId, string toWaId, byte[] oggOpus,
         CancellationToken ct = default) =>
         Task.FromResult(new BaileysResult(false, "this Baileys gateway does not support voice notes"));
+    /// <summary>
+    /// WhatsApp's "delete for everyone" on a message WE sent. WhatsApp keeps its
+    /// own window (about two days) and refuses past it — that refusal comes back
+    /// as a failure, because the message is still on the customer's phone and the
+    /// operator needs to know it is.
+    /// </summary>
+    Task<BaileysResult> RevokeMessageAsync(string accountExternalId, string toWaId, BaileysQuote target,
+        CancellationToken ct = default) =>
+        Task.FromResult(new BaileysResult(false, "this Baileys gateway cannot delete a sent message"));
+
+    /// <summary>
+    /// Edit a TEXT message we sent (WhatsApp allows about 15 minutes). The edit
+    /// arrives as its own message, so ExternalId is the EDIT's id — the original
+    /// keeps its own, which is what the stored row is keyed on.
+    /// </summary>
+    Task<BaileysResult> EditMessageAsync(string accountExternalId, string toWaId, BaileysQuote target, string text,
+        CancellationToken ct = default) =>
+        Task.FromResult(new BaileysResult(false, "this Baileys gateway cannot edit a sent message"));
+
+    /// <summary>
+    /// A true WhatsApp FORWARD of <paramref name="sourceMessageId"/> into this
+    /// conversation, keeping WhatsApp's own "Forwarded" marking. It needs the whole
+    /// original, so the gateway can only do it while it still holds it (the last
+    /// ~2000 messages, lost on restart) — otherwise the result is a
+    /// <see cref="BaileysResult.Conflict"/>, because re-sending the text or the
+    /// file would arrive unmarked and be a different thing from a forward.
+    /// </summary>
+    Task<BaileysResult> ForwardMessageAsync(string accountExternalId, string toWaId, string sourceMessageId,
+        CancellationToken ct = default) =>
+        Task.FromResult(new BaileysResult(false, "this Baileys gateway cannot forward a message"));
+
+    /// <summary>A pinned location.</summary>
+    Task<BaileysResult> SendLocationAsync(string accountExternalId, string toWaId, double latitude, double longitude,
+        string name, string address, CancellationToken ct = default) =>
+        Task.FromResult(new BaileysResult(false, "this Baileys gateway cannot send a location"));
+
+    /// <summary>A contact card (vCard). WhatsApp makes each number tappable from its <c>waid</c>.</summary>
+    Task<BaileysResult> SendContactAsync(string accountExternalId, string toWaId, string name,
+        IReadOnlyList<string> phones, string organization, CancellationToken ct = default) =>
+        Task.FromResult(new BaileysResult(false, "this Baileys gateway cannot send a contact card"));
+
+    /// <summary>A poll: 2–12 options, <paramref name="selectableCount"/> 1 = a single choice.</summary>
+    Task<BaileysResult> SendPollAsync(string accountExternalId, string toWaId, string question,
+        IReadOnlyList<string> options, int selectableCount, CancellationToken ct = default) =>
+        Task.FromResult(new BaileysResult(false, "this Baileys gateway cannot send a poll"));
+
     /// <summary>Place a WhatsApp voice call bridged into a LiveKit room; ExternalId = the gateway's call id.</summary>
     Task<BaileysResult> StartCallAsync(string accountExternalId, string toWaId,
         Dictionary<string, object?> dispatch, CancellationToken ct = default);
@@ -292,6 +346,68 @@ public class HttpBaileysGateway : IBaileysGateway
     {
         var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/react",
             new { to = toWaId, msg_id = target.Id, from_me = target.FromMe, emoji = emoji ?? "" }, ct);
+        if (!ok) return new BaileysResult(false, err);
+        var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
+        return new BaileysResult(true, "sent", id);
+    }
+
+    public async Task<BaileysResult> RevokeMessageAsync(string a, string toWaId, BaileysQuote target,
+        CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/revoke",
+            new { to = toWaId, msg_id = target.Id, from_me = target.FromMe }, ct);
+        if (!ok) return new BaileysResult(false, err);
+        var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
+        return new BaileysResult(true, "deleted", id);
+    }
+
+    public async Task<BaileysResult> EditMessageAsync(string a, string toWaId, BaileysQuote target, string text,
+        CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/edit",
+            new { to = toWaId, msg_id = target.Id, from_me = target.FromMe, text }, ct);
+        if (!ok) return new BaileysResult(false, err);
+        var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
+        return new BaileysResult(true, "edited", id);
+    }
+
+    public async Task<BaileysResult> ForwardMessageAsync(string a, string toWaId, string sourceMessageId,
+        CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/forward",
+            new { to = toWaId, msg_id = sourceMessageId }, ct, timeoutSeconds: 120);
+        if (!ok)
+            // the gateway says 409 when the original is no longer held
+            return new BaileysResult(false, err) { Conflict = err.Contains("gateway 409", StringComparison.Ordinal) };
+        var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
+        return new BaileysResult(true, "forwarded", id);
+    }
+
+    public async Task<BaileysResult> SendLocationAsync(string a, string toWaId, double latitude, double longitude,
+        string name, string address, CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/send-location",
+            new { to = toWaId, lat = latitude, lng = longitude, name = name ?? "", address = address ?? "" }, ct);
+        if (!ok) return new BaileysResult(false, err);
+        var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
+        return new BaileysResult(true, "sent", id);
+    }
+
+    public async Task<BaileysResult> SendContactAsync(string a, string toWaId, string name,
+        IReadOnlyList<string> phones, string organization, CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/send-contact",
+            new { to = toWaId, name, phones, organization = organization ?? "" }, ct);
+        if (!ok) return new BaileysResult(false, err);
+        var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
+        return new BaileysResult(true, "sent", id);
+    }
+
+    public async Task<BaileysResult> SendPollAsync(string a, string toWaId, string question,
+        IReadOnlyList<string> options, int selectableCount, CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/send-poll",
+            new { to = toWaId, question, options, selectableCount }, ct);
         if (!ok) return new BaileysResult(false, err);
         var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
         return new BaileysResult(true, "sent", id);

@@ -193,7 +193,7 @@ conversation route.
 | `contacts_decide_access_request` | Approve or deny a contact access request | write | `contacts.manage` |
 | `contacts_cancel_access_request` | Cancel your contact access request | write | `contacts.manage` or `chats.send` |
 
-#### conversations (31)
+#### conversations (35)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -213,6 +213,10 @@ conversation route.
 | `conversations_set_ai` | Switch the AI on/off for a conversation | write | `chats.send` |
 | `conversations_set_labels` | Set conversation labels | write | `chats.send` |
 | `conversations_react_to_message` | React to a message with an emoji | write | `chats.send` |
+| `conversations_recall_message` | Delete a sent message for everyone | write · **destructive** | `chats.send` |
+| `conversations_edit_message` | Edit a sent message | write | `chats.send` |
+| `conversations_forward_message` | Forward a message to another chat | write | `chats.send` |
+| `conversations_send_card` | Send a location, contact card or poll | write | `chats.send` |
 | `conversations_link_contact` | Link a conversation to a contact | write | `chats.send` |
 | `conversations_handover` | Take over or hand back a conversation | write | `chats.send` |
 | `conversations_bulk_update` | Bulk-update conversations | write · **destructive** | `chats.manage` |
@@ -491,7 +495,7 @@ conversation route.
 | `views_delete` | Delete a saved view | write · **destructive** | signed in |
 | `views_reorder` | Reorder saved views | write | signed in |
 
-#### channels (20)
+#### channels (23)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -515,6 +519,9 @@ conversation route.
 | `channels_delete_widget` | Delete a website chat widget | write · **destructive** | `channels.manage` |
 | `channels_get_unknown_customers` | Read an inbox's unknown-customer setting | read | `channels.view` |
 | `channels_set_unknown_customers` | Set an inbox's unknown-customer setting | write | `channels.manage` |
+| `commerce_get_status` | Marketplace bridge status | read | `channels.view` |
+| `commerce_sync_shops` | Sync marketplace shops | write | `channels.manage` |
+| `commerce_poll_chats` | Fetch marketplace chats now | write | `channels.manage` |
 
 #### integrations (11)
 
@@ -605,6 +612,7 @@ conversation route.
 | `POST /api/messaging/settings/test` | tests the default SMTP credentials being edited on the same settings page — credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI |
 | `GET /api/integrations/settings` | App & provider keys (OAuth client ids/secrets) — credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI |
 | `PUT /api/integrations/settings` | credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
+| `POST /api/whatsapp/threads/{key}/send-voice` | sends a voice note recorded in the operator's browser — an AI has no microphone; its own spoken replies are the ai_voice_replies behaviour setting |
 | `POST /api/integrations/{provider}/connect` | connects Shopify/Stripe with API keys — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
 | `POST /api/integrations/accounts` | creates an integration row with its API key / webhook secret — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
 | `POST /api/integrations/mcp` | external MCP server definitions carry auth tokens/headers — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |

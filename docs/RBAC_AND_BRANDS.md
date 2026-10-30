@@ -306,6 +306,7 @@ refused; an organization-wide one follows `OrgWideAction`). Notable gates:
 | AI learning (`/api/ai/feedback`, `/api/ai/lessons`, `/api/ai/learning/*`) | reads and rating `ai.monitor` (feedback follows the conversation scope, lessons the library scope); lesson writes, deleting and re-indexing `ai.behaviour.manage` |
 | Contact identities (`/api/contacts/{id}/channels/discover`, `/{id}/invites`, `/identify/{channel}/{key}/contact`) | `contacts.manage` (reading invites `contacts.view`, the chat's identify banner `chats.view`); the import and `/identity-checks/run` `contacts.manage` |
 | Per-inbox unknown-customer mode (`/api/inboxes/{id}/identify`) | GET `channels.view`, PUT `channels.manage` |
+| Marketplace shops — sync them into inboxes, fetch their chats now (`POST /api/commerce/shops/sync`, `POST /api/commerce/poll`) | `channels.manage` |
 | Add a contact (`POST /api/v1/contacts`, the Contacts page) | `contacts.manage` (admins by default; any role granted it), new contacts linked inside the caller's scope |
 | Contact access requests (`/api/contacts/access-requests`) — a hidden-clash 409 (the phone/email belongs to a contact of another branch of the caller's company) carries an opaque `request_token` | ask / list own / cancel own: `contacts.manage` or `chats.send`, the target entity in the caller's scope, the token issued to the caller (30 min); approve / deny: `contacts.manage` AND superadmin, an organization-wide admin of the contact's tenant, or a company admin whose scope holds the target entity AND one of the contact's current entities (403 otherwise). The requester sees nothing about the contact until approved |
 | Activity log (`/api/audit*`) | `activity.view` |
@@ -493,6 +494,7 @@ Admins keep the tenant-wide view. Tests: `QaScopeFixesTests`.
 | `/api/v1/users` | `users.manage` (in the handler) | Users & roles, Teams member picker |
 | `/api/v1/brands` | `entities.view` | API callers |
 | `/api/whatsapp/accounts/{id}/baileys/status`, `/api/whatsapp/voice-settings`, `/api/messaging/accounts`, `/api/messaging/settings`, `/api/widgets`, `/api/inboxes/{id}/identify` | `channels.view` | Channels |
+| `/api/commerce/status` (the marketplace seller bridge: attached? which shops?) | `channels.view` | Channels |
 | `/api/whatsapp/settings` (carries the webhook verify token) | `channels.view`, `app_keys.manage` | Channels (Meta webhook rows), App & provider keys |
 | `/api/whatsapp/assignments`, `/routing-rules` | `account_assignment.manage` | Account assignment |
 | `/api/whatsapp/recovery` (the down-number alarm) | `account_assignment.manage`, `analytics.view` | Account assignment, Dashboard health card |

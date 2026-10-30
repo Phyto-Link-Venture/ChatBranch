@@ -17,7 +17,7 @@
  */
 
 import { useCallback, type CSSProperties } from 'react'
-import { Globe, Mail, MessageSquareText, Phone, Smartphone } from 'lucide-react'
+import { Globe, Mail, MessageSquareText, Phone, ShoppingBag, Smartphone } from 'lucide-react'
 import { useT, type MessageKey, type TFunction } from '@/i18n'
 
 type BrandKey =
@@ -39,6 +39,7 @@ type BrandKey =
   | 'tiktok'
   | 'douyin'
   | 'zalo'
+  | 'tiktokshop'
 
 const TIKTOK_PATH =
   'M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z'
@@ -58,6 +59,8 @@ const BRAND: Record<BrandKey, { label: string; hex: string; path: string; dark?:
   viber: { label: 'Viber', hex: '#7360F2', path: 'M11.4 0C9.473.028 5.333.344 3.02 2.467 1.302 4.187.696 6.7.633 9.817.57 12.933.488 18.776 6.12 20.36h.003l-.004 2.416s-.037.977.61 1.177c.777.242 1.234-.5 1.98-1.302.407-.44.972-1.084 1.397-1.58 3.85.326 6.812-.416 7.15-.525.776-.252 5.176-.816 5.892-6.657.74-6.02-.36-9.83-2.34-11.546-.596-.55-3.006-2.3-8.375-2.323 0 0-.395-.025-1.037-.017zm.058 1.693c.545-.004.88.017.88.017 4.542.02 6.717 1.388 7.222 1.846 1.675 1.435 2.53 4.868 1.906 9.897v.002c-.604 4.878-4.174 5.184-4.832 5.395-.28.09-2.882.737-6.153.524 0 0-2.436 2.94-3.197 3.704-.12.12-.26.167-.352.144-.13-.033-.166-.188-.165-.414l.02-4.018c-4.762-1.32-4.485-6.292-4.43-8.895.054-2.604.543-4.738 1.996-6.173 1.96-1.773 5.474-2.018 7.11-2.03zm.38 2.602c-.167 0-.303.135-.304.302 0 .167.133.303.3.305 1.624.01 2.946.537 4.028 1.592 1.073 1.046 1.62 2.468 1.633 4.334.002.167.14.3.307.3.166-.002.3-.138.3-.304-.014-1.984-.618-3.596-1.816-4.764-1.19-1.16-2.692-1.753-4.447-1.765zm-3.96.695c-.19-.032-.4.005-.616.117l-.01.002c-.43.247-.816.562-1.146.932-.002.004-.006.004-.008.008-.267.323-.42.638-.46.948-.008.046-.01.093-.007.14 0 .136.022.27.065.4l.013.01c.135.48.473 1.276 1.205 2.604.42.768.903 1.5 1.446 2.186.27.344.56.673.87.984l.132.132c.31.308.64.6.984.87.686.543 1.418 1.027 2.186 1.447 1.328.733 2.126 1.07 2.604 1.206l.01.014c.13.042.265.064.402.063.046.002.092 0 .138-.008.31-.036.627-.19.948-.46.004 0 .003-.002.008-.005.37-.33.683-.72.93-1.148l.003-.01c.225-.432.15-.842-.18-1.12-.004 0-.698-.58-1.037-.83-.36-.255-.73-.492-1.113-.71-.51-.285-1.032-.106-1.248.174l-.447.564c-.23.283-.657.246-.657.246-3.12-.796-3.955-3.955-3.955-3.955s-.037-.426.248-.656l.563-.448c.277-.215.456-.737.17-1.248-.217-.383-.454-.756-.71-1.115-.25-.34-.826-1.033-.83-1.035-.137-.165-.31-.265-.502-.297zm4.49.88c-.158.002-.29.124-.3.282-.01.167.115.312.282.324 1.16.085 2.017.466 2.645 1.15.63.688.93 1.524.906 2.57-.002.168.13.306.3.31.166.003.305-.13.31-.297.025-1.175-.334-2.193-1.067-2.994-.74-.81-1.777-1.253-3.05-1.346h-.024zm.463 1.63c-.16.002-.29.127-.3.287-.008.167.12.31.288.32.523.028.875.175 1.113.422.24.245.388.62.416 1.164.01.167.15.295.318.287.167-.008.295-.15.287-.317-.03-.644-.215-1.178-.58-1.557-.367-.378-.893-.574-1.52-.607h-.018z' },
   wechat: { label: 'WeChat', hex: '#07C160', path: 'M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 0 0 .167-.054l1.903-1.114a.864.864 0 0 1 .717-.098 10.16 10.16 0 0 0 2.837.403c.276 0 .543-.027.811-.05-.857-2.578.157-4.972 1.932-6.446 1.703-1.415 3.882-1.98 5.853-1.838-.576-3.583-4.196-6.348-8.596-6.348zM5.785 5.991c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178A1.17 1.17 0 0 1 4.623 7.17c0-.651.52-1.18 1.162-1.18zm5.813 0c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178 1.17 1.17 0 0 1-1.162-1.178c0-.651.52-1.18 1.162-1.18zm5.34 2.867c-1.797-.052-3.746.512-5.28 1.786-1.72 1.428-2.687 3.72-1.78 6.22.942 2.453 3.666 4.229 6.884 4.229.826 0 1.622-.12 2.361-.336a.722.722 0 0 1 .598.082l1.584.926a.272.272 0 0 0 .14.047c.134 0 .24-.111.24-.247 0-.06-.023-.12-.038-.177l-.327-1.233a.582.582 0 0 1-.023-.156.49.49 0 0 1 .201-.398C23.024 18.48 24 16.82 24 14.98c0-3.21-2.931-5.837-6.656-6.088V8.89c-.135-.01-.27-.027-.407-.03zm-2.53 3.274c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983.976.976 0 0 1-.969-.983c0-.542.434-.982.97-.982zm4.844 0c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983.976.976 0 0 1-.969-.983c0-.542.434-.982.969-.982z' },
   tiktok: { label: 'TikTok', hex: '#000000', path: TIKTOK_PATH, dark: true },
+  // TikTok Shop is the same mark, a different platform (Seller Center, not marketing)
+  tiktokshop: { label: 'TikTok Shop', hex: '#000000', path: TIKTOK_PATH, dark: true },
   douyin: { label: 'Douyin', hex: '#000000', path: TIKTOK_PATH, dark: true },
   zalo: { label: 'Zalo', hex: '#0068FF', path: 'M12.49 10.2722v-.4496h1.3467v6.3218h-.7704a.576.576 0 01-.5763-.5729l-.0006.0005a3.273 3.273 0 01-1.9372.6321c-1.8138 0-3.2844-1.4697-3.2844-3.2823 0-1.8125 1.4706-3.2822 3.2844-3.2822a3.273 3.273 0 011.9372.6321l.0006.0005zM6.9188 7.7896v.205c0 .3823-.051.6944-.2995 1.0605l-.03.0343c-.0542.0615-.1815.206-.2421.2843L2.024 14.8h4.8948v.7682a.5764.5764 0 01-.5767.5761H0v-.3622c0-.4436.1102-.6414.2495-.8476L4.8582 9.23H.1922V7.7896h6.7266zm8.5513 8.3548a.4805.4805 0 01-.4803-.4798v-7.875h1.4416v8.3548H15.47zM20.6934 9.6C22.52 9.6 24 11.0807 24 12.9044c0 1.8252-1.4801 3.306-3.3066 3.306-1.8264 0-3.3066-1.4808-3.3066-3.306 0-1.8237 1.4802-3.3044 3.3066-3.3044zm-10.1412 5.253c1.0675 0 1.9324-.8645 1.9324-1.9312 0-1.065-.865-1.9295-1.9324-1.9295s-1.9324.8644-1.9324 1.9295c0 1.0667.865 1.9312 1.9324 1.9312zm10.1412-.0033c1.0737 0 1.945-.8707 1.945-1.9453 0-1.073-.8713-1.9436-1.945-1.9436-1.0753 0-1.945.8706-1.945 1.9436 0 1.0746.8697 1.9453 1.945 1.9453z' },
   stripe: { label: 'Stripe', hex: '#635BFF', path: 'M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.594-7.305h.003z' },
@@ -66,7 +69,7 @@ const BRAND: Record<BrandKey, { label: string; hex: string; path: string; dark?:
 }
 
 /** Channel ids used across the app → the mark that represents them. */
-const ALIAS: Record<string, BrandKey | 'email' | 'website' | 'voice' | 'sms' | 'chat'> = {
+const ALIAS: Record<string, BrandKey | 'email' | 'website' | 'voice' | 'sms' | 'chat' | 'shopee' | 'lazada'> = {
   whatsapp: 'whatsapp',
   wa: 'whatsapp',
   baileys: 'whatsapp',
@@ -104,17 +107,38 @@ const ALIAS: Record<string, BrandKey | 'email' | 'website' | 'voice' | 'sms' | '
   douyin: 'douyin',
   zalo: 'zalo',
   twilio: 'sms',
+  // marketplace seller channels. Shopify already has its mark above (the
+  // integration uses it); Shopee and Lazada get an accurate generic glyph in
+  // their brand colour rather than an invented, wrong-looking logo path.
+  shopee: 'shopee',
+  lazada: 'lazada',
+  tiktok_shop: 'tiktokshop',
+  tiktokshop: 'tiktokshop',
 }
 
-const GLYPH = { email: Mail, website: Globe, voice: Phone, sms: Smartphone, chat: MessageSquareText } as const
+const GLYPH = {
+  email: Mail,
+  website: Globe,
+  voice: Phone,
+  sms: Smartphone,
+  chat: MessageSquareText,
+  shopee: ShoppingBag,
+  lazada: ShoppingBag,
+} as const
 
-/** Brand-less channels' names: translation keys (SMS is a name, never translated). */
-const GENERIC: Record<keyof typeof GLYPH, { lbl?: MessageKey; en: string }> = {
+/**
+ * Channels drawn with a lucide glyph instead of a brand path: translation keys
+ * for the generic ones (SMS, Shopee and Lazada are names, never translated).
+ * `hex` gives a marketplace its brand colour without pretending to its logo.
+ */
+const GENERIC: Record<keyof typeof GLYPH, { lbl?: MessageKey; en: string; hex?: string }> = {
   email: { lbl: 'ui.channel.email', en: 'Email' },
   website: { lbl: 'ui.channel.website', en: 'Website chat' },
   voice: { lbl: 'ui.channel.voice', en: 'Voice' },
   sms: { en: 'SMS' },
   chat: { lbl: 'ui.channel.chat', en: 'Chat' },
+  shopee: { en: 'Shopee', hex: '#EE4D2D' },
+  lazada: { en: 'Lazada', hex: '#0F156D' },
 }
 
 /**
@@ -148,7 +172,9 @@ export function useChannelLabel(): (channel: string) => string {
 /** Brand hex for a channel (null for brand-less and near-black brands, which follow the theme's ink). */
 export function channelColor(channel: string): string | null {
   const k = ALIAS[channel?.toLowerCase?.() ?? '']
-  return k && k in BRAND && !BRAND[k as BrandKey].dark ? BRAND[k as BrandKey].hex : null
+  if (!k) return null
+  if (k in BRAND) return BRAND[k as BrandKey].dark ? null : BRAND[k as BrandKey].hex
+  return GENERIC[k as keyof typeof GLYPH]?.hex ?? null
 }
 
 /**
@@ -180,7 +206,11 @@ export function ChannelLogo({
 
   if (variant === 'tile') {
     const inner = Math.round(size * 0.58)
-    const brand = k in BRAND ? BRAND[k as BrandKey] : null
+    const brand = k in BRAND
+      ? BRAND[k as BrandKey]
+      : GENERIC[k as keyof typeof GLYPH]?.hex
+        ? { hex: GENERIC[k as keyof typeof GLYPH]!.hex!, dark: false }
+        : null
     return (
       <span
         {...a11y}
@@ -194,7 +224,12 @@ export function ChannelLogo({
       </span>
     )
   }
-  const fill = variant === 'mono' || !(k in BRAND) || BRAND[k as BrandKey].dark ? 'currentColor' : BRAND[k as BrandKey].hex
+  const fill =
+    variant === 'mono'
+      ? 'currentColor'
+      : k in BRAND
+        ? BRAND[k as BrandKey].dark ? 'currentColor' : BRAND[k as BrandKey].hex
+        : GENERIC[k as keyof typeof GLYPH]?.hex ?? 'currentColor'
   return (
     <span {...a11y} className={`inline-grid shrink-0 place-items-center ${className}`} style={style} title={label || undefined}>
       <Glyph k={k} size={size} fill={fill} />

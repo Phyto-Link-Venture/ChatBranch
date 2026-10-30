@@ -68,6 +68,12 @@ public static class McpExclusions
         new("POST", "/api/messaging/settings/test", "tests the default SMTP credentials being edited on the same settings page — " + CredentialRead),
         new("GET", "/api/integrations/settings", "App & provider keys (OAuth client ids/secrets) — " + CredentialRead),
         new("PUT", "/api/integrations/settings", Credentials),
+        // A voice note is a RECORDING made at the operator's microphone, which an
+        // AI has nothing to supply; the AI's own spoken replies are the
+        // ai_voice_replies setting, synthesised on the send path instead.
+        new("POST", "/api/whatsapp/threads/{key}/send-voice",
+            "sends a voice note recorded in the operator's browser — an AI has no microphone; its own spoken "
+            + "replies are the ai_voice_replies behaviour setting"),
         new("POST", "/api/integrations/{provider}/connect", "connects Shopify/Stripe with API keys — " + Credentials),
         new("POST", "/api/integrations/accounts", "creates an integration row with its API key / webhook secret — " + Credentials),
         new("POST", "/api/integrations/mcp", "external MCP server definitions carry auth tokens/headers — " + Credentials),

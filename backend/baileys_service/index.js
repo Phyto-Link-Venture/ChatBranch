@@ -37,7 +37,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import pino from 'pino'
 import { buildMediaMessage, MediaRequestError, MAX_SEND_MEDIA_BODY, readJsonBodyCapped } from './media.js'
-import { buildQuoted, buildReact, KeyStore, mediaKind, messageSeconds, parseInbound, phoneSent, postWithRetry, recallOf, setNormalizer, unwrap } from './messages.js'
+import { buildContact, buildDelete, buildEdit, buildLocation, buildPoll, buildQuoted, buildReact, editOf, KeyStore, mediaKind, messageSeconds, parseInbound, phoneSent, postWithRetry, recallOf, setNormalizer, unwrap } from './messages.js'
 import { createPresence, DEFAULT_IDLE_MS } from './presence.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -542,6 +542,12 @@ async function startAccount(id) {
         pushRecall(id, m, recall)
         continue
       }
+      // a re-wording (either side) — the same row, never a second bubble
+      const edit = editOf(m, type)
+      if (edit) {
+        pushEdit(id, m, edit)
+        continue
+      }
       if (m.key?.fromMe) {
         // typed on the phone / WhatsApp Web: the person's own reply (never our own sends)
         if (phoneSent(m, type, (mid) => !!ownSends.get(mid))) pushFromPhone(id, m)
@@ -550,6 +556,36 @@ async function startAccount(id) {
       pushInbound(id, m)
     }
   })
+}
+
+/**
+ * An edit WhatsApp reported — made on our own phone / WhatsApp Web, or by the
+ * customer on their own message. Pushed like a recall and for the same reason:
+ * the inbox must show what the two of them now see, not the wording that was
+ * replaced. Never a new bubble.
+ */
+async function pushEdit(id, m, edit) {
+  const jid = m.key?.remoteJid || ''
+  let waId = ''
+  if (jid.endsWith('@s.whatsapp.net')) {
+    waId = digits(jid.split('@')[0])
+  } else {
+    // a lid chat: the phone from the envelope (never senderPn on our own message —
+    // that is OUR number), else a mapping an earlier inbound taught us
+    const alt = String((edit.fromMe ? '' : m.key?.senderPn || m.key?.participantPn || '') || m.key?.remoteJidAlt || '')
+    waId = alt.includes('@s.whatsapp.net') ? digits(alt.split('@')[0]) : phoneForLid(jid) || ''
+  }
+  if (!waId) {
+    logEvent('editSkip', { acct: id, id: edit.id, jid, why: 'unknown lid chat' })
+    return
+  }
+  const r = await postWithRetry(() => fetch(`${API_URL}/api/whatsapp/baileys/edited`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+    body: JSON.stringify({ account_id: id, wa_id: waId, msg_id: edit.id, from_me: edit.fromMe, text: edit.text }),
+  }), { attempts: 3, baseDelayMs: 500 })
+  if (r.ok) logEvent('edited', { acct: id, id: edit.id, by: edit.fromMe ? 'us' : 'customer' })
+  else logEvent('editPushFailed', { acct: id, id: edit.id, status: r.status, attempts: r.attempts, error: r.error })
 }
 
 async function checkNumber(id, to) {
@@ -617,6 +653,68 @@ async function sendReaction(id, to, msgId, fromMe, emoji, rawJid = null) {
   const result = await a.sock.sendMessage(jid, buildReact({ jid, id: msgId, fromMe, emoji }))
   if (result) ownSends.remember(result)
   logEvent('react', { acct: id, to: d, jid, target: msgId, emoji: emoji || '(removed)' })
+  return result?.key?.id || ''
+}
+
+/**
+ * "Delete for everyone" on a message WE sent. WhatsApp keeps its own window
+ * (about two days) and refuses past it — that refusal is returned as a failure
+ * rather than smoothed over, because the message is still on the customer's
+ * phone and the operator needs to know.
+ */
+async function revokeMessage(id, to, msgId, fromMe, rawJid = null) {
+  const { a, d, jid } = await resolveTarget(id, to, rawJid)
+  await a.presence?.active()
+  const result = await a.sock.sendMessage(jid, buildDelete({ jid, id: msgId, fromMe }))
+  if (result) ownSends.remember(result)
+  logEvent('revoke', { acct: id, to: d, jid, target: msgId })
+  return result?.key?.id || ''
+}
+
+/**
+ * Edit a TEXT message we sent. WhatsApp allows it for about 15 minutes; the
+ * edit arrives as its own message, so the id returned is the EDIT's — the
+ * original keeps its own id, which is what the backend's row is keyed on.
+ */
+async function editMessage(id, to, msgId, fromMe, text, rawJid = null) {
+  const { a, d, jid } = await resolveTarget(id, to, rawJid)
+  await a.presence?.active()
+  const result = await a.sock.sendMessage(jid, buildEdit({ jid, id: msgId, fromMe, text }))
+  if (result) ownSends.remember(result)
+  logEvent('edit', { acct: id, to: d, jid, target: msgId })
+  return result?.key?.id || ''
+}
+
+/**
+ * A true WhatsApp FORWARD: the original message re-sent into another chat with
+ * WhatsApp's own "Forwarded" marking. That needs the whole original, not just
+ * its key, so it only works while the gateway still holds it (the last ~2000
+ * messages in either direction, lost on restart). When it does not, this
+ * REFUSES — re-sending the text or the file would arrive unmarked and be a
+ * different thing from what the operator asked for.
+ */
+async function forwardMessage(id, to, msgId, rawJid = null) {
+  const original = recentMessages.get(msgId)
+  if (!original) {
+    const e = new Error('that message is no longer held by the gateway, so it cannot be forwarded')
+    e.status = 409
+    throw e
+  }
+  const { a, d, jid } = await resolveTarget(id, to, rawJid)
+  await humanPause(a, jid)
+  const result = await a.sock.sendMessage(jid, { forward: original })
+  if (result) { recentMessages.remember(result); ownSends.remember(result) }
+  logEvent('forward', { acct: id, to: d, jid, source: msgId, id: result?.key?.id || '' })
+  return result?.key?.id || ''
+}
+
+/** A pinned location, a contact card or a poll — one builder each, one send. */
+async function sendBuilt(id, to, content, what, rawJid = null) {
+  const { a, d, jid } = await resolveTarget(id, to, rawJid)
+  await humanPause(a, jid)
+  const result = await a.sock.sendMessage(jid, content)
+  if (result) ownSends.remember(result)
+  logEvent(what, { acct: id, to: d, jid, id: result?.key?.id || '' })
   return result?.key?.id || ''
 }
 
@@ -720,7 +818,7 @@ const readBody = (req) =>
 http
   .createServer(async (req, res) => {
     if (req.headers['x-baileys-secret'] !== SECRET) return json(res, 403, { detail: 'bad secret' })
-    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|send-media|react|presence|logout|check|call|call-end|call-status|settings)$/)
+    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|send-media|react|revoke|edit|forward|send-location|send-contact|send-poll|presence|logout|check|call|call-end|call-status|settings)$/)
     if (!m) return json(res, 404, { detail: 'not found' })
     const [, id, action] = m
     try {
@@ -766,6 +864,39 @@ http
         if (emoji != null && typeof emoji !== 'string') return json(res, 400, { detail: 'emoji must be a string' })
         return json(res, 200, { id: await sendReaction(id, to, msg_id, !!from_me, emoji || '', raw_jid || null) })
       }
+      if (action === 'revoke') {
+        const { to, msg_id, from_me, raw_jid } = await readBody(req)
+        if (!to || !msg_id) return json(res, 400, { detail: 'to and msg_id are required' })
+        return json(res, 200, { id: await revokeMessage(id, to, msg_id, from_me !== false, raw_jid || null) })
+      }
+      if (action === 'edit') {
+        const { to, msg_id, from_me, text, raw_jid } = await readBody(req)
+        if (!to || !msg_id) return json(res, 400, { detail: 'to and msg_id are required' })
+        if (typeof text !== 'string' || text.trim() === '') return json(res, 400, { detail: 'text is required' })
+        return json(res, 200, { id: await editMessage(id, to, msg_id, from_me !== false, text, raw_jid || null) })
+      }
+      if (action === 'forward') {
+        const { to, msg_id, raw_jid } = await readBody(req)
+        if (!to || !msg_id) return json(res, 400, { detail: 'to and msg_id are required' })
+        return json(res, 200, { id: await forwardMessage(id, to, msg_id, raw_jid || null) })
+      }
+      if (action === 'send-location' || action === 'send-contact' || action === 'send-poll') {
+        const body = await readBody(req)
+        if (!body.to) return json(res, 400, { detail: 'to is required' })
+        let content
+        try {
+          content = action === 'send-location'
+            ? buildLocation(body)
+            : action === 'send-contact'
+              ? buildContact(body)
+              : buildPoll(body)
+        } catch (e) {
+          // the builders refuse bad input by throwing — that is the operator's mistake
+          return json(res, 400, { detail: e.message })
+        }
+        const what = action.replace('send-', '')
+        return json(res, 200, { id: await sendBuilt(id, body.to, content, what, body.raw_jid || null) })
+      }
       if (action === 'send-media') {
         // capped read: a file rides in this body (base64, ≤16 MB) — never a path or URL
         const read = await readJsonBodyCapped(req, MAX_SEND_MEDIA_BODY)
@@ -802,7 +933,9 @@ http
         return json(res, 200, { ok: true })
       }
     } catch (e) {
-      return json(res, 502, { detail: e.message })
+      // a handler may say the caller asked for something impossible (409) rather
+      // than the provider having failed (502) — forwarding a message we no longer hold
+      return json(res, e?.status || 502, { detail: e.message })
     }
   })
   .listen(PORT, HOST, () => {

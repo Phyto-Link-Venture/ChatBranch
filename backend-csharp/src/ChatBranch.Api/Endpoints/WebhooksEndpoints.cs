@@ -224,6 +224,31 @@ public static class WebhooksEndpoints
             return Results.Ok(new { ok = true, recalled = rows.Count });
         }).AllowAnonymous();
 
+        // An edit WhatsApp already applied — made on our own number's phone (or
+        // WhatsApp Web), or by the customer on their own message. It is the same
+        // message re-worded, so it updates the row rather than adding a bubble;
+        // the old wording goes to the activity log, as it does for an edit made
+        // from the inbox (ONE writer, Channels/MessageEdits.cs).
+        app.MapPost("/api/whatsapp/baileys/edited", async (HttpContext ctx, AppDbContext db,
+            ScopingService sc, ThreadStore store, ChatBranch.Data.Ai.AiGate gate) =>
+        {
+            if (!BaileysSecretOk(ctx, sc)) return Results.StatusCode(401);
+            JsonElement body;
+            try { body = await ctx.Request.ReadFromJsonAsync<JsonElement>(); }
+            catch { return Results.Ok(new { ok = true, edited = 0 }); }
+            var account = await BaileysAccountByKey(db, Str(body, "account_id"));
+            if (account == null) return Results.Ok(new { ok = true, edited = 0 });
+            var fromMe = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("from_me", out var fm)
+                         && (fm.ValueKind == JsonValueKind.True || (fm.ValueKind == JsonValueKind.String && fm.GetString() is "1" or "true"));
+            var rows = ChatBranch.Data.Channels.MessageEdits.RecordExternal(db, store, account,
+                new string((Str(body, "wa_id") ?? "").Where(char.IsDigit).ToArray()), Str(body, "msg_id") ?? "",
+                Str(body, "text") ?? "",
+                fromMe ? ChatBranch.Data.Channels.MessageEdits.ByBusiness
+                       : ChatBranch.Data.Channels.MessageEdits.ByCustomer,
+                gate);
+            return Results.Ok(new { ok = true, edited = rows.Count });
+        }).AllowAnonymous();
+
         app.MapPost("/api/whatsapp/baileys/status-event", async (HttpContext ctx, AppDbContext db,
             ScopingService sc) =>
         {

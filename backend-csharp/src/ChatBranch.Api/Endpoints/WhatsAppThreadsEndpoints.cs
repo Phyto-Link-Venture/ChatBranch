@@ -91,6 +91,27 @@ public static class WhatsAppThreadsEndpoints
     private const long MaxMediaBytes = 16 * 1024 * 1024;
 
     /// <summary>Allowed upload extension → (Meta media type, mime), views.MEDIA_EXTENSIONS.</summary>
+    /// <summary>
+    /// What a browser's recorder produces. Wider than <see cref="MediaExtensions"/>
+    /// on purpose — `.webm` is a recording container, not something to accept as a
+    /// general file upload — and everything but Ogg is re-containered before it
+    /// goes out (<see cref="AudioTranscoder.ToOggOpusAsync"/>).
+    /// </summary>
+    private static readonly HashSet<string> VoiceExtensions = new(StringComparer.OrdinalIgnoreCase)
+        { ".ogg", ".oga", ".opus", ".webm", ".m4a", ".mp4", ".mp3", ".wav", ".aac", ".3gp", ".amr" };
+
+    /// <summary>The extension a recorder's MIME implies, when the blob arrives unnamed.</summary>
+    private static string VoiceExtensionFor(string? contentType)
+    {
+        var mime = (contentType ?? "").ToLowerInvariant();
+        if (mime.Contains("ogg")) return ".ogg";
+        if (mime.Contains("webm")) return ".webm";
+        if (mime.Contains("mp4") || mime.Contains("m4a") || mime.Contains("aac")) return ".m4a";
+        if (mime.Contains("mpeg") || mime.Contains("mp3")) return ".mp3";
+        if (mime.Contains("wav")) return ".wav";
+        return "";
+    }
+
     private static readonly Dictionary<string, (string Type, string Mime)> MediaExtensions = new()
     {
         [".jpg"] = ("image", "image/jpeg"),
@@ -412,6 +433,86 @@ public static class WhatsAppThreadsEndpoints
             AiControlsEndpoints.HumanReplied(db, thread, msg, me); // answers an open handover
             await Audit(db, ctx, me, "message.send", $"whatsapp:{thread.Key}",
                 $"media:{kind.Type} {Cap(text, 150)}");
+            return Results.Ok(new { message = MessagePayload(msg, account) });
+        }).RequireAuthorization(AuthPolicies.Authenticated).DisableAntiforgery().RequireThreadAccess("chats.send");
+
+        // ---- send: a voice note the operator recorded (multipart) -------------
+        // The same bubble the AI's voice replies produce, but recorded by a
+        // person in the browser. WhatsApp's voice note is Ogg/Opus; browsers
+        // record webm/opus (Chrome, Firefox) or mp4/aac (Safari), so the upload
+        // is re-containered with ffmpeg first. Without ffmpeg a non-Ogg
+        // recording is REFUSED with the reason — quietly sending it as an audio
+        // file would look like a voice note to nobody and surprise the operator.
+        app.MapPost("/api/whatsapp/threads/{key}/send-voice", async (string key, HttpContext ctx,
+            AppDbContext db, ScopingService sc, OutboundSender sender, IWhatsAppCloudClient wa,
+            MediaStore media, ClaimsPrincipal me) =>
+        {
+            if (!ctx.Request.HasFormContentType)
+                return Results.BadRequest(new { detail = "file is required (multipart/form-data)." });
+            var form = await ctx.Request.ReadFormAsync();
+            var upload = form.Files["file"];
+            if (upload == null || upload.Length == 0)
+                return Results.BadRequest(new { detail = "file is required (multipart/form-data)." });
+            var force = form["force"].ToString().ToLowerInvariant() is "1" or "true" or "yes";
+
+            var ext = Path.GetExtension(upload.FileName ?? "").ToLowerInvariant();
+            if (ext.Length == 0) ext = VoiceExtensionFor(upload.ContentType);
+            if (!VoiceExtensions.Contains(ext))
+                return Results.BadRequest(new
+                {
+                    detail = $"A voice note must be a recording ({string.Join(", ", VoiceExtensions.Select(e => e.TrimStart('.')))}).",
+                });
+            if (upload.Length > MaxMediaBytes)
+                return Results.BadRequest(new { detail = "Recording too large (max 16 MB)." });
+
+            var thread = await ThreadResolver.LoadAsync(ctx);
+            if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
+            if (thread.OptedOut && !force)
+                return Results.Json(new
+                {
+                    detail = "Contact opted out of WhatsApp contact (STOP). "
+                             + "Resend with force=true to override as a manual exception.",
+                }, statusCode: 409);
+            var account = await EffectiveAccount(db, wa, thread);
+            var live = account != null && wa.IsConfigured(account);
+            // a voice note into a chat that has never replied is the same ban-risk
+            // case as cold free text on a conversation number
+            if (account != null && AccountRole(account) == "conversation"
+                && Rule(sc, "cold_text_guard", "block") == "block" && !(force && await MayOverrideColdGuard(db, me))
+                && !await db.Messages.AnyAsync(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In))
+                return Results.Json(new { detail = ColdTextBlockDetail }, statusCode: 409);
+            if (live && !WindowOpen(db, thread, account))
+                return Results.Json(new { detail = "WhatsApp 24h window closed — use a template." }, statusCode: 409);
+
+            string relPath;
+            await using (var stream = upload.OpenReadStream())
+                relPath = await media.SaveAsync(ChatBranch.Domain.Channels.WhatsApp, thread.Key, stream, ext) ?? "";
+            if (relPath.Length == 0)
+                return Results.BadRequest(new { detail = "Recording too large (max 16 MB)." });
+
+            // Ogg/Opus or nothing: that is what makes it a voice note rather than a file
+            var oggRel = relPath;
+            if (ext is not (".ogg" or ".oga" or ".opus"))
+            {
+                var source = media.Resolve(ChatBranch.Domain.Channels.WhatsApp, relPath);
+                var converted = source == null ? null : await AudioTranscoder.ToOggOpusAsync(source);
+                if (converted == null)
+                    return Results.Json(new
+                    {
+                        detail = "This server can't turn that recording into a WhatsApp voice note "
+                                 + "(ffmpeg is not available). Send it as a file attachment instead, "
+                                 + "or set MEDIA_FFMPEG.",
+                    }, statusCode: 503);
+                oggRel = relPath + ".ogg";
+            }
+
+            var (msg, error) = sender.SendVoiceNote(thread, oggRel, "audio/ogg", "[voice note]",
+                MessageSource.Agent, account?.Id);
+            if (msg == null)
+                return Results.Json(new { detail = error.Length > 0 ? error : "The voice note could not be sent." },
+                    statusCode: 502);
+            AiControlsEndpoints.HumanReplied(db, thread, msg, me); // answers an open handover
+            await Audit(db, ctx, me, "message.send", $"whatsapp:{thread.Key}", "voice note");
             return Results.Ok(new { message = MessagePayload(msg, account) });
         }).RequireAuthorization(AuthPolicies.Authenticated).DisableAntiforgery().RequireThreadAccess("chats.send");
 

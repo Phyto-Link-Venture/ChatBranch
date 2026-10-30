@@ -149,6 +149,9 @@ builder.Services.AddScoped(sp => new ChatBranch.Data.Channels.EmailChannel(
 builder.Services.AddScoped<ChatBranch.Data.Channels.TelegramChannel>();
 // LINE, Viber, SMS (Twilio), WeChat, TikTok, Douyin, Zalo: one transport each + the send seam
 builder.Services.AddMoreChannels();
+// Marketplace seller channels (Shopee, Lazada, TikTok Shop, Shopify): the sidecar
+// client plus one IChannelTransport each, so they ride the same send path.
+builder.Services.AddCommerceChannels();
 builder.Services.AddScoped<ChatBranch.Data.Channels.EmailSyncService>();
 builder.Services.AddScoped<ChatBranch.Data.Channels.ChannelHealthProber>();
 builder.Services.AddSingleton(sp => new ChatBranch.Api.Workers.HealthRecheck(
@@ -289,9 +292,13 @@ app.MapApiV1Endpoints();
 app.MapWebhookEndpoints();
 app.MapTelegramWebhookEndpoints();
 app.MapMoreChannelWebhookEndpoints();
+// The marketplace bridge: the seller service pushes buyer chats here.
+app.MapCommerceEndpoints();
 app.MapWhatsAppBspWebhookEndpoints();
 app.MapMessagingTransportEndpoints();
 app.MapMessageReactionEndpoints();
+// Delete for everyone + edit, on a message already sent (QR numbers).
+app.MapMessageActionEndpoints();
 app.MapMetaWebhookEndpoints();
 app.MapWhatsAppMediaEndpoints();
 // the Test lab: scripted end-to-end scenarios + a fenced demo dataset (superadmin; TEST_LAB=0 = not mapped)

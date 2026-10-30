@@ -21,6 +21,57 @@ another.
 
 ---
 
+## 0. Marketplace buyer chat (Shopee, Lazada, TikTok Shop, Shopify)
+
+These four are channels like any other in the inbox, with one structural
+difference worth understanding before you touch them: **the credentials are not
+here.** A marketplace grant lives in the `e-comerce-seller-mcp` sidecar, which
+owns the OAuth flow, the token refresh and the provider APIs — the same division
+of labour as `backend/baileys_service` for a QR-paired WhatsApp number.
+
+| | Shopee | Lazada | TikTok Shop | Shopify |
+|---|---|---|---|---|
+| The account | one `ChannelAccount` per SHOP; `ExternalId` is the shop handle (`shopee:123456`, `shopify:my-store.myshopify.com`) | same | same | same |
+| The conversation | `Thread.Key` = the marketplace's CONVERSATION id — that is what a reply needs | same | same | n/a |
+| Receive | the sidecar's webhook → `POST /api/commerce/inbound` | the sidecar POLLS (Lazada's IM API has no seller webhook) → the same push | the sidecar's webhook → the same push | — |
+| Send text | ✅ through the sidecar (`POST /api/bridge/send`) | ✅ | ✅ | ❌ Shopify has no public buyer-chat API — refused honestly as `Unsupported` |
+| Send media | ❌ (each marketplace wants its own upload step); inbound media is LINKED, not downloaded | ❌ | ❌ | — |
+| Reply window | none published | none published | none published | — |
+| Health | the sidecar's own verdict (`CommerceTransport.ProbeAsync` → its `/api/bridge/accounts`): `connected` → healthy, `revoked` → disconnected. An unreachable sidecar is TRANSIENT — the shop is fine | same | same | same |
+| Auth on inbound | `X-Commerce-Secret` (Setting `commerce_secret` → env `COMMERCE_SECRET`) | same | same | same |
+
+**Where the code is.** `Channels/Commerce/CommerceChannels.cs` is the
+vocabulary (ids, labels, the `marketplace:shop_id` handle, what carries chat);
+`Channels/Commerce/CommerceTransport.cs` is one `IChannelTransport` per channel
+over `Sidecars/ICommerceGateway.cs`; `Endpoints/CommerceEndpoints.cs` is the
+bridge. They are listed in `MoreChannels.All`, so routing, `MoreChannelSender`,
+the health prober and the channel labels carry them unchanged —
+`MoreChannels.IsCommerce` is what marks them as credential-free, which is why
+`MoreChannelAccounts.Handles` is false for them and the accounts API refuses to
+create one.
+
+**The push answers honestly.** The sidecar checks the answer and retries, so
+`/api/commerce/inbound` returns 200 only when the message was stored, 400 when
+the push can never work (unknown channel, no conversation key, malformed body)
+and 500 when a retry might. A silent 200 over a dropped buyer message is the one
+thing it must not do.
+
+**A shop appears by itself.** Its grant cannot be typed into ChatBranch, so the
+first buyer message creates the inbox (audited `account.create`), and
+`POST /api/commerce/shops/sync` pulls in the shops that have not chatted yet.
+Everything else about the inbox — the team, the AI default, kept recalls, its
+entity — is edited exactly like any other channel's.
+
+**What is NOT here.** Products, stock, orders and sales are the sidecar's own
+REST API and MCP server; ChatBranch's side is the conversation. See
+`docs/mcp.md` there, and `docs/chatbranch-bridge.md` for the contract.
+
+Tests: `CommerceBridgeTests` (a fake seller service — the secret closed / wrong /
+right, the push's honest answer, dedup, a shop becoming an inbox, our own sends
+not coming back as buyer messages, Shopify's refusal, health verdicts).
+
+---
+
 ## 1. What each channel can do
 
 | | WhatsApp Cloud | WhatsApp Baileys | Website widget | Telegram | Messenger / IG | Email |
@@ -35,6 +86,13 @@ another.
 | Typing / read | ✅ Graph `typing_indicator` | ✅ gateway presence | — | ✅ `sendChatAction` (typing) | ✅ `mark_seen` + `typing_on` (24h window only) | — |
 | Quoted replies | ✅ in `context.id` · out `context.message_id` | ✅ in `contextInfo.stanzaId` · out gateway `quoted_id` | — | ✅ in `reply_to_message` · out `reply_parameters` | in only (`reply_to.mid`); our replies go unquoted | — |
 | Reactions | ✅ in `type: reaction` · out `type: reaction` (24h window, else 409) | ✅ in `reactionMessage` · out gateway `react` | — | ✅ in `message_reaction` · out `setMessageReaction` (Telegram's own emoji set) | — (409) | — (409) |
+| Delete for everyone (ours) | ❌ Meta publishes no delete | ✅ gateway `revoke` → `MessageRecalls.RecordOurs` (~2-day window) | — | ❌ | ❌ | — |
+| Edit a sent message | ❌ Meta publishes no edit | ✅ gateway `edit` → `MessageEdits` (~15-minute window) | — | ❌ | ❌ | — |
+| Edit made ON the channel (their phone or ours) | ❌ | ✅ `MESSAGE_EDIT` → `/baileys/edited` → `MessageEdits.RecordExternal` — the same row re-worded, the old wording in the audit log, and a held AI reply that answered only it expires | — | ❌ | ❌ | — |
+| Location / contact card (ours) | ⚠ Meta's API can, ChatBranch doesn't wire it yet (409 saying so) | ✅ gateway `send-location` / `send-contact` (a vCard built from the name + phones) | — | ❌ | ❌ | — |
+| Poll | ❌ the official API has no poll message | ✅ out: gateway `send-poll` (2–12 options, `selectable_count`) · in: read as `[poll] question — a / b`; **votes do not come back** either way — they arrive encrypted against the poll's creation message, which the gateway loses on restart | — | ❌ | ❌ | — |
+| Forward a message | ❌ | ✅ gateway `forward` — a true WhatsApp forward of the original, same channel only, and 409 once the gateway no longer holds it | — | ❌ | ❌ | — |
+| Operator's own voice note | ✅ upload → `type: audio` | ✅ gateway `send-media` `ptt: true` (the browser's recording re-containered to Ogg/Opus by ffmpeg; no ffmpeg ⇒ 503) | — | ✅ `sendVoice` | ❌ | ❌ |
 | AI voice replies (`ai_voice_replies`) | ✅ upload Ogg/Opus → `type: audio` (a voice note) | ✅ gateway `send-media` with `ptt: true` (`audio/ogg; codecs=opus`) | text | ✅ `sendVoice` (Ogg/Opus, no caption) | ✅ MP3 audio attachment (inside the window) | text |
 | Inbound voice notes → words | ✅ transcribed (`crm_message.transcript`) | ✅ | — | ✅ | ✅ (audio attachments) | — |
 | 24h window | ✅ enforced (409 → use a template); 131047 closes it | none | none | none | ✅ ≤24h anything; 24h–7d a person only (`HUMAN_AGENT` tag), AI/automation refused; >7d refused | — |
