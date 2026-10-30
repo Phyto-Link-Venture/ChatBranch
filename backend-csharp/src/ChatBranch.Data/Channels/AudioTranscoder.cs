@@ -74,8 +74,13 @@ public static class AudioTranscoder
     /// </summary>
     public static Task<string?> ToOggOpusAsync(string source, CancellationToken ct = default) =>
         ConvertAsync(source, ".ogg",
-            // 32 kbit mono is voice-note quality and keeps a long note small
-            new[] { "-vn", "-c:a", "libopus", "-b:a", "32k", "-ar", "48000", "-ac", "1", "-f", "ogg" }, ct);
+            // 32 kbit mono is voice-note quality and keeps a long note small. WhatsApp on
+            // iPhone refuses ("Couldn't download audio") a note carrying the browser
+            // recording's leftovers — a start before zero (webm's codec delay) and copied
+            // tags — so start at zero and write no metadata, like WhatsApp's own notes.
+            new[] { "-vn", "-map_metadata", "-1", "-map_chapters", "-1",
+                    "-c:a", "libopus", "-b:a", "32k", "-ar", "48000", "-ac", "1", "-application", "voip",
+                    "-avoid_negative_ts", "make_zero", "-flags", "+bitexact", "-fflags", "+bitexact", "-f", "ogg" }, ct);
 
     /// <summary>
     /// One ffmpeg run, cached next to the source (<c>{source}{suffix}</c>) and
