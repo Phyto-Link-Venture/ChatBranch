@@ -115,6 +115,13 @@ public static class MessageEdits
             // note is ours alone — neither is on the customer's phone
             rows = rows.Where(m => m.RecalledAt == null && !m.Private && m.Text != wording).ToList();
             if (rows.Count == 0) return rows;
+            // A recall takes back every part of a split message; an edit does NOT
+            // repeat the new wording across them — one provider message carries one
+            // wording, and on a split message that is the first part (its caption).
+            // WhatsApp ids never carry a part suffix, so this only matters if another
+            // channel's edit ever arrives here (Messenger splits its attachments).
+            if (rows.Count > 1)
+                rows = new List<Message> { rows.FirstOrDefault(m => m.ExternalId == id) ?? rows.MinBy(m => m.Id)! };
 
             var now = nowUtc ?? DateTime.UtcNow;
             var who = by == ByBusiness ? ByBusiness : ByCustomer;

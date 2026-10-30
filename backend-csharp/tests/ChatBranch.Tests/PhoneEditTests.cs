@@ -154,6 +154,34 @@ public class PhoneEditTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task An_edit_rewords_one_part_of_a_split_message_not_every_part()
+    {
+        Paired("gw-edit-6");
+        await Inbound("gw-edit-6", "60172000006", "see attached", "ED-49");
+        var threadId = Row("ED-49").ThreadId;
+        var acctId = Db(db => db.ChannelAccounts.Single(a => a.ExternalId == "gw-edit-6").Id);
+        // a channel that splits one message's attachments into rows (Messenger does)
+        Db(db =>
+        {
+            foreach (var part in new[] { "ED-50#1", "ED-50#2" })
+                db.Messages.Add(new Message
+                {
+                    ThreadId = threadId, Direction = MessageDirection.In, Source = MessageSource.Customer,
+                    Text = "the caption", Status = "received", ExternalId = part, AccountId = acctId,
+                    CreatedAt = DateTime.UtcNow,
+                });
+            return db.SaveChanges();
+        });
+
+        Assert.Equal(1, await Edited("gw-edit-6", "60172000006", "ED-50", "the fixed caption"));
+
+        // the wording belongs to ONE provider message, so it is not repeated
+        Assert.Equal("the fixed caption", Row("ED-50#1").Text);
+        Assert.Equal("the caption", Row("ED-50#2").Text);
+        Assert.Null(Row("ED-50#2").EditedAt);
+    }
+
+    [Fact]
     public void A_reply_held_for_review_expires_when_the_customer_rewords_what_it_answered()
     {
         using var r = new TouchRig();
