@@ -350,9 +350,26 @@ public class AiGate
     /// for review that answers ONLY those has nothing left to answer — expire it.
     /// A reply that also answers something still there stays for a person to decide.
     /// </summary>
-    public int ExpireForRecall(Thread thread, IReadOnlyCollection<int> recalledIds)
+    public int ExpireForRecall(Thread thread, IReadOnlyCollection<int> recalledIds) =>
+        ExpireAnswering(thread, recalledIds, "The customer deleted the message this reply answered.");
+
+    /// <summary>
+    /// The customer re-worded ("edit") messages: a reply still waiting for review
+    /// that answers ONLY those was written against wording the customer has since
+    /// replaced, so sending it would answer a question nobody asked. Expire it and
+    /// let the next inbound — or a person — answer what the message says now.
+    /// </summary>
+    public int ExpireForEdit(Thread thread, IReadOnlyCollection<int> editedIds) =>
+        ExpireAnswering(thread, editedIds, "The customer changed the message this reply answered.");
+
+    /// <summary>
+    /// Expire every held reply whose `answering` snapshot is a subset of
+    /// <paramref name="goneIds"/> — the one rule a recall and an edit share, so the
+    /// two cannot drift apart.
+    /// </summary>
+    private int ExpireAnswering(Thread thread, IReadOnlyCollection<int> goneIds, string reason)
     {
-        if (recalledIds.Count == 0) return 0;
+        if (goneIds.Count == 0) return 0;
         var held = _db.AiDrafts.Where(d => d.ThreadId == thread.Id && d.Status == AiDraftStatus.Pending
                 && (d.Kind == AiDraftKind.Reply || d.Kind == AiDraftKind.FollowUp)).ToList();
         var expired = 0;
@@ -365,8 +382,8 @@ public class AiGate
                 _ => new List<object?>(),
             };
             var ids = answering.Select(a => Num(a, "id")).Where(x => x != null).Select(x => (int)x!.Value).ToList();
-            if (ids.Count == 0 || !ids.All(recalledIds.Contains)) continue;
-            Expire(d, "The customer deleted the message this reply answered.");
+            if (ids.Count == 0 || !ids.All(goneIds.Contains)) continue;
+            Expire(d, reason);
             expired++;
         }
         if (expired > 0)

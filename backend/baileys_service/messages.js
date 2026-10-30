@@ -117,6 +117,22 @@ export function contactText(name, phone) {
   return p ? `[contact] ${n || p} · ${p}` : `[contact] ${n}`
 }
 
+/**
+ * A poll, in the same shape our own outbound poll stores, so one bubble reads
+ * the same whoever sent it. WhatsApp does not hand back the VOTES (each
+ * `pollUpdateMessage` is encrypted against the poll's creation message, which
+ * this gateway only holds until it restarts), so the question and the options
+ * are all there is to show.
+ */
+function pollText(poll) {
+  const q = String(poll?.name ?? '').trim()
+  const options = (Array.isArray(poll?.options) ? poll.options : [])
+    .map((o) => String(o?.optionName ?? '').trim())
+    .filter(Boolean)
+  if (!q && options.length === 0) return '[poll]'
+  return options.length > 0 ? `[poll] ${q} \u2014 ${options.join(' / ')}` : `[poll] ${q}`
+}
+
 function locationText(loc) {
   const lat = Number(loc?.degreesLatitude)
   const lng = Number(loc?.degreesLongitude)
@@ -129,6 +145,8 @@ function locationText(loc) {
 export function extractText(msg) {
   if (!msg) return '[message]'
   if (msg.locationMessage || msg.liveLocationMessage) return locationText(msg.locationMessage || msg.liveLocationMessage)
+  const poll = msg.pollCreationMessage || msg.pollCreationMessageV2 || msg.pollCreationMessageV3
+  if (poll) return pollText(poll)
   if (msg.contactMessage) {
     const { name, phone } = vcardFields(msg.contactMessage.vcard)
     return contactText(msg.contactMessage.displayName || name, phone)
@@ -223,6 +241,35 @@ export function recallOf(m, type, nowS = Math.floor(Date.now() / 1000)) {
   const ts = messageSeconds(m)
   if (ts > 0 && nowS - ts > PHONE_SYNC_WINDOW_S) return null
   return { id, fromMe: !!m.key?.fromMe }
+}
+
+/** proto.Message.ProtocolMessage.Type.MESSAGE_EDIT — WhatsApp's "edit". */
+export const MESSAGE_EDIT = 14
+
+/**
+ * An edit WhatsApp is reporting: `{id, fromMe, text}` of the message re-worded —
+ * fromMe = it was edited on our own number (the phone / WhatsApp Web), else the
+ * customer edited theirs — or null.
+ *
+ * Same gate as a recall: only a live (`notify`) edit in a 1:1 chat inside the
+ * sync window counts, so history replayed on connect never rewrites the chat.
+ * The new wording is read with the ordinary `extractText`, so an edited caption
+ * reads like any caption.
+ */
+export function editOf(m, type, nowS = Math.floor(Date.now() / 1000)) {
+  if (type !== 'notify') return null
+  const p = unwrap(m?.message)?.protocolMessage
+  if (!p || !(p.type === MESSAGE_EDIT || p.type === 'MESSAGE_EDIT')) return null
+  const id = p.key?.id
+  if (!id) return null
+  const jid = String(m.key?.remoteJid || '')
+  if (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid')) return null
+  const ts = messageSeconds(m)
+  if (ts > 0 && nowS - ts > PHONE_SYNC_WINDOW_S) return null
+  const text = extractText(unwrap(p.editedMessage))
+  // an edit we cannot read the new wording of would blank the bubble
+  if (!text || text === '[message]') return null
+  return { id, fromMe: p.key?.fromMe ?? !!m.key?.fromMe, text }
 }
 
 /** A bounded map of recent WAMessages by id (oldest evicted first). */
@@ -447,6 +494,31 @@ export function selftest() {
   check(recallOf({ ...revoke('customer'), message: { ephemeralMessage: { message: { protocolMessage: { type: 'REVOKE', key: { id: 'G2' } } } } } },
     'notify', now)?.id === 'G2', 'a recall inside a disappearing-message wrapper')
   check(recallOf(revoke('customer'), 'append', now) === null, 'history is not a recall')
+  // a poll reads as a poll, whoever sent it (its votes never come back)
+  check(parseInbound({ pollCreationMessage: { name: 'Which slot?', options: [{ optionName: '9am' }, { optionName: '2pm' }] } }).text
+    === '[poll] Which slot? \u2014 9am / 2pm', 'poll text')
+  check(parseInbound({ pollCreationMessageV3: { name: 'Pick one', options: [] } }).text === '[poll] Pick one',
+    'a poll with no options still names its question')
+  check(parseInbound({ pollCreationMessage: {} }).text === '[poll]', 'an unreadable poll is still marked as one')
+  // an edit: made on our own phone, or by the customer on their own message
+  const edited = (fromMe, extra = {}) => ({
+    key: { id: 'EV1', fromMe, remoteJid: '60123@s.whatsapp.net' }, messageTimestamp: now - 2,
+    message: { protocolMessage: { type: MESSAGE_EDIT, key: { id: 'OLD1', fromMe }, editedMessage: { conversation: 'the new wording' } } },
+    ...extra,
+  })
+  const ev = editOf(edited(true), 'notify', now)
+  check(ev && ev.id === 'OLD1' && ev.fromMe === true && ev.text === 'the new wording',
+    'an edit on our phone names the message and its new wording')
+  check(editOf(edited(false), 'notify', now)?.fromMe === false, "the customer's own edit is theirs")
+  check(editOf(edited(true), 'append', now) === null, 'history is not an edit')
+  check(editOf(revoke('customer'), 'notify', now) === null, 'a recall is not an edit')
+  check(editOf(edited(true, { messageTimestamp: now - 3600 }), 'notify', now) === null, 'an hour-old edit is history')
+  check(editOf({ ...edited(true), key: { id: 'EV2', fromMe: true, remoteJid: '1203@g.us' } }, 'notify', now) === null,
+    'a group edit is not synced')
+  check(editOf({ ...edited(true), message: { protocolMessage: { type: MESSAGE_EDIT, key: { id: 'OLD2' }, editedMessage: {} } } },
+    'notify', now) === null, 'an edit whose new wording cannot be read is dropped, not blanked')
+  check(editOf({ ...edited(true), message: { ephemeralMessage: { message: { protocolMessage: { type: MESSAGE_EDIT, key: { id: 'OLD3' }, editedMessage: { conversation: 'x' } } } } } },
+    'notify', now)?.id === 'OLD3', 'an edit inside a disappearing-message wrapper')
   check(recallOf({ ...revoke('customer'), message: { protocolMessage: { type: 14, key: { id: 'E1' } } } }, 'notify', now) === null,
     'an edit (MESSAGE_EDIT) is not a recall')
   check(recallOf({ ...revoke('customer'), message: { protocolMessage: { type: 5 } } }, 'notify', now) === null,

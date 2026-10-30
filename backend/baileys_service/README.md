@@ -38,7 +38,12 @@ header); the gateway pushes back to the API's `/api/whatsapp/baileys/*` routes.
   a live REVOKE `protocolMessage` in a 1:1 chat — the customer's, or one made on the
   number's own phone (`from_me`) — is pushed to `/api/whatsapp/baileys/recall` with the
   id of the message taken back; it is never a bubble or a "sent from the phone" reply.
-  Edits (`MESSAGE_EDIT`) are not recalls.
+- **Edits** (`index.js` `pushEdit`, rule in `messages.js` `editOf`): a live
+  `MESSAGE_EDIT` `protocolMessage` in a 1:1 chat — the customer re-wording their own
+  message, or one re-worded on the number's own phone (`from_me`) — is pushed to
+  `/api/whatsapp/baileys/edited` with the id and the NEW wording, which updates that
+  row rather than adding a bubble. An edit whose new wording cannot be read is
+  dropped rather than blanking the message.
 - `calls.js` — **voice calls**. Composes the internals of
   [baileys-caller](https://github.com/SheIITear/baileys-caller) (MIT,
   WhatsApp Web's own VoIP WASM stack) around the *existing* account socket —

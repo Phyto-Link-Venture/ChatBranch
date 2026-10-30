@@ -37,7 +37,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import pino from 'pino'
 import { buildMediaMessage, MediaRequestError, MAX_SEND_MEDIA_BODY, readJsonBodyCapped } from './media.js'
-import { buildContact, buildDelete, buildEdit, buildLocation, buildPoll, buildQuoted, buildReact, KeyStore, mediaKind, messageSeconds, parseInbound, phoneSent, postWithRetry, recallOf, setNormalizer, unwrap } from './messages.js'
+import { buildContact, buildDelete, buildEdit, buildLocation, buildPoll, buildQuoted, buildReact, editOf, KeyStore, mediaKind, messageSeconds, parseInbound, phoneSent, postWithRetry, recallOf, setNormalizer, unwrap } from './messages.js'
 import { createPresence, DEFAULT_IDLE_MS } from './presence.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -542,6 +542,12 @@ async function startAccount(id) {
         pushRecall(id, m, recall)
         continue
       }
+      // a re-wording (either side) — the same row, never a second bubble
+      const edit = editOf(m, type)
+      if (edit) {
+        pushEdit(id, m, edit)
+        continue
+      }
       if (m.key?.fromMe) {
         // typed on the phone / WhatsApp Web: the person's own reply (never our own sends)
         if (phoneSent(m, type, (mid) => !!ownSends.get(mid))) pushFromPhone(id, m)
@@ -550,6 +556,36 @@ async function startAccount(id) {
       pushInbound(id, m)
     }
   })
+}
+
+/**
+ * An edit WhatsApp reported — made on our own phone / WhatsApp Web, or by the
+ * customer on their own message. Pushed like a recall and for the same reason:
+ * the inbox must show what the two of them now see, not the wording that was
+ * replaced. Never a new bubble.
+ */
+async function pushEdit(id, m, edit) {
+  const jid = m.key?.remoteJid || ''
+  let waId = ''
+  if (jid.endsWith('@s.whatsapp.net')) {
+    waId = digits(jid.split('@')[0])
+  } else {
+    // a lid chat: the phone from the envelope (never senderPn on our own message —
+    // that is OUR number), else a mapping an earlier inbound taught us
+    const alt = String((edit.fromMe ? '' : m.key?.senderPn || m.key?.participantPn || '') || m.key?.remoteJidAlt || '')
+    waId = alt.includes('@s.whatsapp.net') ? digits(alt.split('@')[0]) : phoneForLid(jid) || ''
+  }
+  if (!waId) {
+    logEvent('editSkip', { acct: id, id: edit.id, jid, why: 'unknown lid chat' })
+    return
+  }
+  const r = await postWithRetry(() => fetch(`${API_URL}/api/whatsapp/baileys/edited`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+    body: JSON.stringify({ account_id: id, wa_id: waId, msg_id: edit.id, from_me: edit.fromMe, text: edit.text }),
+  }), { attempts: 3, baseDelayMs: 500 })
+  if (r.ok) logEvent('edited', { acct: id, id: edit.id, by: edit.fromMe ? 'us' : 'customer' })
+  else logEvent('editPushFailed', { acct: id, id: edit.id, status: r.status, attempts: r.attempts, error: r.error })
 }
 
 async function checkNumber(id, to) {

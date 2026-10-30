@@ -1,4 +1,6 @@
+using ChatBranch.Data.Ai;
 using ChatBranch.Data.Audit;
+using ChatBranch.Data.Stores;
 using ChatBranch.Domain;
 using Thread = ChatBranch.Domain.Thread;
 
@@ -73,6 +75,74 @@ public static class MessageEdits
             $"Edited message #{message.Id} — was: {Short(before)}",
             actor: $"agent:{username}", source: "user", entityId: thread.EntityId);
         db.SaveChanges();
+    }
+
+    /// <summary>Who re-worded it, for the actor and the note.</summary>
+    public const string ByBusiness = "business";
+    public const string ByCustomer = "customer";
+
+    /// <summary>
+    /// An edit WhatsApp has ALREADY applied, reported by the gateway: made on our
+    /// own number's phone (or WhatsApp Web), or by the customer on their own
+    /// message. Same two rules as an edit we asked for — the row takes the new
+    /// wording, the audit row keeps the old — so a chat read here says what the
+    /// two of them actually see now.
+    ///
+    /// It never adds a bubble (an edit is the same message) and never reopens,
+    /// notifies, or wakes the AI: nothing new was said. What it DOES do is expire
+    /// a held AI reply that answered only this message — that draft was written
+    /// against wording the customer has replaced, and sending it would answer a
+    /// question nobody asked.
+    ///
+    /// Rows are found the way a recall finds them (the account's own rows first,
+    /// then the conversation's), and never throws into a webhook.
+    /// </summary>
+    public static List<Message> RecordExternal(AppDbContext db, ThreadStore threads, ChannelAccount account,
+        string key, string externalId, string text, string by, AiGate? gate = null, DateTime? nowUtc = null)
+    {
+        try
+        {
+            var id = (externalId ?? "").Trim();
+            var wording = (text ?? "").Trim();
+            if (id.Length == 0 || wording.Length == 0) return new();
+            var prefix = id + "#";
+            var rows = db.Messages.Where(m => m.AccountId == account.Id
+                    && (m.ExternalId == id || m.ExternalId.StartsWith(prefix))).ToList();
+            if (rows.Count == 0 && threads.FindForAccount(account.Channel, key, account.Id) is { } found)
+                rows = db.Messages.Where(m => m.ThreadId == found.Id
+                    && (m.ExternalId == id || m.ExternalId.StartsWith(prefix))).ToList();
+            // a message already taken back has nothing to re-word, and a private
+            // note is ours alone — neither is on the customer's phone
+            rows = rows.Where(m => m.RecalledAt == null && !m.Private && m.Text != wording).ToList();
+            if (rows.Count == 0) return rows;
+
+            var now = nowUtc ?? DateTime.UtcNow;
+            var who = by == ByBusiness ? ByBusiness : ByCustomer;
+            var thread = db.Threads.FirstOrDefault(t => t.Id == rows[0].ThreadId);
+            foreach (var m in rows)
+            {
+                var before = m.Text;
+                m.Text = wording;
+                m.EditedAt = now;
+                AuditTrail.Add(db, AuditAction, thread != null ? $"{thread.Channel}:{thread.Key}" : "",
+                    $"Edited message #{m.Id} — was: {Short(before)}",
+                    actor: who == ByBusiness ? "agent:phone" : "contact", source: "webhook",
+                    entityId: thread?.EntityId);
+            }
+            if (thread != null) thread.UpdatedAt = now;
+            db.SaveChanges();
+            // only the customer's own re-wording can strand a held reply; ours cannot
+            if (who == ByCustomer && gate != null && thread != null)
+            {
+                try { gate.ExpireForEdit(thread, rows.Select(m => m.Id).ToList()); }
+                catch { /* the edit is recorded; a draft left for a person is not a failure */ }
+            }
+            return rows;
+        }
+        catch
+        {
+            return new();
+        }
     }
 
     /// <summary>The old wording, capped so one long message cannot bloat the log.</summary>
