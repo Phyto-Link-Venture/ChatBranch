@@ -76,6 +76,12 @@ groups, no video.
 | `POST /accounts/:id/start` | begin/refresh pairing (QR as data URL) |
 | `POST /accounts/:id/send` | `{to, text, quoted_id?, quoted_from_me?, quoted_text?}` → `{id}` (`quoted_*` = a reply quoting that message — the real one from the gateway's recent-message map, else rebuilt from `quoted_text`) |
 | `POST /accounts/:id/react` | `{to, msg_id, from_me?, emoji}` → `{id}` (an emoji reaction; `""` removes ours) |
+| `POST /accounts/:id/revoke` | `{to, msg_id, from_me?}` → `{id}` (“delete for everyone” on a message we sent; WhatsApp allows about two days) |
+| `POST /accounts/:id/edit` | `{to, msg_id, from_me?, text}` → `{id}` (re-word a message we sent; WhatsApp allows about 15 minutes) |
+| `POST /accounts/:id/forward` | `{to, msg_id}` → `{id}` (a true WhatsApp forward of a message the gateway still holds in its recent-message map — **409** once it doesn't, rather than re-sending the content unmarked) |
+| `POST /accounts/:id/send-location` | `{to, lat, lng, name?, address?}` → `{id}` |
+| `POST /accounts/:id/send-contact` | `{to, name, phones[], organization?}` → `{id}` (a vCard; the first phone is the one WhatsApp shows) |
+| `POST /accounts/:id/send-poll` | `{to, question, options[], selectable_count?}` → `{id}` (2–12 distinct options; `selectableCount` is read too, and is what the C# client sends) |
 | `POST /accounts/:id/send-media` | `{to, media_type: image\|video\|audio\|document, file_b64, mime?, filename?, caption?}` → `{id}` (≤16 MB, base64 in the body; paths/URLs refused) |
 | `POST /accounts/:id/check` | `{to}` → `{exists, jid}` |
 | `POST /accounts/:id/logout` | unpair + wipe auth state (ends any live call) |

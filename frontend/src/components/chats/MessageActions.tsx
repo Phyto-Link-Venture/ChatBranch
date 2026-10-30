@@ -13,7 +13,7 @@
  * sees the wording they are changing rather than a dialog over it.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Check, Copy, Pencil, Reply, Trash2 } from 'lucide-react'
+import { Check, Copy, Forward, Pencil, Reply, Trash2 } from 'lucide-react'
 import { useFormat, useT } from '@/i18n'
 import { EmojiPicker } from './EmojiPicker'
 import { QuickReactions, ReactionChips, myReaction } from './ReactionBar'
@@ -30,10 +30,12 @@ export default function MessageActions({
   canReact,
   canEdit = false,
   canDelete = false,
+  canForward = false,
   onReply,
   onReact,
   onEdit,
   onDelete,
+  onForward,
   children,
 }: {
   m: UiMessage
@@ -45,10 +47,13 @@ export default function MessageActions({
   canEdit?: boolean
   /** Our own message, on a channel that can delete for everyone, inside its window. */
   canDelete?: boolean
+  /** Any message, on a channel that can forward — the picker chooses the target. */
+  canForward?: boolean
   onReply: (m: UiMessage) => void
   onReact: (m: UiMessage, emoji: string) => void
   onEdit?: (m: UiMessage, text: string) => Promise<void>
   onDelete?: (m: UiMessage) => Promise<void>
+  onForward?: (m: UiMessage) => void
   children: ReactNode
 }) {
   const t = useT()
@@ -105,7 +110,8 @@ export default function MessageActions({
 
   const editable = canEdit && hasPk && !m.private && !!onEdit
   const deletable = canDelete && hasPk && !m.private && !!onDelete
-  const anyAction = reactable || replyable || copyable || editable || deletable
+  const forwardable = canForward && hasPk && !m.private && !m.recalled && !!onForward
+  const anyAction = reactable || replyable || copyable || editable || deletable || forwardable
 
   const saveEdit = async () => {
     const next = editText.trim()
@@ -228,6 +234,20 @@ export default function MessageActions({
                 className="grid h-8 w-8 place-items-center rounded-full text-text-mid transition-colors hover:bg-fill-hover hover:text-text-high"
               >
                 {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+              </button>
+            )}
+            {forwardable && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  onForward!(m)
+                }}
+                title={t('bubble.forward.open')}
+                aria-label={t('bubble.forward.open')}
+                className="grid h-8 w-8 place-items-center rounded-full text-text-mid transition-colors hover:bg-fill-hover hover:text-text-high"
+              >
+                <Forward size={15} aria-hidden />
               </button>
             )}
             {editable && (

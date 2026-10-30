@@ -40,6 +40,43 @@ internal sealed class ActionBaileys : IBaileysGateway
             : new BaileysResult(true, "edited", "3EB0E"));
     }
 
+    public List<(double Lat, double Lng, string Name)> Locations { get; } = new();
+    public List<(string Name, IReadOnlyList<string> Phones)> Contacts { get; } = new();
+    public List<(string Question, IReadOnlyList<string> Options, int Pick)> Polls { get; } = new();
+    public List<string> Forwards { get; } = new();
+    /// <summary>The gateway no longer holds the original (its 409).</summary>
+    public bool ForwardNotHeld { get; set; }
+
+    public Task<BaileysResult> SendLocationAsync(string a, string to, double lat, double lng, string name,
+        string address, CancellationToken ct = default)
+    {
+        Locations.Add((lat, lng, name));
+        return Task.FromResult(new BaileysResult(true, "sent", "3EB0L"));
+    }
+
+    public Task<BaileysResult> SendContactAsync(string a, string to, string name, IReadOnlyList<string> phones,
+        string organization, CancellationToken ct = default)
+    {
+        Contacts.Add((name, phones));
+        return Task.FromResult(new BaileysResult(true, "sent", "3EB0C"));
+    }
+
+    public Task<BaileysResult> SendPollAsync(string a, string to, string question, IReadOnlyList<string> options,
+        int selectableCount, CancellationToken ct = default)
+    {
+        Polls.Add((question, options, selectableCount));
+        return Task.FromResult(new BaileysResult(true, "sent", "3EB0P"));
+    }
+
+    public Task<BaileysResult> ForwardMessageAsync(string a, string to, string sourceMessageId,
+        CancellationToken ct = default)
+    {
+        Forwards.Add(sourceMessageId);
+        return Task.FromResult(ForwardNotHeld
+            ? new BaileysResult(false, "gateway 409: that message is no longer held by the gateway") { Conflict = true }
+            : new BaileysResult(true, "forwarded", "3EB0F"));
+    }
+
     public Task<BaileysResult> SendVoiceNoteAsync(string a, string to, byte[] oggOpus, CancellationToken ct = default)
     {
         VoiceNotes.Add(oggOpus);
@@ -369,6 +406,138 @@ public class MessageActionTests : IDisposable
         Assert.False(MessageEdits.WithinWindow(hourOld), "too late to edit");
         Assert.True(MessageEdits.WithinRecallWindow(hourOld), "but still deletable");
         Assert.False(MessageEdits.WithinRecallWindow(weekOld));
+    }
+
+    // ---- location, contact card, poll ----------------------------------------
+
+    [Fact]
+    public void A_location_reaches_the_gateway_and_reads_as_one_in_the_chat()
+    {
+        var (thread, _) = Chat(Providers.Baileys);
+
+        var (sent, error, _) = Sender().SendLocation(thread, 3.1578, 101.7117, "KLCC", "Kuala Lumpur",
+            MessageSource.Agent);
+
+        Assert.NotNull(sent);
+        Assert.Equal("", error);
+        var (lat, lng, name) = Assert.Single(_gw.Locations);
+        Assert.Equal(3.1578, lat);
+        Assert.Equal(101.7117, lng);
+        Assert.Equal("KLCC", name);
+        // the bubble says what was sent, in the same shape an inbound one reads
+        Assert.Equal("[location] 3.1578,101.7117 KLCC", sent!.Text);
+        Assert.Equal("sent", sent.Status);
+    }
+
+    [Fact]
+    public void A_contact_card_carries_every_phone_it_was_given()
+    {
+        var (thread, _) = Chat(Providers.Baileys);
+
+        var (sent, _, _) = Sender().SendContact(thread, "Ana Lim", new[] { "+60123456789", "+60198888888" },
+            "Acme", MessageSource.Agent);
+
+        Assert.NotNull(sent);
+        var (name, phones) = Assert.Single(_gw.Contacts);
+        Assert.Equal("Ana Lim", name);
+        Assert.Equal(2, phones.Count);
+        Assert.Contains("+60123456789", sent!.Text);
+    }
+
+    [Fact]
+    public void A_poll_goes_out_with_its_options_and_how_many_may_be_picked()
+    {
+        var (thread, _) = Chat(Providers.Baileys);
+
+        var (sent, _, _) = Sender().SendPoll(thread, "Which slot?", new[] { "9am", "2pm" }, 2, MessageSource.Agent);
+
+        Assert.NotNull(sent);
+        var (question, options, pick) = Assert.Single(_gw.Polls);
+        Assert.Equal("Which slot?", question);
+        Assert.Equal(2, options.Count);
+        Assert.Equal(2, pick);
+        Assert.Contains("9am / 2pm", sent!.Text);
+    }
+
+    [Fact]
+    public void An_official_number_is_told_the_truth_about_each_kind()
+    {
+        var (thread, _) = Chat(Providers.Cloud);
+        var sender = Sender();
+
+        // Meta's API DOES carry locations and contacts — it is simply not wired
+        // here, and claiming the platform cannot would be false
+        var location = sender.SendLocation(thread, 1, 2, "", "", MessageSource.Agent);
+        Assert.Null(location.Sent);
+        Assert.True(location.Conflict);
+        Assert.Contains("isn't wired up", location.Error);
+
+        // a poll it genuinely cannot carry
+        var poll = sender.SendPoll(thread, "q", new[] { "a", "b" }, 1, MessageSource.Agent);
+        Assert.Null(poll.Sent);
+        Assert.True(poll.Conflict);
+        Assert.Contains("no such message", poll.Error);
+
+        Assert.Empty(_gw.Locations);
+        Assert.Empty(_gw.Polls);
+    }
+
+    [Fact]
+    public void With_nothing_live_a_card_is_still_kept_so_the_chat_shows_what_was_meant()
+    {
+        var (thread, _) = Chat("");
+
+        var (sent, _, _) = Sender().SendLocation(thread, 3.1, 101.6, "Shop", "", MessageSource.Agent);
+
+        Assert.NotNull(sent);
+        Assert.Equal("sandbox", sent!.Status);
+        Assert.Empty(_gw.Locations);
+    }
+
+    // ---- forward --------------------------------------------------------------
+
+    [Fact]
+    public void Forwarding_asks_the_gateway_for_a_true_forward_of_the_original()
+    {
+        var (from, _) = Chat(Providers.Baileys);
+        var (target, _) = Chat(Providers.Baileys, "60111000888");
+        var msg = Message(from, MessageDirection.In, "look at this", source: MessageSource.Customer);
+
+        var (sent, error, _) = Sender().Forward(target, msg.ExternalId, msg.Text, MessageSource.Agent);
+
+        Assert.NotNull(sent);
+        Assert.Equal("", error);
+        Assert.Equal("3EB0ABC", Assert.Single(_gw.Forwards));
+        Assert.Equal("look at this", sent!.Text);
+        Assert.Equal(target.Id, sent.ThreadId);
+    }
+
+    [Fact]
+    public void A_message_the_gateway_no_longer_holds_is_refused_rather_than_re_sent_unmarked()
+    {
+        var (thread, _) = Chat(Providers.Baileys);
+        var msg = Message(thread, MessageDirection.In, "old photo", source: MessageSource.Customer);
+        _gw.ForwardNotHeld = true;
+
+        var (sent, error, conflict) = Sender().Forward(thread, msg.ExternalId, msg.Text, MessageSource.Agent);
+
+        Assert.Null(sent);
+        Assert.True(conflict, "a 409: re-sending the content would not be a forward");
+        Assert.Contains("no longer held", error);
+    }
+
+    [Fact]
+    public void A_message_that_never_left_the_inbox_cannot_be_forwarded()
+    {
+        var (thread, _) = Chat(Providers.Baileys);
+        var msg = Message(thread, MessageDirection.Out, "queued only", externalId: "db-9");
+
+        var (sent, error, conflict) = Sender().Forward(thread, msg.ExternalId, msg.Text, MessageSource.Agent);
+
+        Assert.Null(sent);
+        Assert.True(conflict);
+        Assert.Contains("no WhatsApp id", error);
+        Assert.Empty(_gw.Forwards);
     }
 
     // ---- the operator's voice note -------------------------------------------

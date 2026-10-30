@@ -649,6 +649,29 @@ async function editMessage(id, to, msgId, fromMe, text, rawJid = null) {
   return result?.key?.id || ''
 }
 
+/**
+ * A true WhatsApp FORWARD: the original message re-sent into another chat with
+ * WhatsApp's own "Forwarded" marking. That needs the whole original, not just
+ * its key, so it only works while the gateway still holds it (the last ~2000
+ * messages in either direction, lost on restart). When it does not, this
+ * REFUSES — re-sending the text or the file would arrive unmarked and be a
+ * different thing from what the operator asked for.
+ */
+async function forwardMessage(id, to, msgId, rawJid = null) {
+  const original = recentMessages.get(msgId)
+  if (!original) {
+    const e = new Error('that message is no longer held by the gateway, so it cannot be forwarded')
+    e.status = 409
+    throw e
+  }
+  const { a, d, jid } = await resolveTarget(id, to, rawJid)
+  await humanPause(a, jid)
+  const result = await a.sock.sendMessage(jid, { forward: original })
+  if (result) { recentMessages.remember(result); ownSends.remember(result) }
+  logEvent('forward', { acct: id, to: d, jid, source: msgId, id: result?.key?.id || '' })
+  return result?.key?.id || ''
+}
+
 /** A pinned location, a contact card or a poll — one builder each, one send. */
 async function sendBuilt(id, to, content, what, rawJid = null) {
   const { a, d, jid } = await resolveTarget(id, to, rawJid)
@@ -759,7 +782,7 @@ const readBody = (req) =>
 http
   .createServer(async (req, res) => {
     if (req.headers['x-baileys-secret'] !== SECRET) return json(res, 403, { detail: 'bad secret' })
-    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|send-media|react|revoke|edit|send-location|send-contact|send-poll|presence|logout|check|call|call-end|call-status|settings)$/)
+    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|send-media|react|revoke|edit|forward|send-location|send-contact|send-poll|presence|logout|check|call|call-end|call-status|settings)$/)
     if (!m) return json(res, 404, { detail: 'not found' })
     const [, id, action] = m
     try {
@@ -816,6 +839,11 @@ http
         if (typeof text !== 'string' || text.trim() === '') return json(res, 400, { detail: 'text is required' })
         return json(res, 200, { id: await editMessage(id, to, msg_id, from_me !== false, text, raw_jid || null) })
       }
+      if (action === 'forward') {
+        const { to, msg_id, raw_jid } = await readBody(req)
+        if (!to || !msg_id) return json(res, 400, { detail: 'to and msg_id are required' })
+        return json(res, 200, { id: await forwardMessage(id, to, msg_id, raw_jid || null) })
+      }
       if (action === 'send-location' || action === 'send-contact' || action === 'send-poll') {
         const body = await readBody(req)
         if (!body.to) return json(res, 400, { detail: 'to is required' })
@@ -869,7 +897,9 @@ http
         return json(res, 200, { ok: true })
       }
     } catch (e) {
-      return json(res, 502, { detail: e.message })
+      // a handler may say the caller asked for something impossible (409) rather
+      // than the provider having failed (502) — forwarding a message we no longer hold
+      return json(res, e?.status || 502, { detail: e.message })
     }
   })
   .listen(PORT, HOST, () => {

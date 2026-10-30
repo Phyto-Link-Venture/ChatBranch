@@ -316,6 +316,88 @@ public class OutboundSender
     }
 
     /// <summary>
+    /// A pinned location. QR (Baileys) numbers; an official number gets an
+    /// honest refusal — Meta's Cloud API does carry locations, it is simply not
+    /// wired here, and saying so beats implying the platform cannot.
+    /// </summary>
+    public (Message? Sent, string Error, bool Conflict) SendLocation(Thread thread, double latitude,
+        double longitude, string name, string address, string source, int? accountId = null)
+    {
+        var label = string.Join(" ", new[] { $"{latitude},{longitude}", name }.Where(x => x.Length > 0));
+        return Card(thread, $"[location] {label}".TrimEnd(), source, accountId, "a location",
+            cloudCould: true,
+            send: a => _baileys.SendLocationAsync(a.ExternalId, thread.Key, latitude, longitude, name, address));
+    }
+
+    /// <summary>A contact card (vCard). QR numbers, as above.</summary>
+    public (Message? Sent, string Error, bool Conflict) SendContact(Thread thread, string name,
+        IReadOnlyList<string> phones, string organization, string source, int? accountId = null)
+    {
+        var first = phones.Count > 0 ? phones[0] : "";
+        return Card(thread, $"[contact] {name}{(first.Length > 0 ? $" · {first}" : "")}", source, accountId,
+            "a contact card", cloudCould: true,
+            send: a => _baileys.SendContactAsync(a.ExternalId, thread.Key, name, phones, organization));
+    }
+
+    /// <summary>
+    /// A poll. QR numbers ONLY in the real sense: WhatsApp's Cloud API has no
+    /// polls at all, so an official number is told that rather than "not wired".
+    /// </summary>
+    public (Message? Sent, string Error, bool Conflict) SendPoll(Thread thread, string question,
+        IReadOnlyList<string> options, int selectableCount, string source, int? accountId = null)
+    {
+        var text = $"[poll] {question} — {string.Join(" / ", options)}";
+        return Card(thread, text, source, accountId, "a poll", cloudCould: false,
+            send: a => _baileys.SendPollAsync(a.ExternalId, thread.Key, question, options, selectableCount));
+    }
+
+    /// <summary>
+    /// A true WhatsApp forward of another message into this conversation —
+    /// WhatsApp's own "Forwarded" marking, which needs the whole original. The
+    /// gateway only holds the recent ones, and says so (a conflict) rather than
+    /// re-sending the content unmarked.
+    /// </summary>
+    public (Message? Sent, string Error, bool Conflict) Forward(Thread thread, string sourceExternalId, string text,
+        string source, int? accountId = null)
+    {
+        if (sourceExternalId.Length == 0 || sourceExternalId.StartsWith("db-", StringComparison.Ordinal))
+            return (null, "That message has no WhatsApp id (it never left this inbox), so it cannot be forwarded.",
+                true);
+        return Card(thread, text, source, accountId, "a forwarded message", cloudCould: false,
+            send: a => _baileys.ForwardMessageAsync(a.ExternalId, thread.Key, sourceExternalId));
+    }
+
+    /// <summary>
+    /// The shared path for the message kinds only a QR number carries: route,
+    /// refuse honestly per provider, or store a sandbox row so the inbox still
+    /// shows what was meant when nothing is attached.
+    /// </summary>
+    private (Message? Sent, string Error, bool Conflict) Card(Thread thread, string text, string source,
+        int? accountId, string what, bool cloudCould, Func<ChannelAccount, Task<ChatBranch.Data.Sidecars.BaileysResult>> send)
+    {
+        var acctId = accountId ?? thread.AccountId;
+        var account = Account(acctId);
+        if (!BaileysLive(thread, account))
+        {
+            if (CloudLive(thread, account))
+                return (null, cloudCould
+                    ? $"Sending {what} from {WhatsAppProviders.Label(account!.Provider)} isn't wired up in "
+                      + "ChatBranch yet — a QR-paired number can."
+                    : $"{WhatsAppProviders.Label(account!.Provider)} cannot send {what} — WhatsApp's official API "
+                      + "has no such message.", true);
+            if (account != null && account.Channel != ChatBranch.Domain.Channels.WhatsApp)
+                return (null, $"Sending {what} isn't supported on {account.Channel}.", true);
+            // nothing live: keep the row so the chat shows what was meant
+            return (_threads.AppendMessage(thread, MessageDirection.Out, source, text,
+                status: "sandbox", accountId: acctId), "", false);
+        }
+        var r = send(account!).GetAwaiter().GetResult();
+        if (!r.Ok) return (null, r.Detail, r.Conflict);
+        return (_threads.AppendMessage(thread, MessageDirection.Out, source, text,
+            status: "sent", externalId: r.ExternalId, accountId: account!.Id), "", false);
+    }
+
+    /// <summary>
     /// A WhatsApp template. A configured Cloud number sends a REAL
     /// <c>type: "template"</c> message (name, language, header/body/button
     /// parameters) — the only thing Meta accepts outside the 24h window — and the

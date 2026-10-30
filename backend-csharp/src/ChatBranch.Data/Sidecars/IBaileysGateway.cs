@@ -4,7 +4,15 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace ChatBranch.Data.Sidecars;
 
-public record BaileysResult(bool Ok, string Detail, string ExternalId = "");
+public record BaileysResult(bool Ok, string Detail, string ExternalId = "")
+{
+    /// <summary>
+    /// The gateway answered 409: the request can never succeed as asked (a message
+    /// it no longer holds), as opposed to a provider failure worth retrying. Lets a
+    /// caller turn it into a 409 with the reason instead of a 502.
+    /// </summary>
+    public bool Conflict { get; init; }
+}
 
 /// <summary>Pairing state as the gateway reports it: {state, qr?, me?, error?}.</summary>
 public record BaileysStatus(string State, string? Qr, string? Me, string? Error);
@@ -113,6 +121,18 @@ public interface IBaileysGateway
     Task<BaileysResult> EditMessageAsync(string accountExternalId, string toWaId, BaileysQuote target, string text,
         CancellationToken ct = default) =>
         Task.FromResult(new BaileysResult(false, "this Baileys gateway cannot edit a sent message"));
+
+    /// <summary>
+    /// A true WhatsApp FORWARD of <paramref name="sourceMessageId"/> into this
+    /// conversation, keeping WhatsApp's own "Forwarded" marking. It needs the whole
+    /// original, so the gateway can only do it while it still holds it (the last
+    /// ~2000 messages, lost on restart) — otherwise the result is a
+    /// <see cref="BaileysResult.Conflict"/>, because re-sending the text or the
+    /// file would arrive unmarked and be a different thing from a forward.
+    /// </summary>
+    Task<BaileysResult> ForwardMessageAsync(string accountExternalId, string toWaId, string sourceMessageId,
+        CancellationToken ct = default) =>
+        Task.FromResult(new BaileysResult(false, "this Baileys gateway cannot forward a message"));
 
     /// <summary>A pinned location.</summary>
     Task<BaileysResult> SendLocationAsync(string accountExternalId, string toWaId, double latitude, double longitude,
@@ -349,6 +369,18 @@ public class HttpBaileysGateway : IBaileysGateway
         if (!ok) return new BaileysResult(false, err);
         var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
         return new BaileysResult(true, "edited", id);
+    }
+
+    public async Task<BaileysResult> ForwardMessageAsync(string a, string toWaId, string sourceMessageId,
+        CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/forward",
+            new { to = toWaId, msg_id = sourceMessageId }, ct, timeoutSeconds: 120);
+        if (!ok)
+            // the gateway says 409 when the original is no longer held
+            return new BaileysResult(false, err) { Conflict = err.Contains("gateway 409", StringComparison.Ordinal) };
+        var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
+        return new BaileysResult(true, "forwarded", id);
     }
 
     public async Task<BaileysResult> SendLocationAsync(string a, string toWaId, double latitude, double longitude,

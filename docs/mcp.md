@@ -193,7 +193,7 @@ conversation route.
 | `contacts_decide_access_request` | Approve or deny a contact access request | write | `contacts.manage` |
 | `contacts_cancel_access_request` | Cancel your contact access request | write | `contacts.manage` or `chats.send` |
 
-#### conversations (33)
+#### conversations (35)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -215,6 +215,8 @@ conversation route.
 | `conversations_react_to_message` | React to a message with an emoji | write | `chats.send` |
 | `conversations_recall_message` | Delete a sent message for everyone | write · **destructive** | `chats.send` |
 | `conversations_edit_message` | Edit a sent message | write | `chats.send` |
+| `conversations_forward_message` | Forward a message to another chat | write | `chats.send` |
+| `conversations_send_card` | Send a location, contact card or poll | write | `chats.send` |
 | `conversations_link_contact` | Link a conversation to a contact | write | `chats.send` |
 | `conversations_handover` | Take over or hand back a conversation | write | `chats.send` |
 | `conversations_bulk_update` | Bulk-update conversations | write · **destructive** | `chats.manage` |

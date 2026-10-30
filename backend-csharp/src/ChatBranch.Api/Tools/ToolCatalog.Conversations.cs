@@ -192,6 +192,42 @@ public static partial class ToolCatalog
                 A.Str("text", "The corrected wording (the whole message, not a patch).", req: true),
             });
 
+        yield return T(g, "conversations_forward_message", "Forward a message to another chat",
+            "Forward one message (pk from conversations_list_messages) into ANOTHER conversation on the same " +
+            "channel, with WhatsApp's own \"Forwarded\" marking. QR-paired numbers only, and only while the " +
+            "gateway still holds the original (the recent ones) — otherwise it refuses rather than re-sending the " +
+            "content unmarked, which would be a different thing. The target must be a conversation you can see.",
+            "POST", "/api/messaging/threads/{channel}/{key}/messages/{pk:int}/forward", send, thread: true,
+            args: new[]
+            {
+                A.Int("pk", "The message's pk.", req: true),
+                A.Str("to_channel", "The target conversation's channel (the same one).", req: true, @as: "toChannel"),
+                A.Str("to_key", "The target conversation's key.", req: true, @as: "toKey"),
+                A.Int("to_thread_id", "Its conversation id, when the customer talks to several companies.", @as: "toThreadId"),
+                A.Bool("force", "Override the target's opt-out (a manual, audited exception)."),
+            });
+
+        yield return T(g, "conversations_send_card", "Send a location, contact card or poll",
+            "The message kinds beyond text and files: kind \"location\" (lat + lng, optionally named), " +
+            "\"contact\" (a vCard: name + phones) or \"poll\" (a question and 2–12 options; " +
+            "selectable_count above 1 lets the customer pick several). QR-paired WhatsApp numbers; an official " +
+            "number is told what it can and cannot carry — its API has no polls at all.",
+            "POST", "/api/messaging/threads/{channel}/{key}/send-card", send, thread: true,
+            args: new[]
+            {
+                A.Str("kind", "location | contact | poll.", req: true, oneOf: new[] { "location", "contact", "poll" }),
+                A.Num("lat", "location: latitude (-90..90)."),
+                A.Num("lng", "location: longitude (-180..180)."),
+                A.Str("name", "location: the place's name · contact: the person's name."),
+                A.Str("address", "location: a street address."),
+                A.StrList("phones", "contact: one or more phone numbers (the first is shown)."),
+                A.Str("organization", "contact: a company name."),
+                A.Str("question", "poll: the question."),
+                A.StrList("options", "poll: 2–12 answers (duplicates are dropped)."),
+                A.Int("selectable_count", "poll: how many a customer may pick (default 1).", @as: "selectableCount"),
+                A.Bool("force", "Override an opt-out (a manual, audited exception)."),
+            });
+
         yield return T(g, "conversations_link_contact", "Link a conversation to a contact",
             "Attach the conversation to a contact (contact_id), or unlink it (contact_id null). Linking moves the " +
             "chat to the contact's entity and closes an unknown-customer handover.",

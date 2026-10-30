@@ -88,6 +88,9 @@ not coming back as buyer messages, Shopify's refusal, health verdicts).
 | Reactions | ✅ in `type: reaction` · out `type: reaction` (24h window, else 409) | ✅ in `reactionMessage` · out gateway `react` | — | ✅ in `message_reaction` · out `setMessageReaction` (Telegram's own emoji set) | — (409) | — (409) |
 | Delete for everyone (ours) | ❌ Meta publishes no delete | ✅ gateway `revoke` → `MessageRecalls.RecordOurs` (~2-day window) | — | ❌ | ❌ | — |
 | Edit a sent message | ❌ Meta publishes no edit | ✅ gateway `edit` → `MessageEdits` (~15-minute window) | — | ❌ | ❌ | — |
+| Location / contact card (ours) | ⚠ Meta's API can, ChatBranch doesn't wire it yet (409 saying so) | ✅ gateway `send-location` / `send-contact` (a vCard built from the name + phones) | — | ❌ | ❌ | — |
+| Poll (ours) | ❌ the official API has no poll message | ✅ gateway `send-poll` (2–12 options, `selectable_count`) | — | ❌ | ❌ | — |
+| Forward a message | ❌ | ✅ gateway `forward` — a true WhatsApp forward of the original, same channel only, and 409 once the gateway no longer holds it | — | ❌ | ❌ | — |
 | Operator's own voice note | ✅ upload → `type: audio` | ✅ gateway `send-media` `ptt: true` (the browser's recording re-containered to Ogg/Opus by ffmpeg; no ffmpeg ⇒ 503) | — | ✅ `sendVoice` | ❌ | ❌ |
 | AI voice replies (`ai_voice_replies`) | ✅ upload Ogg/Opus → `type: audio` (a voice note) | ✅ gateway `send-media` with `ptt: true` (`audio/ogg; codecs=opus`) | text | ✅ `sendVoice` (Ogg/Opus, no caption) | ✅ MP3 audio attachment (inside the window) | text |
 | Inbound voice notes → words | ✅ transcribed (`crm_message.transcript`) | ✅ | — | ✅ | ✅ (audio attachments) | — |

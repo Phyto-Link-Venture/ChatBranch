@@ -54,6 +54,8 @@ import {
   type SipCall,
 } from '@/components/chats/MessageParts'
 import { VoiceRecorder } from '@/components/chats/VoiceRecorder'
+import { CardComposer, type CardPayload } from '@/components/chats/CardComposer'
+import { ForwardPicker } from '@/components/chats/ForwardPicker'
 import {
   CHANNELS,
   CHANNEL_META,
@@ -259,6 +261,7 @@ function ChatsPage() {
   // the message the next reply quotes (WhatsApp / Telegram), cleared on send and on switching chats
   const [replyTo, setReplyTo] = useState<UiMessage | null>(null)
   const [composerMode, setComposerMode] = useState<'reply' | 'note'>('reply')
+  const [forwarding, setForwarding] = useState<UiMessage | null>(null)
   const [agents, setAgents] = useState<UiAgent[]>([])
   // who may own the OPEN conversation (its scope; its team first) — the assignee picker
   const [threadAgents, setThreadAgents] = useState<UiAgent[] | null>(null)
@@ -1116,6 +1119,32 @@ function ChatsPage() {
         body: JSON.stringify({}),
       })
     })
+
+  /** A location, a contact card or a poll (the composer's card forms). */
+  const sendCard = (payload: CardPayload) =>
+    run(async () => {
+      if (!active) return
+      const body: CardPayload & { force?: boolean } = { ...payload }
+      if (active.opted_out === true) {
+        if (!window.confirm(t('chats.page.confirmOptedOut'))) return
+        body.force = true
+      }
+      await api(threadApi(active, '/send-card'), { method: 'POST', body: JSON.stringify(body) })
+    })
+
+  /** Forward the picked message into another conversation on the same channel. */
+  const forwardTo = (target: UiThreadSummary) => {
+    const m = forwarding
+    if (!m) return
+    return run(async () => {
+      if (!active || m.pk == null) return
+      await api(withThreadId(`messaging/threads/${active.channel}/${encodeURIComponent(active.key)}/messages/${m.pk}/forward`, active.thread_id), {
+        method: 'POST',
+        body: JSON.stringify({ to_channel: target.channel, to_key: target.key, to_thread_id: target.thread_id ?? null }),
+      })
+      setForwarding(null)
+    })
+  }
 
   const onPickFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -2260,8 +2289,13 @@ function ChatsPage() {
                                 && active.provider === 'baileys' && access.can('chats.send')
                                 && within(m.ts, RECALL_WINDOW_MS)
                               }
+                              canForward={
+                                !combinedOn && !m.recalled && active.provider === 'baileys'
+                                && access.can('chats.send')
+                              }
                               onEdit={editMessage}
                               onDelete={deleteMessage}
+                              onForward={setForwarding}
                               onReply={(msg) => {
                                 setComposerMode('reply')
                                 setReplyTo(msg)
@@ -2472,6 +2506,13 @@ function ChatsPage() {
                       >
                         <LayoutTemplate size={15} aria-hidden />
                       </button>
+                    )}
+                    {canRecordVoice && !noteMode && (
+                      <CardComposer
+                        disabled={busy || composerLocked}
+                        onError={setError}
+                        onSend={sendCard}
+                      />
                     )}
                     {canRecordVoice && !noteMode && (
                       <VoiceRecorder
@@ -2714,6 +2755,18 @@ function ChatsPage() {
           await reloadViews()
         }}
       />
+
+      {forwarding && active && (
+        <ForwardPicker
+          open
+          channel={active.channel}
+          currentIdentity={threadIdentity(active)}
+          threads={threads}
+          busy={busy}
+          onPick={(target) => void forwardTo(target)}
+          onClose={() => setForwarding(null)}
+        />
+      )}
 
       {tplOpen && active && active.channel === 'whatsapp' && (
         <TemplatePickerModal

@@ -337,7 +337,10 @@ export function buildContact({ name, phones, organization = '' }) {
  * single choice) or more (multiple). Duplicate options are dropped, because
  * WhatsApp shows them as one and the votes then cannot be told apart.
  */
-export function buildPoll({ question, options, selectableCount = 1 }) {
+export function buildPoll(body) {
+  const { question, options } = body ?? {}
+  // the gateway's own routes are snake_case; the C# client sends camelCase
+  const selectableCount = body?.selectable_count ?? body?.selectableCount ?? 1
   const name = String(question ?? '').trim()
   if (name === '') throw new Error('question is required')
   const values = []
@@ -501,6 +504,9 @@ export function selftestOutbound() {
   check(poll.poll.values.length === 2 && poll.poll.selectableCount === 1, 'duplicate and empty options dropped')
   check(buildPoll({ question: 'q', options: ['a', 'b', 'c'], selectableCount: 9 }).poll.selectableCount === 3,
     'selectableCount never exceeds the options')
+  // the route's own snake_case and the C# client's camelCase mean the same thing
+  check(buildPoll({ question: 'q', options: ['a', 'b', 'c'], selectable_count: 2 }).poll.selectableCount === 2,
+    'selectable_count is read too')
   for (const bad of [{ question: '', options: ['a', 'b'] }, { question: 'q', options: ['only'] },
     { question: 'q', options: Array.from({ length: 13 }, (_, i) => `o${i}`) }]) {
     threw = false
