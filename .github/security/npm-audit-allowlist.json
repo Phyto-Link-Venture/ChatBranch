@@ -2,24 +2,6 @@
   "about": "High / Critical npm advisories the Security workflow accepts for now because no safe (patch / minor) upgrade fixes them. Each entry names the exact advisories, why, and a review-by date — after `until` the workflow fails again. Read by scripts/npm-audit-gate.mjs. Remove an entry as soon as its fix lands.",
   "entries": [
     {
-      "path": "frontend",
-      "package": "next",
-      "advisories": [
-        "GHSA-h25m-26qc-wcjf", "GHSA-q4gf-8mx6-v5v3", "GHSA-8h8q-6873-q5fj", "GHSA-c4j6-fc7j-m34r",
-        "GHSA-36qx-fr4f-26g5", "GHSA-m99w-x7hq-7vfj", "GHSA-89xv-2m56-2m9x", "GHSA-p9j2-gv94-2wf4",
-        "GHSA-p293-qw3h-jr36", "GHSA-2xp9-vwfh-vxw4", "GHSA-2464-fhr4-w9xw", "GHSA-p3m5-59mp-jv5r"
-      ],
-      "reason": "Fixed only in Next 16 — a major upgrade from 14 (React 19, App Router changes), its own project. Most need features the dashboard doesn't use (Server Actions, middleware, the i18n Pages Router, rewrites, WebSocket upgrades, the image optimizer — switched off (`images.unoptimized` in next.config.js: /_next/image answers 404; the dashboard never uses next/image) —, Windows hosting); the Server Components denial-of-service ones apply to any App Router app until the upgrade. Upgrade Next to clear these.",
-      "until": "2026-12-31"
-    },
-    {
-      "path": "frontend",
-      "package": "postcss",
-      "advisories": ["GHSA-6g55-p6wh-862q", "GHSA-r28c-9q8g-f849"],
-      "reason": "The copy nested inside next@14 (node_modules/next/node_modules/postcss) — only Next 16 updates it. It runs at build time on the repository's own CSS, never on user input.",
-      "until": "2026-12-31"
-    },
-    {
       "path": "backend/voice_agent",
       "package": "adm-zip",
       "advisories": [
