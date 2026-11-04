@@ -208,7 +208,7 @@ still holds).
   embedded (PDFs, images, audio, video, `widget.js`) get no CSP / frame headers;
   an endpoint's own headers always win. No `Server` header.
   `SECURITY_HEADERS=0` turns these off.
-- **Dashboard** (`next.config.js headers()`): a CSP that Next 14's app router
+- **Dashboard** (`next.config.js headers()`): a CSP that Next's app router
   really works with — `default-src 'self'`; `script-src 'self' 'unsafe-inline'`
   (Next's inline bootstrap + the pre-paint theme script; `'unsafe-eval'` only in
   `next dev`); `style-src 'self' 'unsafe-inline'`; `img-src 'self' data: blob:
@@ -292,9 +292,9 @@ CI) runs on pushes to master, pull requests and every Monday:
   `backend/voice_agent` through `scripts/npm-audit-gate.mjs` — a High / Critical
   advisory fails unless `.github/security/npm-audit-allowlist.json` accepts that
   exact advisory with a reason and a **review-by date** (after which it fails
-  again). Accepted today, because only a major upgrade fixes them: Next 14's
-  advisories (→ Next 16) and the voice agent's `adm-zip` / `sharp` (→ the next
-  LiveKit plugin line). Run `node scripts/npm-audit-gate.mjs <dir> --list` to see
+  again). Accepted today, because only a major upgrade fixes them: the voice
+  agent's `adm-zip` / `sharp` (→ the next LiveKit plugin line). The dashboard
+  has none since the Next 16 upgrade. Run `node scripts/npm-audit-gate.mjs <dir> --list` to see
   everything npm reports.
 - **Secrets**: gitleaks (pinned version, checksum-verified) over the new commits
   (the whole history on the weekly run) and the working tree. `.gitleaks.toml`
@@ -352,8 +352,7 @@ When you suspect a break-in or a leak:
 
 - Throttle counters and the challenge "used" list are per API process and reset on
   restart; several API replicas would each count separately.
-- The dashboard CSP needs `'unsafe-inline'` scripts (Next 14 without a nonce
+- The dashboard CSP needs `'unsafe-inline'` scripts (Next without a nonce
   setup), so it limits where scripts come from but can't stop an injected inline
   script — React's escaping is the defence there.
 - The default `TRUSTED_PROXIES` trusts private ranges (§5).
-- Next 14 advisories are accepted until the Next 16 upgrade (§9).

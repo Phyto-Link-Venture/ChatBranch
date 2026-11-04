@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { BookOpenText, CircleHelp, Compass, ListChecks, PlayCircle } from 'lucide-react'
+import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Toggle } from '@/components/ui/Toggle'
 import { getAuth } from '@/lib/auth'
@@ -107,10 +108,10 @@ export function GuideMenu() {
             <Compass size={15} className="shrink-0 text-text-muted" aria-hidden />
             {t('guide.ui.appTour')}
           </button>
-          <a href="/help/manual" className={item} onClick={() => setOpen(false)}>
+          <Link href="/help/manual" className={item} onClick={() => setOpen(false)}>
             <BookOpenText size={15} className="shrink-0 text-text-muted" aria-hidden />
             {t('guide.ui.manual')}
-          </a>
+          </Link>
           <div className="mt-1 flex items-center justify-between gap-3 border-t border-line px-2.5 pb-1 pt-2.5">
             <span className="text-[12px] text-text-mid">{t('guide.ui.autoStart')}</span>
             <Toggle

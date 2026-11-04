@@ -160,7 +160,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --no-audit --no-fund
       - name: Types
-        run: npx tsc --noEmit
+        # next-env.d.ts + .next/types are generated (Next 16), not committed
+        run: npx next typegen && npx tsc --noEmit
       - name: Lint
         run: npx eslint src
 

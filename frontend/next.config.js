@@ -4,6 +4,12 @@ const nextConfig = {
   // A self-contained server (.next/standalone: server.js + only the runtime
   // node_modules it traces) — what the Dockerfile ships, without src/ or dev deps.
   output: 'standalone',
+  // The repo root has its own package-lock.json, so Next 16 would guess the
+  // ROOT as the workspace and nest the standalone server under
+  // .next/standalone/frontend/ — pin it to this folder (the Dockerfile copies
+  // .next/standalone/server.js).
+  outputFileTracingRoot: __dirname,
+  turbopack: { root: __dirname },
   // NEXT_SKIP_CHECKS=1: the build leaves type-checking and lint to CI's own
   // "Dashboard checks" job (tsc + eslint) instead of running both again — CI's
   // build job and the deploy's image build set it. Unset = the full checks.
@@ -11,7 +17,7 @@ const nextConfig = {
   typescript: { ignoreBuildErrors: process.env.NEXT_SKIP_CHECKS === '1' },
   // The dashboard never uses next/image, so the optimizer stays off: with it
   // off /_next/image answers 404 instead of fetching and decoding images —
-  // the route Next 14's SVG / AVIF remote-code advisories go through.
+  // less attack surface (it was the route of Next 14's remote-code advisories).
   images: { unoptimized: true },
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api',
@@ -25,7 +31,7 @@ const nextConfig = {
       { source: '/analytics', destination: '/dashboard', permanent: false },
     ]
   },
-  // Security headers (docs/security.md). The CSP is what Next 14's app router
+  // Security headers (docs/security.md). The CSP is what Next's app router
   // really needs: its inline bootstrap scripts (and the pre-paint theme script)
   // need 'unsafe-inline' — no nonce plumbing — and 'unsafe-eval' only in `next
   // dev` (React Refresh). Data goes to this origin and the API's (absolute
