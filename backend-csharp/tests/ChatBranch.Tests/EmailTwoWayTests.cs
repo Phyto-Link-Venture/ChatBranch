@@ -253,7 +253,8 @@ public class EmailTwoWayTests : IClassFixture<TransportFactory>
             .Content.ReadFromJsonAsync<JsonElement>();
         Assert.DoesNotContain(fixedUp.GetProperty("errors").EnumerateArray(),
             e => e.GetString()!.Contains("login refused"));
-        Assert.True(InDb(db => db.Messages.Any(m => m.Thread!.Key == "ann@cust.test" && m.Text == "Anyone there?")));
+        Assert.True(InDb(db => db.Messages.Any(m => m.Thread!.Key == "ann@cust.test"
+            && m.Text == "Hello\n\nAnyone there?")));   // inbound mail is stored subject-then-body
         var afterFix = Tries();
 
         EmailSyncService.ResetThrottle();
