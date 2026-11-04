@@ -335,7 +335,7 @@ public sealed class EmailSyncService
     public static readonly TimeSpan MinInterval = TimeSpan.FromSeconds(30);
     public const int SyncWindowDays = 7;
     /// <summary>Per FOLDER per pass; a longer backlog drains over the next passes.</summary>
-    public const int MaxFetchPerMailbox = 10;
+    public const int MaxFetchPerMailbox = 25;
 
     private static readonly object Gate = new();
     // last run per DATABASE: one key in production; test hosts sharing the process never

@@ -170,22 +170,25 @@ public class EmailTwoWayTests : IClassFixture<TransportFactory>
         // older than the window: a first run passes over it for good
         _f.Mailbox.Deliver("busy@shop.test", Mail("ancient@cust.test", "busy@shop.test", "Old", "Long ago.",
             "old1@cust.test", DateTimeOffset.UtcNow.AddDays(-30)));
-        for (var i = 1; i <= 25; i++)
+        // two full passes and a part one; UIDs: ancient = 1, c{i} = i + 1
+        const int max = EmailSyncService.MaxFetchPerMailbox;
+        const int total = 2 * max + 5;
+        for (var i = 1; i <= total; i++)
             _f.Mailbox.Deliver("busy@shop.test", Mail($"c{i}@backlog.test", "busy@shop.test", $"Mail {i:00}",
                 $"Body {i}", $"b{i}@backlog.test"));
         _f.Mailbox.Break("busy@shop.test", "INBOX", 6); // "Mail 05" cannot be downloaded
 
         var p1 = await Sync(admin);
-        Assert.Equal(9, p1.GetProperty("fetched").GetInt32());
+        Assert.Equal(max - 1, p1.GetProperty("fetched").GetInt32());
         Assert.Contains(p1.GetProperty("errors").EnumerateArray(), e => e.GetString()!.Contains("could not be downloaded (UID 6)"));
-        Assert.Equal(Enumerable.Range(2, 10).Select(u => (uint)u), _f.Mailbox.Reads.Last(r => r.User == "busy@shop.test" && r.Folder == "INBOX").Uids);
+        Assert.Equal(Enumerable.Range(2, max).Select(u => (uint)u), _f.Mailbox.Reads.Last(r => r.User == "busy@shop.test" && r.Folder == "INBOX").Uids);
         var threads = InDb(db => db.Threads.AsNoTracking().Where(t => t.Key.EndsWith("@backlog.test")).Select(t => t.Key).ToList());
-        Assert.Contains("c10@backlog.test", threads);
+        Assert.Contains($"c{max}@backlog.test", threads);
         Assert.DoesNotContain("c5@backlog.test", threads);
-        Assert.DoesNotContain("c11@backlog.test", threads);
+        Assert.DoesNotContain($"c{max + 1}@backlog.test", threads);
 
         var p2 = await Sync(admin);
-        Assert.Equal(10, p2.GetProperty("fetched").GetInt32());
+        Assert.Equal(max, p2.GetProperty("fetched").GetInt32());
         Assert.True(p2.GetProperty("ok").GetBoolean()); // the broken mail is not tried again
         var p3 = await Sync(admin);
         Assert.Equal(5, p3.GetProperty("fetched").GetInt32());
@@ -193,9 +196,9 @@ public class EmailTwoWayTests : IClassFixture<TransportFactory>
         Assert.Equal(0, p4.GetProperty("fetched").GetInt32());
         Assert.Empty(_f.Mailbox.Reads.Last(r => r.User == "busy@shop.test" && r.Folder == "INBOX").Uids);
 
-        Assert.Equal(24, InDb(db => db.Threads.Count(t => t.Key.EndsWith("@backlog.test"))));
+        Assert.Equal(total - 1, InDb(db => db.Threads.Count(t => t.Key.EndsWith("@backlog.test"))));
         Assert.False(InDb(db => db.Threads.Any(t => t.Key == "ancient@cust.test")));
-        Assert.Equal(26, Cursor("busy@shop.test", "INBOX").LastUid);
+        Assert.Equal(total + 1, Cursor("busy@shop.test", "INBOX").LastUid);
     }
 
     // ---- 4b: the Sent folder ----------------------------------------------------------
