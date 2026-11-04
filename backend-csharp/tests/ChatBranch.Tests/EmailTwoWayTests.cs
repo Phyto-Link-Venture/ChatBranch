@@ -170,22 +170,25 @@ public class EmailTwoWayTests : IClassFixture<TransportFactory>
         // older than the window: a first run passes over it for good
         _f.Mailbox.Deliver("busy@shop.test", Mail("ancient@cust.test", "busy@shop.test", "Old", "Long ago.",
             "old1@cust.test", DateTimeOffset.UtcNow.AddDays(-30)));
-        for (var i = 1; i <= 25; i++)
+        // two full passes and a part one; UIDs: ancient = 1, c{i} = i + 1
+        const int max = EmailSyncService.MaxFetchPerMailbox;
+        const int total = 2 * max + 5;
+        for (var i = 1; i <= total; i++)
             _f.Mailbox.Deliver("busy@shop.test", Mail($"c{i}@backlog.test", "busy@shop.test", $"Mail {i:00}",
                 $"Body {i}", $"b{i}@backlog.test"));
         _f.Mailbox.Break("busy@shop.test", "INBOX", 6); // "Mail 05" cannot be downloaded
 
         var p1 = await Sync(admin);
-        Assert.Equal(9, p1.GetProperty("fetched").GetInt32());
+        Assert.Equal(max - 1, p1.GetProperty("fetched").GetInt32());
         Assert.Contains(p1.GetProperty("errors").EnumerateArray(), e => e.GetString()!.Contains("could not be downloaded (UID 6)"));
-        Assert.Equal(Enumerable.Range(2, 10).Select(u => (uint)u), _f.Mailbox.Reads.Last(r => r.User == "busy@shop.test" && r.Folder == "INBOX").Uids);
+        Assert.Equal(Enumerable.Range(2, max).Select(u => (uint)u), _f.Mailbox.Reads.Last(r => r.User == "busy@shop.test" && r.Folder == "INBOX").Uids);
         var threads = InDb(db => db.Threads.AsNoTracking().Where(t => t.Key.EndsWith("@backlog.test")).Select(t => t.Key).ToList());
-        Assert.Contains("c10@backlog.test", threads);
+        Assert.Contains($"c{max}@backlog.test", threads);
         Assert.DoesNotContain("c5@backlog.test", threads);
-        Assert.DoesNotContain("c11@backlog.test", threads);
+        Assert.DoesNotContain($"c{max + 1}@backlog.test", threads);
 
         var p2 = await Sync(admin);
-        Assert.Equal(10, p2.GetProperty("fetched").GetInt32());
+        Assert.Equal(max, p2.GetProperty("fetched").GetInt32());
         Assert.True(p2.GetProperty("ok").GetBoolean()); // the broken mail is not tried again
         var p3 = await Sync(admin);
         Assert.Equal(5, p3.GetProperty("fetched").GetInt32());
@@ -193,9 +196,70 @@ public class EmailTwoWayTests : IClassFixture<TransportFactory>
         Assert.Equal(0, p4.GetProperty("fetched").GetInt32());
         Assert.Empty(_f.Mailbox.Reads.Last(r => r.User == "busy@shop.test" && r.Folder == "INBOX").Uids);
 
-        Assert.Equal(24, InDb(db => db.Threads.Count(t => t.Key.EndsWith("@backlog.test"))));
+        Assert.Equal(total - 1, InDb(db => db.Threads.Count(t => t.Key.EndsWith("@backlog.test"))));
         Assert.False(InDb(db => db.Threads.Any(t => t.Key == "ancient@cust.test")));
-        Assert.Equal(26, Cursor("busy@shop.test", "INBOX").LastUid);
+        Assert.Equal(total + 1, Cursor("busy@shop.test", "INBOX").LastUid);
+    }
+
+    /// <summary>
+    /// A mailbox whose password IMAP refuses is left alone for a while instead of being
+    /// retried every minute. The server-side worker never forces, so without this a wrong
+    /// password meant ~1 440 failed sign-ins a day and Microsoft 365 / Gmail lock an
+    /// account for that. A person asking by hand (force) always gets a real attempt, and
+    /// one that signs in clears the wait.
+    /// </summary>
+    [Fact]
+    public async Task A_mailbox_whose_password_is_refused_is_not_retried_every_pass()
+    {
+        var admin = await Authed();
+        EmailSyncService.ResetAuthHoldOff();
+        var boxId = await CreateMailbox(admin, "locked@shop.test", "locked@shop.test");
+        _f.Mailbox.Deliver("locked@shop.test", Mail("Ann Asker <ann@cust.test>", "locked@shop.test", "Hello",
+            "Anyone there?", "a1@cust.test"));
+        _f.Mailbox.Fail = mb => mb.ImapUsername == "locked@shop.test"
+            ? new MailboxException("IMAP login refused: AUTHENTICATIONFAILED", authFailure: true) : null;
+
+        int Tries() => _f.Mailbox.Calls.Count(c => c.ImapUsername == "locked@shop.test");
+
+        // the refusal is reported as before, and the mailbox is marked disconnected
+        EmailSyncService.ResetThrottle();
+        var first = await (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(first.GetProperty("ok").GetBoolean());
+        Assert.Contains(first.GetProperty("errors").EnumerateArray(), e => e.GetString()!.Contains("login refused"));
+        Assert.Equal(Health.Disconnected, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Id == boxId)).HealthStatus);
+        var triedOnce = Tries();
+        Assert.True(triedOnce >= 1);
+
+        // the next pass does not touch the mail server at all: a note, and nothing failed
+        EmailSyncService.ResetThrottle();
+        var held = await (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.DoesNotContain(held.GetProperty("errors").EnumerateArray(),
+            e => e.GetString()!.Contains("login refused"));
+        Assert.Contains(held.GetProperty("notes").EnumerateArray(),
+            n => n.GetString()!.Contains("refused the sign-in"));
+        Assert.Equal(triedOnce, Tries());
+
+        // a person who fixed the password and asks by hand is never made to wait
+        var byHand = await (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { force = true }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(byHand.GetProperty("ok").GetBoolean());          // still the wrong password
+        Assert.True(Tries() > triedOnce);                             // but it really tried
+
+        // once it signs in, the wait is forgotten and ordinary passes read it again
+        _f.Mailbox.Fail = _ => null;
+        var fixedUp = await (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { force = true }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.DoesNotContain(fixedUp.GetProperty("errors").EnumerateArray(),
+            e => e.GetString()!.Contains("login refused"));
+        Assert.True(InDb(db => db.Messages.Any(m => m.Thread!.Key == "ann@cust.test"
+            && m.Text == "Hello\n\nAnyone there?")));   // inbound mail is stored subject-then-body
+        var afterFix = Tries();
+
+        EmailSyncService.ResetThrottle();
+        await (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { })).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(Tries() > afterFix);
     }
 
     // ---- 4b: the Sent folder ----------------------------------------------------------

@@ -434,15 +434,23 @@ outbound queue are already channel-blind.
   Message-ID (Gmail and many Exchange setups file SMTP mail themselves) or
   there is no Sent folder; a failure is logged (no secrets) and never fails,
   delays or repeats the send.
-- In — **two-way sync**: `POST /api/messaging/email/sync` (the /chats nudge;
-  real IMAP at most every 30 s, `{force:true}` skips it). `\Seen` plays no
+- In — **two-way sync**: `POST /api/messaging/email/sync` (the /chats nudge)
+  and `Workers/EmailSyncWorker` on the server (every `EMAIL_SYNC_INTERVAL` s,
+  default 60; `EMAIL_SYNC_WORKER=0` off), so mail arrives with no dashboard
+  open; real IMAP at most every 30 s, `{force:true}` skips it). A mailbox whose
+  IMAP sign-in is REFUSED is then left alone for 5 min, doubling per refusal to
+  30 (`EmailSyncService.AuthBackoffFirst` / `AuthBackoffMax`), because the worker
+  would otherwise retry a wrong password ~1 440 times a day and Microsoft 365 and
+  Gmail lock an account for that; the wait is reported as a NOTE (nothing failed
+  this pass), a mailbox that signs in clears it, and `{force:true}` ignores it so
+  a person who fixed the password can retry at once. `\Seen` plays no
   part: folders are opened READ-ONLY (IMAP EXAMINE, bodies fetched with
   BODY.PEEK) so nothing is ever marked read, and mail someone already read in
   Outlook still arrives. Each folder has a UID cursor (`crm_mailboxcursor`:
   mailbox key `imap_host|imap_username`, folder full name, UIDVALIDITY, last
   UID): no cursor or another UIDVALIDITY ⇒ `SENTSINCE` the last 7 days (seen
   or not), else `UID last+1:*` (IMAP's answer of the highest UID even when ≤
-  last is dropped client-side); oldest first, 10 per folder per pass; the
+  last is dropped client-side); oldest first, 25 per folder per pass; the
   cursor moves to the last UID handled (kept, skipped, duplicate or
   undownloadable), or — when everything that qualified was read — to
   UIDNEXT−1, so a backlog drains over passes and nothing stalls. The rule is

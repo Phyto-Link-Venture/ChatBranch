@@ -153,6 +153,8 @@ builder.Services.AddMoreChannels();
 // client plus one IChannelTransport each, so they ride the same send path.
 builder.Services.AddCommerceChannels();
 builder.Services.AddScoped<ChatBranch.Data.Channels.EmailSyncService>();
+// IMAP sync on the server, so mail arrives with no dashboard open (EMAIL_SYNC_WORKER=0 disables it)
+builder.Services.AddHostedService<ChatBranch.Api.Workers.EmailSyncWorker>();
 builder.Services.AddScoped<ChatBranch.Data.Channels.ChannelHealthProber>();
 builder.Services.AddSingleton(sp => new ChatBranch.Api.Workers.HealthRecheck(
     sp.GetRequiredService<IServiceScopeFactory>(),

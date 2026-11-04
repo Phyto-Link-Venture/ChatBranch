@@ -335,12 +335,26 @@ public sealed class EmailSyncService
     public static readonly TimeSpan MinInterval = TimeSpan.FromSeconds(30);
     public const int SyncWindowDays = 7;
     /// <summary>Per FOLDER per pass; a longer backlog drains over the next passes.</summary>
-    public const int MaxFetchPerMailbox = 10;
+    public const int MaxFetchPerMailbox = 25;
+
+    /// <summary>
+    /// How long a mailbox whose IMAP sign-in was REFUSED is left alone, doubling per
+    /// refusal up to <see cref="AuthBackoffMax"/>. Without it the server-side
+    /// <c>EmailSyncWorker</c> would retry a wrong password every minute — about 1 440
+    /// failed sign-ins a day — and Microsoft 365 and Gmail throttle or lock an account
+    /// for that. A person asking for a sync explicitly (<c>force</c>) always gets a real
+    /// attempt, so fixing the password and pressing Sync now still works at once.
+    /// </summary>
+    public static readonly TimeSpan AuthBackoffFirst = TimeSpan.FromMinutes(5);
+    public static readonly TimeSpan AuthBackoffMax = TimeSpan.FromMinutes(30);
 
     private static readonly object Gate = new();
     // last run per DATABASE: one key in production; test hosts sharing the process never
     // throttle one another (a static single timestamp made parallel test classes race)
     private static readonly Dictionary<string, DateTime> LastRun = new();
+    // mailboxes whose credentials were refused: when to try again, and the wait that got
+    // us there (doubled on the next refusal). Keyed per DATABASE + mailbox, like LastRun.
+    private static readonly Dictionary<string, (DateTime Until, TimeSpan Wait)> AuthBackoff = new();
 
     private readonly AppDbContext _db;
     private readonly ScopingService _scoping;
@@ -411,6 +425,15 @@ public sealed class EmailSyncService
         foreach (var mailbox in mailboxes)
         {
             var mailboxKey = MailboxKey(mailbox);
+            // credentials already refused: say so and leave the mail server alone (a note,
+            // not an error — this pass failed at nothing and must not log a warning a minute)
+            if (!force && InAuthBackoff(mailboxKey, out var wait))
+            {
+                notes.Add($"{mailbox.Label}: IMAP refused the sign-in, so it is not tried again for "
+                    + $"{Math.Max(1, (int)Math.Round(wait.TotalMinutes))} min (the mail server would lock the "
+                    + "account). Save the password again, or sync by hand, to try at once.");
+                continue;
+            }
             MailboxFetch fetched;
             try
             {
@@ -421,10 +444,16 @@ public sealed class EmailSyncService
                 var detail = ex is MailboxException ? ex.Message
                     : $"IMAP sync failed: {MailKitEmailTransport.Scrub(ex.Message, mailbox)}";
                 errors.Add($"{mailbox.Label}: {detail}");
-                if (ex is MailboxException { AuthFailure: true } && mailbox.AccountId is int aid)
-                    TryMarkDisconnected(aid, detail);
+                if (ex is MailboxException { AuthFailure: true })
+                {
+                    // every refused mailbox backs off, with or without an account row (the
+                    // default mailbox from Settings has none, and it is retried just as often)
+                    HoldOffAfterAuthFailure(mailboxKey);
+                    if (mailbox.AccountId is int aid) TryMarkDisconnected(aid, detail);
+                }
                 continue;
             }
+            ClearAuthBackoff(mailboxKey);   // it signed in: forget any earlier refusal
 
             foreach (var folder in fetched.Folders)
             {
@@ -473,10 +502,55 @@ public sealed class EmailSyncService
         };
     }
 
-    /// <summary>Test seam: forget the throttle clock.</summary>
+    /// <summary>Test seam: forget the throttle clock (not the refused mailboxes' waits).</summary>
     public static void ResetThrottle()
     {
         lock (Gate) LastRun.Clear();
+    }
+
+    /// <summary>Test seam: forget every refused mailbox's wait, as if none had been refused.</summary>
+    public static void ResetAuthHoldOff()
+    {
+        lock (Gate) AuthBackoff.Clear();
+    }
+
+    // ---- refused credentials: wait before trying again ------------------------------
+
+    /// <summary>
+    /// True while <paramref name="mailboxKey"/> is still waiting out a refused sign-in;
+    /// <paramref name="left"/> is how much of the wait is left. The entry is KEPT once the
+    /// wait is over, so a mailbox that is refused again waits twice as long.
+    /// </summary>
+    private bool InAuthBackoff(string mailboxKey, out TimeSpan left)
+    {
+        left = TimeSpan.Zero;
+        var key = $"{ThrottleKey()}|{mailboxKey}";
+        lock (Gate)
+        {
+            if (!AuthBackoff.TryGetValue(key, out var held)) return false;
+            var now = DateTime.UtcNow;
+            if (held.Until <= now) return false;
+            left = held.Until - now;
+            return true;
+        }
+    }
+
+    private void HoldOffAfterAuthFailure(string mailboxKey)
+    {
+        var key = $"{ThrottleKey()}|{mailboxKey}";
+        lock (Gate)
+        {
+            var wait = AuthBackoff.TryGetValue(key, out var held) && held.Wait > TimeSpan.Zero
+                ? TimeSpan.FromTicks(Math.Min(held.Wait.Ticks * 2, AuthBackoffMax.Ticks))
+                : AuthBackoffFirst;
+            AuthBackoff[key] = (DateTime.UtcNow + wait, wait);
+        }
+    }
+
+    private void ClearAuthBackoff(string mailboxKey)
+    {
+        var key = $"{ThrottleKey()}|{mailboxKey}";
+        lock (Gate) AuthBackoff.Remove(key);
     }
 
     private string ThrottleKey()
