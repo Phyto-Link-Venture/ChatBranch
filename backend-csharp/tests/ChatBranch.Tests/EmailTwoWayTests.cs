@@ -201,6 +201,66 @@ public class EmailTwoWayTests : IClassFixture<TransportFactory>
         Assert.Equal(total + 1, Cursor("busy@shop.test", "INBOX").LastUid);
     }
 
+    /// <summary>
+    /// A mailbox whose password IMAP refuses is left alone for a while instead of being
+    /// retried every minute. The server-side worker never forces, so without this a wrong
+    /// password meant ~1 440 failed sign-ins a day and Microsoft 365 / Gmail lock an
+    /// account for that. A person asking by hand (force) always gets a real attempt, and
+    /// one that signs in clears the wait.
+    /// </summary>
+    [Fact]
+    public async Task A_mailbox_whose_password_is_refused_is_not_retried_every_pass()
+    {
+        var admin = await Authed();
+        EmailSyncService.ResetAuthHoldOff();
+        var boxId = await CreateMailbox(admin, "locked@shop.test", "locked@shop.test");
+        _f.Mailbox.Deliver("locked@shop.test", Mail("Ann Asker <ann@cust.test>", "locked@shop.test", "Hello",
+            "Anyone there?", "a1@cust.test"));
+        _f.Mailbox.Fail = mb => mb.ImapUsername == "locked@shop.test"
+            ? new MailboxException("IMAP login refused: AUTHENTICATIONFAILED", authFailure: true) : null;
+
+        int Tries() => _f.Mailbox.Calls.Count(c => c.ImapUsername == "locked@shop.test");
+
+        // the refusal is reported as before, and the mailbox is marked disconnected
+        EmailSyncService.ResetThrottle();
+        var first = await (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(first.GetProperty("ok").GetBoolean());
+        Assert.Contains(first.GetProperty("errors").EnumerateArray(), e => e.GetString()!.Contains("login refused"));
+        Assert.Equal(Health.Disconnected, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Id == boxId)).HealthStatus);
+        var triedOnce = Tries();
+        Assert.True(triedOnce >= 1);
+
+        // the next pass does not touch the mail server at all: a note, and nothing failed
+        EmailSyncService.ResetThrottle();
+        var held = await (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.DoesNotContain(held.GetProperty("errors").EnumerateArray(),
+            e => e.GetString()!.Contains("login refused"));
+        Assert.Contains(held.GetProperty("notes").EnumerateArray(),
+            n => n.GetString()!.Contains("refused the sign-in"));
+        Assert.Equal(triedOnce, Tries());
+
+        // a person who fixed the password and asks by hand is never made to wait
+        var byHand = await (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { force = true }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(byHand.GetProperty("ok").GetBoolean());          // still the wrong password
+        Assert.True(Tries() > triedOnce);                             // but it really tried
+
+        // once it signs in, the wait is forgotten and ordinary passes read it again
+        _f.Mailbox.Fail = _ => null;
+        var fixedUp = await (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { force = true }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.DoesNotContain(fixedUp.GetProperty("errors").EnumerateArray(),
+            e => e.GetString()!.Contains("login refused"));
+        Assert.True(InDb(db => db.Messages.Any(m => m.Thread!.Key == "ann@cust.test" && m.Text == "Anyone there?")));
+        var afterFix = Tries();
+
+        EmailSyncService.ResetThrottle();
+        await (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { })).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(Tries() > afterFix);
+    }
+
     // ---- 4b: the Sent folder ----------------------------------------------------------
 
     [Fact]

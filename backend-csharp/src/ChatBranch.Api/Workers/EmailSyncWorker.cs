@@ -16,6 +16,11 @@ namespace ChatBranch.Api.Workers;
 /// the next pass runs as soon as the throttle allows, so a backlog drains in
 /// minutes instead of one page-load at a time.
 ///
+/// Because it never forces, it also observes the service's hold-off on a mailbox
+/// whose IMAP sign-in was refused (<see cref="EmailSyncService.AuthBackoffFirst"/>
+/// doubling to <see cref="EmailSyncService.AuthBackoffMax"/>): a wrong password is
+/// not retried once a minute until the mail server locks the account.
+///
 /// Env <c>EMAIL_SYNC_WORKER=0</c> disables it (the test host does, and drives
 /// the sync through <c>POST /api/messaging/email/sync</c>);
 /// <c>EMAIL_SYNC_INTERVAL</c> = seconds between passes (default 60, minimum 30).

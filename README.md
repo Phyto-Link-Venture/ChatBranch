@@ -366,7 +366,7 @@ npm run test:scenarios     # the Test lab's use cases against a running API — 
 The test host disables the background workers and the human-like AI defaults
 itself (`QUEUE_WORKER=0`, `FLOWS_WORKER=0`, `AI_FOLLOWUP_WORKER=0`,
 `HEALTH_WORKER=0`, `EMBEDDING_WORKER=0`, `IDENTITY_CHECK_WORKER=0`,
-`AI_HUMANIZE=0`) and seeds the demo logins (`SEED_DEMO=1`). CI
+`AI_TASK_WORKER=0`, `EMAIL_SYNC_WORKER=0`, `AI_HUMANIZE=0`) and seeds the demo logins (`SEED_DEMO=1`). CI
 (`.github/workflows/ci.yml`) runs all of the above on every push to master and
 every pull request — only for the parts a push changed, with the API suite split
 into 3 parallel shards on SQLite and 3 on PostgreSQL (`TEST_SHARD=i/n`). Before a
