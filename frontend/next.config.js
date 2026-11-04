@@ -9,6 +9,10 @@ const nextConfig = {
   // build job and the deploy's image build set it. Unset = the full checks.
   eslint: { ignoreDuringBuilds: process.env.NEXT_SKIP_CHECKS === '1' },
   typescript: { ignoreBuildErrors: process.env.NEXT_SKIP_CHECKS === '1' },
+  // The dashboard never uses next/image, so the optimizer stays off: with it
+  // off /_next/image answers 404 instead of fetching and decoding images —
+  // the route Next 14's SVG / AVIF remote-code advisories go through.
+  images: { unoptimized: true },
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api',
   },
