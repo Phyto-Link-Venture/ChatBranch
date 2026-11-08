@@ -299,6 +299,13 @@ export const channels = {
         keepPhone: 'Keep phone notifications',
         keepPhoneOnHelp: 'ChatBranch goes offline between sends, so this phone still rings for new WhatsApp messages.',
         keepPhoneOffHelp: 'ChatBranch stays online all the time — WhatsApp then silences this phone’s notifications, as when WhatsApp Web is left open.',
+        importHistory: 'Import past chats when it links',
+        importHistoryHelp:
+          'WhatsApp replays the chats the phone still holds, so the inbox does not start empty. Imported messages arrive quietly: the AI never answers them, no automation runs and nobody is notified. Files are not imported — only the words and a note of what was attached.',
+        importHistoryOff: 'Do not import anything',
+        importHistory30: 'The last 30 days',
+        importHistory90: 'The last 90 days',
+        importHistoryAll: 'Everything WhatsApp sends',
         keepRecalled: 'Keep messages the customer deletes',
         keepRecalledOnHelp: 'When a customer deletes a message for everyone, it stays here for your team, marked “Deleted by the customer”. The AI never answers or reads it.',
         keepRecalledOffHelp: 'When a customer deletes a message for everyone, it is erased here too — its words and file — like on their phone. The chat shows “This message was deleted”.',

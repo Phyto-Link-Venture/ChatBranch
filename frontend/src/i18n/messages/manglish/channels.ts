@@ -74,6 +74,8 @@ export const channels: Overlay<Messages['channels']> = {
     who: {
       keepPhoneOnHelp: 'ChatBranch goes offline in between sends, so this phone still rings for new WhatsApp messages — no need to keep checking.',
       keepPhoneOffHelp: 'ChatBranch stays online all the time — then WhatsApp will silence this phone’s notifications, same like leaving WhatsApp Web open.',
+      importHistoryHelp:
+        'WhatsApp will replay whatever chats the phone still keeps, so your inbox won’t start empty. The imported ones come in quietly — the AI won’t reply to them, no automation runs, nobody gets pinged. Files cannot come along, only the words and a note of what was attached.',
       keepRecalledOnHelp: 'When a customer deletes a message for everyone, it still stays here for your team, marked “Deleted by the customer”. The AI won’t answer or read it one.',
       keepRecalledOffHelp: 'When a customer deletes a message for everyone, it also gets erased here — the words and the file — same like on their phone. The chat will show “This message was deleted”.',
       voiceIntro:

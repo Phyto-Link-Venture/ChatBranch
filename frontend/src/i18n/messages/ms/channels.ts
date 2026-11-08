@@ -300,6 +300,13 @@ export const channels: Dict<typeof source> = {
         keepPhone: 'Kekalkan pemberitahuan telefon',
         keepPhoneOnHelp: 'ChatBranch berada di luar talian antara penghantaran, jadi telefon ini masih berbunyi untuk mesej WhatsApp baharu.',
         keepPhoneOffHelp: 'ChatBranch sentiasa dalam talian — WhatsApp kemudian mendiamkan pemberitahuan telefon ini, seperti apabila WhatsApp Web dibiarkan terbuka.',
+        importHistory: 'Import perbualan lalu apabila dipautkan',
+        importHistoryHelp:
+          'WhatsApp menghantar semula perbualan yang masih ada pada telefon, jadi peti masuk tidak bermula kosong. Mesej yang diimport masuk secara senyap: AI tidak pernah menjawabnya, tiada automasi berjalan dan tiada siapa dimaklumkan. Fail tidak diimport — hanya perkataan dan catatan tentang apa yang dilampirkan.',
+        importHistoryOff: 'Jangan import apa-apa',
+        importHistory30: '30 hari terakhir',
+        importHistory90: '90 hari terakhir',
+        importHistoryAll: 'Semua yang dihantar WhatsApp',
         keepRecalled: 'Simpan mesej yang dipadam pelanggan',
         keepRecalledOnHelp: 'Apabila pelanggan memadam mesej untuk semua orang, mesej itu kekal di sini untuk pasukan anda, bertanda “Dipadam oleh pelanggan”. AI tidak akan menjawab atau membacanya.',
         keepRecalledOffHelp: 'Apabila pelanggan memadam mesej untuk semua orang, mesej itu turut dipadam di sini — kata-kata dan failnya — seperti di telefon mereka. Sembang menunjukkan “Mesej ini telah dipadam”.',

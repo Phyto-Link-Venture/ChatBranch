@@ -23,6 +23,10 @@
  *   POST /accounts/:id/call-end    -> hang up the active call
  *   GET  /accounts/:id/call-status -> { status, call_id, room?, wa_id? }
  *
+ * On a fresh pair the number's existing 1:1 chats are replayed by WhatsApp and
+ * pushed to POST /api/whatsapp/baileys/history (text and placeholders only — see
+ * history.js), as far back as the inbox's import_history_days setting asks.
+ *
  * Every request needs the X-Baileys-Secret header (BAILEYS_SECRET, shared
  * with Django). Inbound messages are pushed to Django at
  * POST /api/whatsapp/baileys/inbound with the same secret.
@@ -42,6 +46,7 @@ import { buildMediaMessage, MediaRequestError, MAX_SEND_MEDIA_BODY, readJsonBody
 import { buildContact, buildDelete, buildEdit, buildLocation, buildPoll, buildQuoted, buildReact, editOf, KeyStore, mediaKind, messageSeconds, parseInbound, phoneSent, postWithRetry, recallOf, setNormalizer, unwrap } from './messages.js'
 import { createPresence, DEFAULT_IDLE_MS } from './presence.js'
 import { normalizePairingCode, pairingPhone } from './pairing.js'
+import { chunk as historyChunks, HISTORY_CHOICES, historyRows, historyWindowDays, wantsFullSync } from './history.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -169,6 +174,9 @@ function acct(id) {
 // ---- per-number settings (kept next to the session, so they survive a restart) ----
 // keep_phone_notifications: stay offline between sends so the phone still buzzes
 // (presence.js) — set by the API from the number's settings (POST /accounts/:id/settings).
+// import_history_days: how far back the number's existing chats are imported when it
+// links (0 = none, 30 / 90, -1 = everything WhatsApp sends — history.js). Read at
+// socket creation, so the API hands it over before each pairing attempt.
 const settingsFile = (id) => path.join(AUTH_ROOT, String(id), 'settings.json')
 
 function loadSettings(id) {
@@ -378,6 +386,37 @@ async function pushRecall(id, m, recall) {
   else logEvent('recallPushFailed', { acct: id, id: recall.id, status: r.status, attempts: r.attempts, error: r.error })
 }
 
+/**
+ * Push a replayed batch of the number's EXISTING chats to the API, which files
+ * them as a backfill (Channels/WhatsAppHistoryImport.cs): the words arrive, the
+ * side effects do not — no AI reply, no flows, no automation rules, no
+ * notifications, no reopening a conversation someone had finished.
+ *
+ * Only importable rows are sent (history.js: 1:1 chats, text and placeholders,
+ * inside the window the inbox asked for), in batches the API accepts, and the
+ * answer is checked like every other push — a failure is logged with its status
+ * rather than lost, because nothing replays a history replay.
+ */
+async function pushHistory(id, messages, days, detail = {}) {
+  const rows = historyRows(messages, { parse: parseInbound, unwrap, phoneForLid, days })
+  logEvent('history', { acct: id, replayed: (messages || []).length, importable: rows.length, ...detail })
+  if (!rows.length) return
+  let stored = 0
+  for (const batch of historyChunks(rows, 500)) {
+    const r = await postWithRetry(() => fetch(`${API_URL}/api/whatsapp/baileys/history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+      body: JSON.stringify({ account_id: id, messages: batch }),
+    }), { attempts: 3, baseDelayMs: 500 })
+    if (!r.ok) {
+      logEvent('historyPushFailed', { acct: id, rows: batch.length, status: r.status, error: r.error })
+      return
+    }
+    stored += batch.length
+  }
+  console.log(`[${id}] imported ${stored} message(s) of existing history`)
+}
+
 /** Reverse DisconnectReason lookup: 401 -> "loggedOut", 403 -> "forbidden"… */
 function disconnectReasonName(code) {
   for (const [name, value] of Object.entries(DisconnectReason)) {
@@ -440,14 +479,19 @@ async function startAccount(id, phone = null) {
   // in "starting" with no QR) — always pair with the current one.
   const { version } = await fetchLatestBaileysVersion()
 
-  const keepPhone = !!loadSettings(id).keep_phone_notifications
+  const settings = loadSettings(id)
+  const keepPhone = !!settings.keep_phone_notifications
+  // How much of the number's own history to import. Only "everything" asks WhatsApp
+  // for a full sync (tens of thousands of messages on a busy number); a day window
+  // rides on the recent history a new companion is sent anyway.
+  const historyDays = historyWindowDays(settings)
   const sock = makeWASocket({
     version,
     auth: state,
     logger,
     printQRInTerminal: false,
     browser: ['ChatBranch', 'Chrome', '1.0'],
-    syncFullHistory: false,
+    syncFullHistory: wantsFullSync(historyDays),
     // "Keep phone notifications": never announce online on connect (presence.js)
     markOnlineOnConnect: !keepPhone,
   })
@@ -466,6 +510,21 @@ async function startAccount(id, phone = null) {
   }, 30000)
 
   sock.ev.on('creds.update', saveCreds)
+
+  // The chats this number already had. WhatsApp replays them on connect (and in
+  // further batches as it catches up); each batch is filtered and pushed as a
+  // BACKFILL — the API stores the words and runs nothing else (no AI, no flows,
+  // no automations, no notifications).
+  if (historyDays !== 0) {
+    sock.ev.on('messaging-history.set', async ({ messages, syncType, progress }) => {
+      if (a.gen !== gen) return   // a newer pairing attempt owns this account now
+      try {
+        await pushHistory(id, messages, historyDays, { syncType, progress })
+      } catch (e) {
+        logEvent('historyPushFailed', { acct: id, error: e.message })
+      }
+    })
+  }
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (a.gen !== gen) return   // this socket has been superseded — stay quiet
@@ -884,16 +943,49 @@ http
           : { state: 'stopped', qr: null, pairing_code: null, pairing_phone: null, me: null, error: null, keep_phone_notifications: keep, online: null })
       }
       if (action === 'settings') {
-        // GET: the number's settings; POST {keep_phone_notifications}: store + apply now
-        if (req.method === 'GET') return json(res, 200, { keep_phone_notifications: !!loadSettings(id).keep_phone_notifications })
+        // GET: the number's settings; POST {keep_phone_notifications?, import_history_days?}:
+        // store, and apply presence now (the history window is read at the next pairing,
+        // since syncFullHistory is a socket option)
+        const stored = loadSettings(id)
+        if (req.method === 'GET') {
+          return json(res, 200, {
+            keep_phone_notifications: !!stored.keep_phone_notifications,
+            import_history_days: historyWindowDays(stored),
+          })
+        }
         if (req.method !== 'POST') return json(res, 405, { detail: 'GET or POST' })
         const body = await readBody(req)
-        if (typeof body.keep_phone_notifications !== 'boolean') return json(res, 400, { detail: 'keep_phone_notifications (true/false) is required' })
-        saveSettings(id, { ...loadSettings(id), keep_phone_notifications: body.keep_phone_notifications })
+        const keep = body.keep_phone_notifications
+        const histRaw = body.import_history_days
+        const hasKeep = typeof keep === 'boolean'
+        const hasHist = histRaw !== undefined && histRaw !== null
+        if (!hasKeep && !hasHist) {
+          return json(res, 400, {
+            detail: 'keep_phone_notifications (true/false) or import_history_days (0 | 30 | 90 | -1) is required',
+          })
+        }
+        const next = { ...stored }
+        if (hasKeep) next.keep_phone_notifications = keep
+        if (hasHist) {
+          const days = Number.parseInt(String(histRaw), 10)
+          if (!HISTORY_CHOICES.includes(days)) {
+            return json(res, 400, { detail: 'import_history_days must be one of 0, 30, 90, -1' })
+          }
+          next.import_history_days = days
+        }
+        saveSettings(id, next)
         const a = accounts.get(id)
-        if (a?.state === 'connected' && a.presence) await a.presence.configure(body.keep_phone_notifications)
-        logEvent('settings', { acct: id, keep_phone_notifications: body.keep_phone_notifications })
-        return json(res, 200, { ok: true, keep_phone_notifications: body.keep_phone_notifications })
+        if (hasKeep && a?.state === 'connected' && a.presence) await a.presence.configure(keep)
+        logEvent('settings', {
+          acct: id,
+          keep_phone_notifications: !!next.keep_phone_notifications,
+          import_history_days: historyWindowDays(next),
+        })
+        return json(res, 200, {
+          ok: true,
+          keep_phone_notifications: !!next.keep_phone_notifications,
+          import_history_days: historyWindowDays(next),
+        })
       }
       if (action === 'call-status') {
         // idle until calls.js has ever been loaded — don't boot WASM for a poll

@@ -281,6 +281,26 @@ outbound queue are already channel-blind.
   `ChannelAccount.Config.keep_phone_notifications` and hands it to the gateway
   (`POST /accounts/:id/settings`) before pairing and whenever it changes; the gateway
   keeps a copy in the session dir (`settings.json`). Off = online all the time.
+- **The chats the number already had** are imported when it links. WhatsApp replays a
+  new companion's recent history (`messaging-history.set`); the gateway filters it to
+  1:1 chats, text and the placeholders `parseInbound` already produces, inside the
+  window the inbox asked for (`history.js`, self-tested), and pushes it in batches of
+  ≤500 to `POST /api/whatsapp/baileys/history`.
+  `Channels/WhatsAppHistoryImport.cs` files it as a **backfill**, the same shape as the
+  mailbox Sent-folder import: straight through `ThreadStore` and nothing else — no AI
+  reply, no flows, no automation rules, no notifications, no STOP handling, no handover
+  being answered, no resolved conversation reopening (the status is restored and
+  `UpdatedAt` is set to the newest message the conversation holds, so a dormant chat
+  does not jump to the top of the inbox). A message from the number itself is stored
+  OUTBOUND `external_client`, the customer's as a normal inbound; dedup is on
+  WhatsApp's own id, so a replay costs nothing. Historical MEDIA is NOT downloaded —
+  the files are usually gone from WhatsApp's servers and the inbox already renders a
+  placeholder whose file never came. How far back is per inbox
+  (`ChannelAccount.Config.import_history_days`: 0 off, 30 — the default — , 90, -1
+  everything WhatsApp sends; only -1 asks for a full sync, since that can be tens of
+  thousands of messages). It is handed to the gateway with the other per-number
+  settings BEFORE each pairing attempt, because `syncFullHistory` is a socket option.
+  Tests: `WhatsAppHistoryTests`, `history.js --selftest`.
 - **Messages sent from the phone** (or WhatsApp Web — another device of the number)
   reach ChatBranch as the person's reply: the gateway pushes a live (`notify`)
   message from its own number that it did not send itself, to a 1:1 chat, under 15

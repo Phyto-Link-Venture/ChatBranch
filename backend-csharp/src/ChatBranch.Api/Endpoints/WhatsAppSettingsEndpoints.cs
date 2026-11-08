@@ -644,6 +644,7 @@ public static class WhatsAppSettingsEndpoints
             if (WhatsAppProviders.IsBsp(provider)) ApplyBsp(row, body);
             if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
             ApplyPhoneNotifications(row, body);   // QR numbers: handed to the gateway when it pairs
+            if (ApplyHistoryImport(row, body) is IResult historyErr) return historyErr;
             // inbox "who answers it" keys: owning team + AI reply default
             if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
                     AsString(body, InboxSettings.AiDefaultKey),
@@ -725,6 +726,7 @@ public static class WhatsAppSettingsEndpoints
             // brain/STT) — same config JSON, no health reset either
             if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
             var phoneNotificationsChanged = ApplyPhoneNotifications(row, body);
+            if (ApplyHistoryImport(row, body) is IResult historyErr) return historyErr;
             if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
                     AsString(body, InboxSettings.AiDefaultKey),
                     AsString(body, InboxSettings.ReviewModeKey),
@@ -947,8 +949,11 @@ public static class WhatsAppSettingsEndpoints
                     }, statusCode: 400);
             }
             var key = await EnsureBaileysKey(db, acct);
-            // the session starts with the number's "keep phone notifications" setting
-            await gw.SetPhoneNotificationsAsync(key, BaileysSettings.KeepPhone(acct));
+            // The session starts with the number's own settings: "keep phone
+            // notifications", and how far back to import its existing chats — that one
+            // decides a socket option, so pairing is the only moment it can be chosen.
+            await gw.SetSettingsAsync(key, BaileysSettings.KeepPhone(acct),
+                BaileysSettings.ImportHistoryDays(acct));
             var st = await gw.StartAsync(key, pairPhone.Length > 0 ? pairPhone : null);
             await Audit(db, ctx, me, "account.baileys_start", $"whatsapp:{id}",
                 pairPhone.Length > 0 ? $"{st.State} (by phone number)" : st.State);
@@ -1894,6 +1899,9 @@ public static class WhatsAppSettingsEndpoints
         bsp = BspPayload(a),
         // QR numbers: stay offline between sends so the phone keeps its notifications
         keep_phone_notifications = BaileysSettings.KeepPhone(a),
+        // QR numbers: how much of the number's own chat history to import when it links
+        import_history_days = BaileysSettings.ImportHistoryDays(a),
+        import_history_supported = WhatsAppProviders.Of(a) == Providers.Baileys,
     };
 
     /// <summary>The provider-specific, non-secret settings of a YCloud / Twilio account (secrets masked).</summary>
@@ -2014,6 +2022,31 @@ public static class WhatsAppSettingsEndpoints
     /// the body's <c>keep_phone_notifications</c> true / false. Other providers ignore it.
     /// True when it changed.
     /// </summary>
+    /// <summary>
+    /// "Import past chats" on a QR (Baileys) number: the body's
+    /// <c>import_history_days</c> (0 = off, 30 / 90, -1 = everything WhatsApp sends).
+    /// Other providers ignore it — the official APIs serve no history at all. Returns a
+    /// 400 result for a value that is not one of the offered windows.
+    /// </summary>
+    private static IResult? ApplyHistoryImport(ChannelAccount row, JsonElement body)
+    {
+        if (WhatsAppProviders.Of(row) != Providers.Baileys
+            || !Has(body, BaileysSettings.ImportHistoryDaysKey)) return null;
+        var raw = (AsString(body, BaileysSettings.ImportHistoryDaysKey) ?? "").Trim();
+        if (!int.TryParse(raw, out var days) || !BaileysSettings.HistoryChoices.Contains(days))
+            return Results.Json(new
+            {
+                detail = "import_history_days must be one of "
+                         + string.Join(", ", BaileysSettings.HistoryChoices)
+                         + " (0 = import nothing, -1 = everything WhatsApp sends).",
+            }, statusCode: 400);
+        row.Config = new Dictionary<string, object?>(row.Config)
+        {
+            [BaileysSettings.ImportHistoryDaysKey] = days.ToString(),
+        };
+        return null;
+    }
+
     private static bool ApplyPhoneNotifications(ChannelAccount row, JsonElement body)
     {
         if (WhatsAppProviders.Of(row) != Providers.Baileys

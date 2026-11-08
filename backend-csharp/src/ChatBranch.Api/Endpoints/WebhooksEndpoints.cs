@@ -203,6 +203,50 @@ public static class WebhooksEndpoints
             return Results.Ok(new { ok = true, stored = msg != null });
         }).AllowAnonymous();
 
+        // The chats the number ALREADY had, replayed by WhatsApp when it links and
+        // pushed here in batches (backend/baileys_service/history.js). This is a
+        // BACKFILL, not an inbound: Channels/WhatsAppHistoryImport stores the words
+        // through ThreadStore and runs nothing else — no AI, no flows, no automations,
+        // no notifications, no reopening a conversation someone had finished. The
+        // answer is meaningful, as every gateway push's is: 200 with what was stored,
+        // 400 for a body with no messages (never retryable), 404 for an unknown number.
+        app.MapPost("/api/whatsapp/baileys/history", async (HttpContext ctx, AppDbContext db,
+            ScopingService sc, ThreadStore store, InboundProcessor processor) =>
+        {
+            if (!BaileysSecretOk(ctx, sc)) return Results.StatusCode(401);
+            JsonElement body;
+            try { body = await ctx.Request.ReadFromJsonAsync<JsonElement>(); }
+            catch { return Results.Json(new { detail = "a JSON body is required" }, statusCode: 400); }
+            var account = await BaileysAccountByKey(db, Str(body, "account_id"));
+            if (account == null)
+                return Results.Json(new { detail = "unknown account_id" }, statusCode: 404);
+            if (body.ValueKind != JsonValueKind.Object
+                || !body.TryGetProperty("messages", out var list) || list.ValueKind != JsonValueKind.Array)
+                return Results.Json(new { detail = "messages[] is required" }, statusCode: 400);
+
+            var rows = new List<ChatBranch.Data.Channels.HistoryMessage>();
+            foreach (var m in list.EnumerateArray())
+            {
+                if (m.ValueKind != JsonValueKind.Object) continue;
+                long ts = 0;
+                if (m.TryGetProperty("ts", out var tsEl) && tsEl.ValueKind == JsonValueKind.Number
+                    && tsEl.TryGetInt64(out var t)) ts = t;
+                var fromMe = m.TryGetProperty("from_me", out var fm)
+                             && (fm.ValueKind == JsonValueKind.True
+                                 || (fm.ValueKind == JsonValueKind.String && fm.GetString() is "1" or "true"));
+                rows.Add(new ChatBranch.Data.Channels.HistoryMessage(
+                    Str(m, "wa_id") ?? "", Str(m, "name") ?? "", Str(m, "msg_id") ?? "", fromMe, ts,
+                    Str(m, "text") ?? "", Str(m, "reply_to") ?? ""));
+            }
+
+            var result = ChatBranch.Data.Channels.WhatsAppHistoryImport.Import(db, sc, store, processor,
+                account, rows);
+            return Results.Ok(new
+            {
+                ok = true, stored = result.Stored, skipped = result.Skipped, threads = result.Threads,
+            });
+        }).AllowAnonymous();
+
         // "Delete for everyone" on a QR number: the customer's (or, from_me, a recall made on
         // the number's own phone). Kept or erased by the inbox's keep_recalled switch
         // (Channels/MessageRecalls). Unknown number / message: acked, nothing to do.

@@ -22,6 +22,12 @@ public sealed class PairingGateway : IBaileysGateway
     public Task<bool> SetPhoneNotificationsAsync(string a, bool keep, CancellationToken ct = default) =>
         Task.FromResult(true);
 
+    public Task<bool> SetSettingsAsync(string a, bool keep, int importHistoryDays, CancellationToken ct = default)
+    {
+        lock (Calls) Calls.Add($"settings {a} keep={keep} history={importHistoryDays}");
+        return Task.FromResult(true);
+    }
+
     public Task<BaileysResult> SendTextAsync(string a, string to, string text, CancellationToken ct = default) =>
         Task.FromResult(new BaileysResult(true, "sent", "wamid-1"));
     public Task<BaileysResult> StartCallAsync(string a, string to, Dictionary<string, object?> d,
@@ -99,7 +105,9 @@ public class BaileysPairingTests : IClassFixture<BaileysPairingFactory>
         var st = await Json(await admin.PostAsJsonAsync($"/api/whatsapp/accounts/{id}/baileys/start",
             new { phone = "+60 12-345 6789" }));
 
-        Assert.Equal(new[] { $"start {Key(id)} phone=60123456789" }, _f.Gateway.Calls);
+        // the number's settings are always handed over first, then the session starts
+        Assert.Equal(new[] { $"settings {Key(id)} keep=False history=30", $"start {Key(id)} phone=60123456789" },
+            _f.Gateway.Calls);
         Assert.Equal("pairing_code", st.GetProperty("state").GetString());
         Assert.Equal("ABCD1234", st.GetProperty("pairing_code").GetString());
         Assert.Equal("60123456789", st.GetProperty("pairing_phone").GetString());
@@ -116,7 +124,8 @@ public class BaileysPairingTests : IClassFixture<BaileysPairingFactory>
         var st = await Json(await admin.PostAsync($"/api/whatsapp/accounts/{id}/baileys/start",
             new StringContent("", Encoding.UTF8, "application/json")));
 
-        Assert.Equal(new[] { $"start {Key(id)} phone=-" }, _f.Gateway.Calls);
+        Assert.Equal(new[] { $"settings {Key(id)} keep=False history=30", $"start {Key(id)} phone=-" },
+            _f.Gateway.Calls);
         Assert.Equal("qr", st.GetProperty("state").GetString());
         Assert.NotNull(st.GetProperty("qr").GetString());
         Assert.Equal(JsonValueKind.Null, st.GetProperty("pairing_code").ValueKind);
@@ -151,6 +160,35 @@ public class BaileysPairingTests : IClassFixture<BaileysPairingFactory>
             .Select(a => a.Detail).ToList());
         Assert.NotEmpty(rows);
         Assert.All(rows, d => Assert.DoesNotContain("ABCD1234", d));
+    }
+
+    [Fact]
+    public async Task The_numbers_own_settings_reach_the_gateway_before_the_session_starts()
+    {
+        var admin = await Platform.As(_f, "admin", "admin123");
+        // "import the last 90 days of this number's chats"
+        var created = await Json(await admin.PostAsJsonAsync("/api/whatsapp/accounts",
+            new { provider = "baileys", name = "History phone", import_history_days = 90 }));
+        Assert.Equal(90, created.GetProperty("import_history_days").GetInt32());
+        var id = created.GetProperty("id").GetString()!;
+        _f.Gateway.Calls.Clear();
+
+        await Json(await admin.PostAsJsonAsync($"/api/whatsapp/accounts/{id}/baileys/start", new { }));
+
+        // the history window is a socket option, so pairing is the only moment it can
+        // be chosen — it must be handed over BEFORE the session starts
+        Assert.Equal(new[] { $"settings {Key(id)} keep=False history=90", $"start {Key(id)} phone=-" },
+            _f.Gateway.Calls);
+    }
+
+    [Fact]
+    public async Task A_window_we_do_not_offer_is_refused()
+    {
+        var admin = await Platform.As(_f, "admin", "admin123");
+        var res = await admin.PostAsJsonAsync("/api/whatsapp/accounts",
+            new { provider = "baileys", name = "Odd window", import_history_days = 7 });
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Contains("import_history_days", await res.Content.ReadAsStringAsync());
     }
 
     [Theory]

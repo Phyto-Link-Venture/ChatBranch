@@ -294,6 +294,13 @@ export const channels: Dict<typeof source> = {
       keepPhone: '保留手机通知',
       keepPhoneOnHelp: 'ChatBranch 在两次发送之间保持离线，因此这部手机仍会收到 WhatsApp 新消息的提醒。',
       keepPhoneOffHelp: 'ChatBranch 一直保持在线——WhatsApp 会因此静音这部手机的通知，就像一直开着 WhatsApp Web 一样。',
+      importHistory: '关联时导入过往对话',
+      importHistoryHelp:
+        'WhatsApp 会重播手机上仍保留的对话，收件箱因此不会从零开始。导入的消息是静默的：AI 不会回复，不触发自动化，也不通知任何人。文件不会导入——只有文字和附件说明。',
+      importHistoryOff: '不要导入',
+      importHistory30: '最近 30 天',
+      importHistory90: '最近 90 天',
+      importHistoryAll: 'WhatsApp 发送的全部内容',
       keepRecalled: '保留客户删除的消息',
       keepRecalledOnHelp: '客户对所有人删除消息后，消息仍会保留在这里供团队查看，并标记为“客户已删除”。AI 不会回复或读取它。',
       keepRecalledOffHelp: '客户对所有人删除消息后，这里也会一并删除——文字和文件——与客户手机上一致。聊天中显示“此消息已删除”。',

@@ -50,6 +50,33 @@ public record BaileysQuote(string Id, bool FromMe, string Text = "");
 public static class BaileysSettings
 {
     public const string KeepPhoneNotifications = "keep_phone_notifications";
+    public const string ImportHistoryDaysKey = "import_history_days";
+
+    /// <summary>"Everything WhatsApp sends" — which is only ever what the phone still holds.</summary>
+    public const int HistoryAll = -1;
+
+    /// <summary>Off, a month (the default), a quarter, or everything — what the drawer offers.</summary>
+    public static readonly int[] HistoryChoices = { 0, 30, 90, HistoryAll };
+
+    /// <summary>
+    /// How many days of the number's existing chats to import when it is linked: 0 = none,
+    /// <see cref="HistoryAll"/> = everything WhatsApp serves, else that many days. A number
+    /// with no setting imports the last 30 days, which is what the inbox is worth having on
+    /// the first day; an explicit 0 turns it off.
+    /// </summary>
+    public static int ImportHistoryDays(ChatBranch.Domain.ChannelAccount? a)
+    {
+        if (a == null) return 0;
+        if (!a.Config.TryGetValue(ImportHistoryDaysKey, out var raw) || raw == null) return 30;
+        var text = raw switch
+        {
+            System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.Number } e =>
+                e.GetRawText(),
+            System.Text.Json.JsonElement e => e.GetString() ?? "",
+            _ => raw.ToString() ?? "",
+        };
+        return int.TryParse(text.Trim(), out var days) && HistoryChoices.Contains(days) ? days : 30;
+    }
 
     public static bool KeepPhone(ChatBranch.Domain.ChannelAccount a) =>
         a.Config.TryGetValue(KeepPhoneNotifications, out var v) && v switch
@@ -210,6 +237,15 @@ public interface IBaileysGateway
     /// </summary>
     Task<bool> SetPhoneNotificationsAsync(string accountExternalId, bool keep, CancellationToken ct = default) =>
         Task.FromResult(false);
+    /// <summary>
+    /// Hand over every per-number setting the gateway needs BEFORE a session starts:
+    /// "keep phone notifications" and how far back to import the number's existing
+    /// chats (<see cref="BaileysSettings.ImportHistoryDays"/>) — the history window is
+    /// a socket option, so it can only be chosen at pairing time. A gateway that knows
+    /// only the older call still gets the notification setting.
+    /// </summary>
+    Task<bool> SetSettingsAsync(string accountExternalId, bool keep, int importHistoryDays,
+        CancellationToken ct = default) => SetPhoneNotificationsAsync(accountExternalId, keep, ct);
     // ---- pairing (Settings → Channels → WhatsApp → Pair) ----
     Task<BaileysStatus> StatusAsync(string accountExternalId, CancellationToken ct = default);
     Task<BaileysStatus> StartAsync(string accountExternalId, CancellationToken ct = default);
@@ -360,6 +396,15 @@ public class HttpBaileysGateway : IBaileysGateway
     {
         var (ok, _, _) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/settings",
             new { keep_phone_notifications = keep }, ct, timeoutSeconds: 10);
+        return ok;
+    }
+
+    public async Task<bool> SetSettingsAsync(string a, bool keep, int importHistoryDays,
+        CancellationToken ct = default)
+    {
+        var (ok, _, _) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/settings",
+            new { keep_phone_notifications = keep, import_history_days = importHistoryDays }, ct,
+            timeoutSeconds: 10);
         return ok;
     }
 

@@ -264,6 +264,8 @@ export interface WaAccount {
   ai_review_mode?: ReviewMode
   /** QR numbers: offline between sends so the phone keeps WhatsApp's notifications */
   keep_phone_notifications?: boolean
+  /** QR numbers: days of existing chats to import on linking (0 off, -1 everything). */
+  import_history_days?: number
   /** A message the customer deletes for everyone stays readable (true) or is erased (false). */
   keep_recalled?: boolean
   /** The channel tells us about deleted messages (QR numbers). */

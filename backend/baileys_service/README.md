@@ -20,6 +20,8 @@ header); the gateway pushes back to the API's `/api/whatsapp/baileys/*` routes.
 
 ## Processes & files
 
+- `history.js` — the pure half of importing a number's existing chats: which
+  replayed messages are importable, and the window (`--selftest`)
 - `pairing.js` — the pure half of pairing: cleaning the number for
   "Link with phone number", formatting the code (`--selftest`)
 - `index.js` — pairing, text + media send/receive, HTTP control API (port
@@ -95,7 +97,7 @@ groups, no video.
 | `POST /accounts/:id/call` | `{to, room, livekit_url, token, max_seconds}` → call snapshot |
 | `POST /accounts/:id/call-end` | hang up the active call |
 | `POST /accounts/:id/presence` | typing/online presence before an AI reply (best-effort) |
-| `GET/POST /accounts/:id/settings` | `{keep_phone_notifications: bool}` — stay offline between sends so the phone keeps WhatsApp's notifications (`presence.js`; stored in the session dir's `settings.json`, applied to a live session at once) |
+| `GET/POST /accounts/:id/settings` | `{keep_phone_notifications?: bool, import_history_days?: 0\|30\|90\|-1}` — stay offline between sends so the phone keeps WhatsApp's notifications (`presence.js`), and how far back to import the number's existing chats when it links (`history.js`; read at socket creation, so the API hands it over before each pairing attempt). Stored in the session dir's `settings.json`; the presence setting is applied to a live session at once |
 | `GET  /accounts/:id/call-status` | `{status, call_id, room?}` — the API's busy/stale-state probe |
 
 ## Setup / run

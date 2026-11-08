@@ -264,6 +264,8 @@ export function InboxSetupDrawer({
   const [delivery, setDelivery] = useState<DeliveryState>(() => deliveryStateFrom(null))
   // QR numbers: stay offline between sends so the phone still rings (on for a new number)
   const [keepPhone, setKeepPhone] = useState(true)
+  // QR numbers: how far back to import the number's existing chats when it links
+  const [historyDays, setHistoryDays] = useState('30')
   const [keepRecalled, setKeepRecalled] = useState(false)
   // validation + status
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -331,6 +333,7 @@ export function InboxSetupDrawer({
     setReviewMode(inbox?.reviewMode ?? '')
     setDelivery(deliveryStateFrom(inbox?.wa?.delivery))
     setKeepPhone(inbox?.wa ? !!inbox.wa.keep_phone_notifications : true)
+    setHistoryDays(String(inbox?.wa?.import_history_days ?? 30))
     setKeepRecalled(!!(inbox?.wa?.keep_recalled ?? inbox?.msg?.keep_recalled))
     setErrors({})
     setTouched({})
@@ -487,7 +490,10 @@ export function InboxSetupDrawer({
         if (c('access_token')) body.access_token = c('access_token')
         if (c('app_secret')) body.app_secret = c('app_secret')
       } else if (!id) body.provider = 'baileys'
-      if (kind === 'wa_qr') body.keep_phone_notifications = keepPhone ? 'true' : 'false'
+      if (kind === 'wa_qr') {
+        body.keep_phone_notifications = keepPhone ? 'true' : 'false'
+        body.import_history_days = historyDays
+      }
       const a = await api<WaAccount>(id ? `whatsapp/accounts/${id}` : 'whatsapp/accounts', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -997,6 +1003,24 @@ export function InboxSetupDrawer({
             </span>
           </span>
           <Toggle on={keepPhone} onChange={setKeepPhone} label={t('channels.drawer.who.keepPhone')} />
+        </div>
+      )}
+
+      {kind === 'wa_qr' && (
+        <div data-tour="import-history">
+          <Label>{t('channels.drawer.who.importHistory')}</Label>
+          <Select
+            value={historyDays}
+            onChange={setHistoryDays}
+            ariaLabel={t('channels.drawer.who.importHistory')}
+            options={[
+              { value: '0', label: t('channels.drawer.who.importHistoryOff') },
+              { value: '30', label: t('channels.drawer.who.importHistory30') },
+              { value: '90', label: t('channels.drawer.who.importHistory90') },
+              { value: '-1', label: t('channels.drawer.who.importHistoryAll') },
+            ]}
+          />
+          <Help>{t('channels.drawer.who.importHistoryHelp')}</Help>
         </div>
       )}
 
