@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>ChatBranch</title>
+    <style>
+      /* Paper & Ink's own paper and ink, so this card never looks like a browser
+         error page. The app only shows it when the dashboard cannot be reached. */
+      :root {
+        --paper: #faf7f2;
+        --ink: #1a1714;
+        --muted: #6b6259;
+        --line: #e4ddd2;
+        --accent: #c75b12;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --paper: #1a1714;
+          --ink: #f5efe6;
+          --muted: #a09588;
+          --line: #322c26;
+          --accent: #e8822f;
+        }
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: grid;
+        place-items: center;
+        padding: 24px calc(16px + env(safe-area-inset-left)) calc(24px + env(safe-area-inset-bottom));
+        background: var(--paper);
+        color: var(--ink);
+        font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        text-align: center;
+      }
+      .card { max-width: 340px; }
+      .mark {
+        width: 56px; height: 56px; margin: 0 auto 18px;
+        display: grid; place-items: center;
+        border-radius: 16px; background: var(--accent); color: var(--paper);
+        font-size: 26px; font-weight: 700;
+      }
+      h1 { margin: 0 0 8px; font-size: 19px; letter-spacing: -0.01em; }
+      p { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+      button {
+        appearance: none; border: 0; cursor: pointer;
+        padding: 11px 20px; border-radius: 10px;
+        background: var(--ink); color: var(--paper);
+        font: inherit; font-weight: 600; font-size: 14px;
+      }
+      button:active { opacity: 0.85; }
+      .hint { margin-top: 16px; font-size: 12px; color: var(--muted); }
+      code { font-size: 11.5px; padding: 1px 5px; border: 1px solid var(--line); border-radius: 5px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="mark" aria-hidden="true">C</div>
+      <h1>Can’t reach ChatBranch</h1>
+      <p>
+        The app could not load your ChatBranch. Check that this phone has a
+        connection, then try again.
+      </p>
+      <button type="button" onclick="location.reload()">Try again</button>
+      <p class="hint">
+        If this keeps happening, the app may be pointed at the wrong address — it
+        is built with <code>CHATBRANCH_URL</code>.
+      </p>
+    </div>
+  </body>
+</html>

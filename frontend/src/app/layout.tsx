@@ -19,6 +19,7 @@ import { EntityProvider } from '@/lib/EntityContext'
 import { I18nProvider } from '@/i18n'
 import { Shell } from '@/components/shell/Shell'
 import { ServiceWorkerRegistrar } from '@/components/shell/pwa'
+import { NativeBridge } from '@/components/shell/NativeBridge'
 import { PREPAINT_SCRIPT } from '@/lib/themeScript'
 
 export const metadata: Metadata = {
@@ -72,6 +73,9 @@ export default function RootLayout({
       </head>
       <body className="font-sans">
         <ServiceWorkerRegistrar />
+        {/* the phone app's native wiring (splash, notification taps, back
+            button, status bar); does nothing in a browser */}
+        <NativeBridge />
         <I18nProvider>
           <EntityProvider>
             <AppProvider>

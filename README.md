@@ -94,6 +94,12 @@ is a settings exercise, not a fork — see
   activity log of who did what from where (dashboard, API, MCP, assistant, flow).
 - **Paper & Ink** design system — three themes × light/dark, per-user accent,
   text size and corners; installable PWA with a phone tab bar.
+- **Notifications on a device, with ChatBranch closed** — Web Push for browsers
+  and the installed PWA (no account anywhere: the server makes its own VAPID
+  key pair), Firebase for the phone app. Settings → My notifications.
+- **A phone app for the App Store and Google Play** (`mobile/`) — a Capacitor
+  shell around the dashboard with real push, native navigation and splash; a
+  dashboard deploy updates every phone with no store release.
 
 Every channel has a live transport, tested against fakes of the providers'
 documented APIs but not yet against the live services — read
@@ -345,6 +351,9 @@ ChatBranch/
 │   └── data/                    LIVE state: WhatsApp session, media, call files
 │                                (gitignored — never delete)
 ├── frontend/                    Next.js dashboard (App Router, :3000)
+├── mobile/                      the phone app: a Capacitor shell for the App
+│                                Store + Google Play (android/, ios/ are
+│                                generated — see mobile/README.md)
 ├── deploy/                      example nginx config; customer/ = the install kit
 │                                for other servers (prebuilt images, no source)
 └── docs/                        domain model, schema, API, RBAC, channels, guide

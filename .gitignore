@@ -272,3 +272,11 @@ TestResults/
 
 # Test lab CLI report (npm run test:scenarios)
 test-lab-report.json
+
+# The phone app's generated native projects and artwork (mobile/README.md).
+# `npm run add:android` / `add:ios` recreate them; `npm run icons` the assets.
+mobile/android/
+mobile/ios/
+mobile/assets/
+mobile/node_modules/
+mobile/.env

@@ -15,7 +15,17 @@ ChatBranch — an industry-agnostic multi-channel conversation platform
    LiveKit Agents process (Node/TypeScript on `@livekit/agents`, no database).
    The API dispatches it into each call's room; it runs the conversation and
    writes results to the shared data dir. NOT started by the API.
-3. **Next.js dashboard** (`frontend/`, port 3000) — operator UI.
+3. **Next.js dashboard** (`frontend/`, port 3000) — operator UI. It is also what
+   the **phone app** shows: `mobile/` is a Capacitor shell (Capacitor 8,
+   `appId`/`CHATBRANCH_URL` per build) that LOADS a deployment — the dashboard is
+   a server app whose detail routes cannot be statically exported — and adds the
+   native half: push through Firebase, notification taps, the Android back
+   button, a splash hidden when the shell paints, a themed status bar (all wired
+   in `components/shell/NativeBridge.tsx` off Capacitor's plugin registry, never
+   an import, so the web bundle stays free of it). `mobile/android` and
+   `mobile/ios` are generated and gitignored; `npm run icons` renders both
+   stores' artwork from the dashboard's own mark. Build + submission steps,
+   including the Firebase set-up and Apple's 4.2 risk, are in `mobile/README.md`.
 4. **Baileys gateway** (`backend/baileys_service/`, port 3020) — Node sidecar
    for `provider="baileys"` WhatsApp accounts (unofficial WhatsApp Web:
    QR-paired personal numbers, text + voice calls). The C# API is its only
