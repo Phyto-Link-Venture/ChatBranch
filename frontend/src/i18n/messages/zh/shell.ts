@@ -21,6 +21,7 @@ export const shell: Dict<typeof source> = {
     aiPersona: '人设与规则',
     aiBill: 'AI 账单',
     tags: '标签',
+    media: '媒体库',
     channels: '渠道',
     integrations: '集成',
     users: '用户与角色',

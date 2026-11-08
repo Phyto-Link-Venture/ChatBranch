@@ -188,6 +188,13 @@ export const TOURS: TourDef[] = [
     steps: steps('persona-card', 'rules-card', 'preamble-card'),
   },
   {
+    id: 'media',
+    href: '/media',
+    group: 'ai',
+    match: exact('/media'),
+    steps: steps('page-header', 'media-upload', 'media-list'),
+  },
+  {
     id: 'knowledge',
     href: '/knowledge',
     group: 'ai',

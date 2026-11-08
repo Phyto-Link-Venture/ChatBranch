@@ -560,6 +560,24 @@ export const guide = {
         },
       },
     },
+    media: {
+      title: 'Media library',
+      intro: 'Files uploaded once, sent by their id.',
+      steps: {
+        s1: {
+          title: 'Why this exists',
+          body: 'Sending a file through the API used to mean writing the whole thing out as text, which is slow and forces a photo to be shrunk. Here a file is uploaded once and sent by a short id instead — at full quality.',
+        },
+        s2: {
+          title: 'Drop a file in',
+          body: 'Drag an invoice, photo or scan here, or press Choose files. Anything up to 20 MB. Files are kept 30 days unless you delete them first.',
+        },
+        s3: {
+          title: 'Send it by its id',
+          body: 'Copy id gives you something like f_8231. That is all an app or the AI needs to send the file to one chat or twenty — nothing is re-uploaded.',
+        },
+      },
+    },
     knowledge: {
       title: 'Knowledge base',
       intro: 'The facts the AI answers from.',

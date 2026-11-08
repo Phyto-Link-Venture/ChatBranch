@@ -584,6 +584,14 @@ so a PRIVATE file needs nothing made public, and without one the share link is
 rewritten to a direct download. An HTML answer is reported as "no access",
 because that is what Drive returns for a file that is not shared.
 
+`file_id` covers the third case, and the one that was impossible: a file that
+exists only on somebody's phone. They drop it into the **media library**
+(`MediaLibraryEndpoints`, `crm_medialibraryitem`, kept 30 days) from the
+dashboard or their phone, and sending it afterwards costs the id. An upload
+belongs to an outlet (the uploader's, when they are bound to one), so a branch's
+files are not another branch's to send; a caller that can reach the server can
+also ask for a 15-minute presigned upload link rather than sending multipart.
+
 Two other references avoid the file entirely: `source_message_id` resends
 something ChatBranch already stores, ACROSS channels (an email attachment into a
 WhatsApp chat — `conversations_forward_message` cannot do this, since a WhatsApp

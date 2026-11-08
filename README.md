@@ -98,6 +98,8 @@ is a settings exercise, not a fork — see
   any MCP client) and press Allow. OAuth 2.1 with PKCE and dynamic client
   registration, so there is no key to copy; the connection acts as you, can be
   made read-only, and is revoked from Settings → My connections.
+- **Media library** (`/media`) — drop an invoice, photo or scan in once and send it
+  afterwards by its id, from the dashboard, the phone app or the AI. Kept 30 days.
 - **Send a file by link** (`POST /api/messaging/send-file`) — `media_url` works on
   every channel now (the server downloads it, Google Drive links included), a file
   ChatBranch already stores can be resent to another channel by message id, and one

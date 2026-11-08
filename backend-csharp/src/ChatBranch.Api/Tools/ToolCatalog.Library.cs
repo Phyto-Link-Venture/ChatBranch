@@ -15,6 +15,39 @@ public static partial class ToolCatalog
 
     private static IEnumerable<IChatBranchTool> Library()
     {
+        // ---- the media library: files uploaded once, sent by id ---------------
+        // The upload itself is a binary stream (a person drops a file in from the
+        // dashboard or their phone), so what a tool gets is the LIST — "the invoice I
+        // uploaded just now" — and a link to upload to when the caller can reach the
+        // server itself. Sending one is conversations_send_media's file_id.
+        const string media = "media";
+        var mediaView = C("chats.view", "chats.send");
+        var mediaSend = C("chats.send");
+
+        yield return T(media, "media_list", "List files in the media library",
+            "Files somebody uploaded to send later — newest first, searchable by name (\"the invoice I " +
+            "uploaded just now\"). Each has a file_id to pass to conversations_send_media, which beats " +
+            "spelling a file out as base64. Uploads are kept 30 days.",
+            "GET", "/api/media/library", mediaView,
+            new[] { A.Str("q", "Match the file name."), A.Limit(50, 200) });
+
+        yield return T(media, "media_create_upload", "Get a link to upload a file to",
+            "A one-time https link (valid 15 minutes) to PUT a file's bytes at, plus the file_id to send it " +
+            "with afterwards. For a caller that can reach this server; a person can also drop files in from " +
+            "the dashboard or their phone.",
+            "POST", "/api/media/library/upload-url", mediaSend,
+            new[]
+            {
+                A.Str("file_name", "File name with its extension (it decides the type), e.g. invoice.pdf.",
+                    req: true),
+                A.Str("entity", "The outlet it belongs to (slug). Default: yours."),
+            });
+
+        yield return T(media, "media_delete", "Delete a file from the media library",
+            "Forget an upload now, rather than waiting for it to expire.",
+            "DELETE", "/api/media/library/{fileId}", mediaSend,
+            new[] { A.Str("file_id", "The file's id.", req: true, @as: "fileId") }, destructive: true);
+
         // ---- knowledge --------------------------------------------------------
         const string k = "knowledge";
         var ai = C("settings.ai.manage");

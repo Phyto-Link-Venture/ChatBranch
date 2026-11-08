@@ -321,6 +321,8 @@ app.MapMessagingTransportEndpoints();
 app.MapMessagingNotifyEndpoints();
 // one file to one or many conversations, by link / stored message / base64
 app.MapMessagingSendFileEndpoints();
+// files uploaded once and sent by id (the media library)
+app.MapMediaLibraryEndpoints();
 app.MapMessageReactionEndpoints();
 // Delete for everyone + edit, on a message already sent (QR numbers).
 app.MapMessageActionEndpoints();

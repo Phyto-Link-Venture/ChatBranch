@@ -65,6 +65,14 @@ public static class Seed
         AddTableIfMissing(db, "crm_teammember",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_teammember\" PRIMARY KEY AUTOINCREMENT, "
             + "\"team_id\" INTEGER NOT NULL, \"user_id\" INTEGER NOT NULL, \"created_at\" TEXT NOT NULL");
+        AddTableIfMissing(db, "crm_medialibraryitem",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_medialibraryitem\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"file_id\" TEXT NOT NULL, \"name\" TEXT NOT NULL, \"mime\" TEXT NOT NULL, "
+            + "\"kind\" TEXT NOT NULL, \"size\" INTEGER NOT NULL, \"path\" TEXT NOT NULL, "
+            + "\"user_id\" INTEGER NULL, \"entity_id\" INTEGER NULL, \"created_at\" TEXT NOT NULL, "
+            + "\"expires_at\" TEXT NOT NULL, \"last_sent_at\" TEXT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_medialibrary_file_id", "crm_medialibraryitem", "\"file_id\"",
+            "\"file_id\" <> ''");
         AddTableIfMissing(db, "crm_oauthclient",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_oauthclient\" PRIMARY KEY AUTOINCREMENT, "
             + "\"client_id\" TEXT NOT NULL, \"name\" TEXT NOT NULL, \"redirect_uris\" TEXT NOT NULL, "

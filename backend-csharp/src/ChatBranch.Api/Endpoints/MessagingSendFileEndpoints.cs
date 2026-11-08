@@ -36,8 +36,11 @@ namespace ChatBranch.Api.Endpoints;
 /// conversation, across channels: a customer's invoice from an email thread into a
 /// WhatsApp chat. (<c>conversations_forward_message</c> cannot do this — a WhatsApp
 /// forward is same-channel by nature.)</item>
+/// <item><c>file_id</c> — a file somebody uploaded to the MEDIA LIBRARY once
+/// (<see cref="MediaLibraryEndpoints"/>), which is the answer for a photo or a scan
+/// that exists only on somebody's phone and is nowhere online at all.</item>
 /// <item><c>file_base64</c> — still there, unchanged, for a file that is nowhere
-/// online.</item>
+/// online and not in the library either.</item>
 /// </list>
 ///
 /// And <c>targets</c> carries one file to several conversations in ONE call: it is
@@ -153,6 +156,27 @@ public static class MessagingSendFileEndpoints
             return reused;
         }
 
+        if ((Str(body, "file_id") ?? "").Trim() is { Length: > 0 } fileId)
+        {
+            var item = await MediaLibraryEndpoints.ForSendAsync(db, sc, me, fileId);
+            if (item == null)
+                return new Loaded(null, "library", Problem(404, "no_such_file",
+                    "No file with that id in the media library (it may have expired, or belong to "
+                    + "another outlet)."));
+            var path = media.ResolveLibrary(item.Path);
+            if (path == null)
+                return new Loaded(null, "library", Problem(410, "file_gone",
+                    "That library file is no longer on this server."));
+            if (new FileInfo(path).Length > maxBytes)
+                return new Loaded(null, "library", Problem(413, "too_large",
+                    $"That file is larger than this channel allows ({maxBytes / (1024 * 1024)} MB)."));
+            await MediaLibraryEndpoints.MarkSentAsync(db, item.FileId);
+            return new Loaded(
+                new RemoteFile(await File.ReadAllBytesAsync(path, ct),
+                    given.Length > 0 ? MessagingMedia.SafeName(given) : item.Name, item.Mime, item.Kind),
+                "library", null);
+        }
+
         if ((Str(body, "file_base64") ?? "").Trim() is { Length: > 0 } base64)
         {
             if (given.Length == 0)
@@ -179,7 +203,8 @@ public static class MessagingSendFileEndpoints
         }
 
         return new Loaded(null, "", Problem(422, "nothing_to_send",
-            "Give media_url, source_message_id, or file_base64 with file_name."));
+            "Give media_url, file_id (from the media library), source_message_id, or file_base64 "
+            + "with file_name."));
     }
 
     /// <summary>

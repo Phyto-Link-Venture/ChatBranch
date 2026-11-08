@@ -620,6 +620,14 @@ Stamped automatically from the ambient `AuditContext` by an EF interceptor.
 **`ref_key`** (collapse key, e.g. `thread:<id>` — at most one UNREAD row per key
 per user). Written only by `NotificationService`.
 
+### `crm_medialibraryitem`
+`file_id` (**unique**, the short public `f_…` a send refers to) · `name` · `mime` ·
+`kind` (image \| video \| audio \| document) · `size` · `path` (relative to
+`MediaStore.LibraryRoot()` = `data/library/<yyyy-MM>/`) · `user_id` (who uploaded
+it) · `entity_id` (the outlet it belongs to; null = organization-wide) ·
+`created_at` · `expires_at` (`MediaLibraryItem.RetentionDays` = 30 days; the
+sweep on upload and on listing deletes the bytes and the row) · `last_sent_at`.
+
 ### `crm_pushdevice`
 `user_id` · `platform` (`web` \| `android` \| `ios`) · `endpoint` (Web Push: the
 push service's URL; the app: its Firebase token — **unique** where non-empty,

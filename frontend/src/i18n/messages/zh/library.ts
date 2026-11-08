@@ -2,6 +2,21 @@ import type { library as source } from '../en/library'
 import type { Dict } from '../../types'
 
 export const library: Dict<typeof source> = {
+  media: {
+    title: '媒体库',
+    subtitle: '文件上传一次，之后用它的 id 发送——不必再把照片当成文字粘贴进去。',
+    dropTitle: '把文件拖到这里',
+    dropHint:
+      '发票、照片、扫描件——任何只存在这台设备上的文件。放进来之后，发送它只需要一个 id，而不是整个文件，这也是 AI 发送变快的原因。',
+    choose: '选择文件',
+    searchPlaceholder: '按名称搜索',
+    kept: '保留 30 天',
+    copyId: '复制 id',
+    lastSent: '{when} 发送过',
+    neverSent: '尚未发送',
+    empty: '这里还没有内容。拖一个文件进来就可以发送了。',
+    noMatches: '没有名称匹配的文件。',
+  },
   module: {
     subtitle: '快捷回复、通话脚本和 WhatsApp 模板——写一次，到处可用。',
     tabsAria: '模板类型',

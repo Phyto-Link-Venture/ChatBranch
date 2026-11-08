@@ -2,6 +2,21 @@ import type { library as source } from '../en/library'
 import type { Dict } from '../../types'
 
 export const library: Dict<typeof source> = {
+  media: {
+    title: 'Perpustakaan media',
+    subtitle: 'Muat naik fail sekali, kemudian hantar dengan idnya — tidak perlu lagi menampal gambar sebagai teks.',
+    dropTitle: 'Lepaskan fail di sini',
+    dropHint:
+      'Invois, gambar, imbasan — apa sahaja yang hanya ada pada peranti ini. Setelah ada di sini, menghantarnya hanya memerlukan satu id, bukan keseluruhan fail — itulah yang menjadikannya pantas untuk AI juga.',
+    choose: 'Pilih fail',
+    searchPlaceholder: 'Cari mengikut nama',
+    kept: 'Disimpan 30 hari',
+    copyId: 'Salin id',
+    lastSent: 'dihantar {when}',
+    neverSent: 'belum dihantar',
+    empty: 'Belum ada apa-apa di sini. Lepaskan fail dan ia sedia untuk dihantar.',
+    noMatches: 'Tiada fail sepadan dengan nama itu.',
+  },
   module: {
     subtitle: 'Balasan pantas, skrip panggilan dan templat WhatsApp — ditulis sekali, digunakan di mana-mana.',
     tabsAria: 'Jenis templat',

@@ -178,6 +178,8 @@ public static partial class ToolCatalog
                     + "connected in ChatBranch)."),
                 A.Int("source_message_id", "Resend a file ChatBranch already stores: the id of the message "
                     + "that carries it (works across channels, e.g. an email attachment into a WhatsApp chat)."),
+                A.Str("file_id", "A file somebody uploaded to the media library (media_list finds them) — "
+                    + "the way to send something that exists only on a phone and is nowhere online."),
                 A.Str("file_base64", "The file itself, base64 encoded (max 16 MB on WhatsApp, 20 MB "
                     + "elsewhere). Slow and size-limited by what the model can write — prefer media_url."),
                 A.Str("file_name", "File name with extension (decides the type), e.g. invoice.pdf. Required "
@@ -452,7 +454,8 @@ public static partial class ToolCatalog
         // multipart path, byte for byte, so nothing about today's calls changes.
         var hasTargets = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("targets", out var tg)
                          && tg.ValueKind == JsonValueKind.Array && tg.GetArrayLength() > 0;
-        if (hasTargets || S(a, "media_url") is { Length: > 0 } || I(a, "source_message_id") != null)
+        if (hasTargets || S(a, "media_url") is { Length: > 0 } || S(a, "file_id") is { Length: > 0 }
+            || I(a, "source_message_id") != null)
             return await SendFileAsync(ctx, a, ct);
 
         var t = await ToolScope.FindThreadAsync(ctx, Need(a, "channel"), Need(a, "key"), I(a, "thread_id"), S(a, "company"));
@@ -501,6 +504,7 @@ public static partial class ToolCatalog
             ["thread_id"] = I(a, "thread_id"),
             ["company"] = S(a, "company"),
             ["media_url"] = S(a, "media_url"),
+            ["file_id"] = S(a, "file_id"),
             ["source_message_id"] = I(a, "source_message_id"),
             ["file_base64"] = S(a, "file_base64"),
             ["file_name"] = S(a, "file_name"),

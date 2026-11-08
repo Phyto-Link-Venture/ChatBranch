@@ -59,6 +59,13 @@ public static class McpExclusions
 
     public static readonly IReadOnlyList<Rule> All = new Rule[]
     {
+        // ---- the media library: the bytes themselves ---------------------------
+        new("POST", "/api/media/library",
+            "binary upload (multipart): a person drops a file in from the dashboard or their phone. " +
+            "An AI caller asks for an upload link with media_create_upload and PUTs to it, then sends " +
+            "by file_id"),
+        new("GET", "/api/media/library/{fileId}/file", Binary + " — media_list returns each file's id, name and type"),
+
         // ---- connecting an AI app by signing in --------------------------------
         new("GET", "/api/oauth/authorize/{request}", Connecting),
         new("POST", "/api/oauth/authorize/{request}", Connecting),

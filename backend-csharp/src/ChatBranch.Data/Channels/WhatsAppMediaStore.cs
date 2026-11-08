@@ -190,6 +190,63 @@ public sealed class MediaStore
         return rel.Replace('\\', '/');
     }
 
+    // ---- the media library (files uploaded once, sent by id) -----------------
+
+    /// <summary>
+    /// Where uploads kept for reuse live — not under a channel, because a library file
+    /// belongs to nobody's conversation until it is sent.
+    /// </summary>
+    public string LibraryRoot() => Path.Combine(DataDir, "library");
+
+    /// <summary>Persist a library upload; returns the relative path to store on the row.</summary>
+    public async Task<string?> SaveLibraryAsync(Stream source, string ext, long maxBytes = MaxBytes,
+        CancellationToken ct = default)
+    {
+        // a month per folder, so a long-lived install does not grow one huge directory
+        var rel = Path.Combine(DateTime.UtcNow.ToString("yyyy-MM"), $"{Guid.NewGuid():N}{NormalizeExt(ext)}");
+        var full = Path.Combine(LibraryRoot(), rel);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        long total = 0;
+        var buffer = new byte[81920];
+        var dest = File.Create(full);
+        await using (dest.ConfigureAwait(false))
+        {
+            int n;
+            while ((n = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+            {
+                total += n;
+                if (total > maxBytes) break;
+                await dest.WriteAsync(buffer.AsMemory(0, n), ct).ConfigureAwait(false);
+            }
+        }
+        if (total > maxBytes)
+        {
+            try { File.Delete(full); } catch { }
+            return null;
+        }
+        return rel.Replace('\\', '/');
+    }
+
+    /// <summary>The absolute path of a library upload, or null when it is missing or escapes the root.</summary>
+    public string? ResolveLibrary(string relPath)
+    {
+        if (string.IsNullOrWhiteSpace(relPath)) return null;
+        var root = Path.GetFullPath(LibraryRoot());
+        var full = Path.GetFullPath(Path.Combine(root, relPath));
+        if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)) return null;
+        return File.Exists(full) ? full : null;
+    }
+
+    /// <summary>Delete a library upload. Never throws — the row going is what matters.</summary>
+    public void DeleteLibrary(string relPath)
+    {
+        try
+        {
+            if (ResolveLibrary(relPath) is { } full) File.Delete(full);
+        }
+        catch { /* a file already gone is the outcome we wanted */ }
+    }
+
     private static string NormalizeExt(string ext)
     {
         var e = (ext ?? "").Trim().ToLowerInvariant();

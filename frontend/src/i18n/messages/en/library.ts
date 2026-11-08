@@ -2,6 +2,21 @@
 // module: quick replies, call scripts, WhatsApp (Meta) templates and the
 // {{variable}} picker. Other locales mirror it key for key.
 export const library = {
+  media: {
+    title: 'Media library',
+    subtitle: 'Upload a file once, then send it by its id — no more pasting a photo in as text.',
+    dropTitle: 'Drop files here',
+    dropHint:
+      'An invoice, a photo, a scan — anything that lives only on this device. Once it is here, sending it costs an id instead of the whole file, which is what makes it quick for the AI to send too.',
+    choose: 'Choose files',
+    searchPlaceholder: 'Search by name',
+    kept: 'Kept 30 days',
+    copyId: 'Copy id',
+    lastSent: 'sent {when}',
+    neverSent: 'not sent yet',
+    empty: 'Nothing here yet. Drop a file in and it is ready to send.',
+    noMatches: 'No file matches that name.',
+  },
   module: {
     subtitle: 'Quick replies, call scripts and WhatsApp templates — written once, used everywhere.',
     tabsAria: 'Template type',

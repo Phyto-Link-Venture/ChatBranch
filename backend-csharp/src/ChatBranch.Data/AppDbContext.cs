@@ -48,6 +48,7 @@ public class AppDbContext : DbContext
     public DbSet<OAuthClient> OAuthClients => Set<OAuthClient>();
     public DbSet<OAuthAuthorization> OAuthAuthorizations => Set<OAuthAuthorization>();
     public DbSet<OAuthToken> OAuthTokens => Set<OAuthToken>();
+    public DbSet<MediaLibraryItem> MediaLibrary => Set<MediaLibraryItem>();
     // crm — contacts
     public DbSet<Contact> Contacts => Set<Contact>();
     public DbSet<ContactEntity> ContactEntities => Set<ContactEntity>();
@@ -176,6 +177,10 @@ public class AppDbContext : DbContext
         b.Entity<Notification>().ToTable("crm_notification");
         b.Entity<PushDevice>().ToTable("crm_pushdevice");
         // connecting an AI app by signing in, instead of pasting a key (OAuth 2.1)
+        // files uploaded once and sent by id
+        b.Entity<MediaLibraryItem>().ToTable("crm_medialibraryitem");
+        b.Entity<MediaLibraryItem>().HasIndex(m => m.FileId).IsUnique()
+            .HasDatabaseName("uniq_medialibrary_file_id");
         b.Entity<OAuthClient>().ToTable("crm_oauthclient");
         b.Entity<OAuthClient>().HasIndex(c => c.ClientId).IsUnique().HasDatabaseName("uniq_oauthclient_client_id");
         b.Entity<OAuthAuthorization>().ToTable("crm_oauthauthorization");

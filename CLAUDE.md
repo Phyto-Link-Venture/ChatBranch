@@ -519,7 +519,17 @@ When you fix one of these, update this table, `README.md` and
   (`IntegrationActions.DownloadDriveFileAsync`) so nothing has to be made public),
   **`source_message_id`** (a file ChatBranch already stores, resent ACROSS channels —
   `conversations_forward_message` cannot, a WhatsApp forward being same-channel by
-  nature) or **`file_base64`** (unchanged, the last resort). **`targets`** (≤20)
+  nature), **`file_id`** (the MEDIA LIBRARY: `Endpoints/MediaLibraryEndpoints.cs`,
+  `crm_medialibraryitem`, `data/library/<yyyy-MM>/` — a file uploaded ONCE from the
+  dashboard or a phone and sent by its 16-character id, which is the only answer for
+  something that exists nowhere online; scoped to the uploader's outlet
+  (`ShellScope.BoundInheritedIds`, `?entity=` narrows the list), kept 30 days with the
+  sweep running on upload and on listing — no worker; `POST …/upload-url` mints a
+  15-minute HMAC-signed link whose `PUT …/u/{token}` is anonymous because the token IS
+  the credential and single-use; page `/media` under Library, tools `media_list` /
+  `media_create_upload` / `media_delete`, the upload itself and the file stream are MCP
+  exclusions; tests `MediaLibraryTests`) or **`file_base64`** (unchanged, the last
+  resort). **`targets`** (≤20)
   carries ONE fetch to several conversations: each target runs its own guards (scope,
   opt-out, the cold-file guard, the 24h window, Messenger's window) and gets its own
   result, so a refusal on one never costs the others — hence a list and a 200 whenever

@@ -400,6 +400,14 @@ conversation route.
 | `ai_tasks_test` | Dry-run a background AI task | read | `settings.ai.manage` |
 | `ai_tasks_run_due` | Run due background AI tasks now | write | `settings.ai.manage` |
 
+#### media (3)
+
+| Tool | What it does | Kind | Needs |
+|---|---|---|---|
+| `media_list` | List files in the media library | read | `chats.view` or `chats.send` |
+| `media_create_upload` | Get a link to upload a file to | write | `chats.send` |
+| `media_delete` | Delete a file from the media library | write · **destructive** | `chats.send` |
+
 #### skills (10)
 
 | Tool | What it does | Kind | Needs |
@@ -633,6 +641,8 @@ conversation route.
 
 | Endpoint | Why there is no tool |
 |---|---|
+| `POST /api/media/library` | binary upload (multipart): a person drops a file in from the dashboard or their phone. An AI caller asks for an upload link with media_create_upload and PUTs to it, then sends by file_id |
+| `GET /api/media/library/{fileId}/file` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file — media_list returns each file's id, name and type |
 | `GET /api/oauth/authorize/{request}` | connecting an AI app: a person approves it in their browser and manages their own connections — an AI acting as them must not be able to grant, read or revoke its own access |
 | `POST /api/oauth/authorize/{request}` | connecting an AI app: a person approves it in their browser and manages their own connections — an AI acting as them must not be able to grant, read or revoke its own access |
 | `GET /api/oauth/connections` | connecting an AI app: a person approves it in their browser and manages their own connections — an AI acting as them must not be able to grant, read or revoke its own access |

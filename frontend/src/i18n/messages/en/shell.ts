@@ -19,6 +19,7 @@ export const shell = {
     aiPersona: 'Persona & rules',
     aiBill: 'AI bill',
     tags: 'Tags',
+    media: 'Media library',
     channels: 'Channels',
     integrations: 'Integrations',
     users: 'Users & roles',

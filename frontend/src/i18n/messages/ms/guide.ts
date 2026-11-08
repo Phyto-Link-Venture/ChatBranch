@@ -563,6 +563,24 @@ export const guide: Dict<typeof source> = {
         },
       },
     },
+    media: {
+      title: 'Perpustakaan media',
+      intro: 'Fail dimuat naik sekali, dihantar dengan idnya.',
+      steps: {
+        s1: {
+          title: 'Mengapa ini ada',
+          body: 'Menghantar fail melalui API dahulunya bermakna menulis keseluruhannya sebagai teks — lambat, dan memaksa gambar dikecilkan. Di sini fail dimuat naik sekali dan dihantar dengan id pendek, pada kualiti penuh.',
+        },
+        s2: {
+          title: 'Lepaskan fail',
+          body: 'Tarik invois, gambar atau imbasan ke sini, atau tekan Pilih fail. Sehingga 20 MB. Fail disimpan 30 hari melainkan anda memadamkannya dahulu.',
+        },
+        s3: {
+          title: 'Hantar dengan idnya',
+          body: 'Salin id memberi anda sesuatu seperti f_8231. Itu sahaja yang diperlukan aplikasi atau AI untuk menghantar fail itu ke satu perbualan atau dua puluh — tiada apa dimuat naik semula.',
+        },
+      },
+    },
     knowledge: {
       title: 'Pangkalan pengetahuan',
       intro: 'Fakta yang digunakan AI untuk menjawab.',
