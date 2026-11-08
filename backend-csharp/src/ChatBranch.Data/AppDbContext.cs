@@ -45,6 +45,9 @@ public class AppDbContext : DbContext
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<PushDevice> PushDevices => Set<PushDevice>();
+    public DbSet<OAuthClient> OAuthClients => Set<OAuthClient>();
+    public DbSet<OAuthAuthorization> OAuthAuthorizations => Set<OAuthAuthorization>();
+    public DbSet<OAuthToken> OAuthTokens => Set<OAuthToken>();
     // crm — contacts
     public DbSet<Contact> Contacts => Set<Contact>();
     public DbSet<ContactEntity> ContactEntities => Set<ContactEntity>();
@@ -172,6 +175,15 @@ public class AppDbContext : DbContext
         b.Entity<AuditLog>().ToTable("crm_auditlog");
         b.Entity<Notification>().ToTable("crm_notification");
         b.Entity<PushDevice>().ToTable("crm_pushdevice");
+        // connecting an AI app by signing in, instead of pasting a key (OAuth 2.1)
+        b.Entity<OAuthClient>().ToTable("crm_oauthclient");
+        b.Entity<OAuthClient>().HasIndex(c => c.ClientId).IsUnique().HasDatabaseName("uniq_oauthclient_client_id");
+        b.Entity<OAuthAuthorization>().ToTable("crm_oauthauthorization");
+        b.Entity<OAuthAuthorization>().HasIndex(a => a.RequestId).IsUnique()
+            .HasDatabaseName("uniq_oauthauth_request_id");
+        b.Entity<OAuthToken>().ToTable("crm_oauthtoken");
+        b.Entity<OAuthToken>().HasIndex(t => t.AccessPrefix).HasDatabaseName("ix_oauthtoken_access_prefix");
+        b.Entity<OAuthToken>().HasIndex(t => t.RefreshPrefix).HasDatabaseName("ix_oauthtoken_refresh_prefix");
         // one row per device: re-registering the same endpoint updates it
         b.Entity<PushDevice>().HasIndex(d => d.Endpoint).IsUnique()
             .HasDatabaseName("uniq_pushdevice_endpoint").HasFilter("\"endpoint\" <> ''");

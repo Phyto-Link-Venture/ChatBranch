@@ -139,6 +139,8 @@ export const settings: Overlay<Messages['settings']> = {
     layoutHint: 'Computers only — on phones the menu and bottom tabs stay the same',
   },
   connections: {
+    appsHint:
+      'Apps you connected by signing in. Each one works as you, with your permissions — cut one off and it stops immediately.',
     unavailable: 'Cannot load your connections — is the API running?',
     connected: 'Done — your {product} is connected.',
     cancelled: 'Google sign-in was cancelled — nothing got connected.',

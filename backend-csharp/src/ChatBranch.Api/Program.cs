@@ -270,6 +270,8 @@ app.MapIntegrationsEndpoints();
 app.MapNotificationEndpoints();
 // notifications on a device, when ChatBranch is not open
 ChatBranch.Api.Endpoints.PushEndpoints.Map(app);
+// connecting an AI app by SIGNING IN instead of pasting a key (OAuth 2.1 + MCP discovery)
+app.MapOAuthEndpoints();
 app.MapAdminEndpoints();
 app.MapWhatsAppSettingsEndpoints();
 app.MapVoiceMessagingEndpoints();

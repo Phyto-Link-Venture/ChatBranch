@@ -5,6 +5,7 @@ using ChatBranch.Api.Auth;
 using ChatBranch.Api.Tools;
 using ChatBranch.Data.Audit;
 using ChatBranch.Domain;
+using ChatBranch.Data;
 
 namespace ChatBranch.Api.Endpoints;
 
@@ -83,13 +84,21 @@ public static class McpServerEndpoints
 
     private static async Task<IResult> HandleAsync(HttpContext ctx, CancellationToken ct)
     {
-        // Only API keys: an AI app holds a key, never a dashboard session.
+        // An AI app, never a dashboard session: either a personal API key, or a
+        // connection the person approved by signing in (McpOAuth — the token acts as
+        // them and is marked auth_source=api, which is what IsApiKey reads).
         if (ctx.User.Identity?.IsAuthenticated != true || !ApiKeyAuth.IsApiKey(ctx.User))
         {
-            ctx.Response.Headers.WWWAuthenticate = "Bearer realm=\"ChatBranch\"";
+            // RFC 9728: the resource_metadata link is what lets a client offer "Connect"
+            // instead of asking the person to find and paste a key.
+            var metadata = $"{MessagingAccountTransport.PublicBaseUrl(null, ctx.RequestServices.GetRequiredService<ScopingService>(), ctx)}"
+                           + "/.well-known/oauth-protected-resource";
+            ctx.Response.Headers.WWWAuthenticate =
+                $"Bearer realm=\"ChatBranch\", resource_metadata=\"{metadata}\"";
             return Results.Json(Error(null, -32001,
-                "Unauthorized: send a ChatBranch API key as 'Authorization: Bearer cbk_…'. " +
-                "Create one under Developers → API keys."), statusCode: StatusCodes.Status401Unauthorized);
+                "Unauthorized. Connect this app by signing in (your client will offer it), or send a "
+                + "ChatBranch API key as 'Authorization: Bearer cbk_…' from Developers → API keys."),
+                statusCode: StatusCodes.Status401Unauthorized);
         }
 
         JsonElement body;

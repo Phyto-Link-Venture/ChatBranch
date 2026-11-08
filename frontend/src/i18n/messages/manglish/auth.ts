@@ -41,4 +41,14 @@ export const auth: Overlay<Messages['auth']> = {
     twoFactorIntro:
       'Your organization wants a code from an authenticator app at every sign-in. Set it up now — one minute only.',
   },
+  connect: {
+    blurb:
+      '{app} wants to connect to this ChatBranch and work as {user}. Nothing is shared until you allow it ah.',
+    accessFullHint: 'It can read and also do things — reply customers, change settings — same as you.',
+    accessReadHint: 'It can look at your conversations, contacts and reports only. Cannot send message, cannot change anything.',
+    factPermissions: 'It never gets more than {user} already has, and never sees another outlet’s conversations.',
+    factRevoke: 'You can cut it off any time under Settings → My connections.',
+    noRequest: 'This page got opened without a connection request. Start again from the app.',
+    footer: 'The app asked for this, not ChatBranch. If you were not expecting it, better don’t allow.',
+  },
 }

@@ -50,12 +50,21 @@ public static class McpExclusions
         "binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file";
     private const string Export =
         "file export (CSV / vCard) of data a JSON tool already returns";
+    private const string Connecting =
+        "connecting an AI app: a person approves it in their browser and manages their own connections — " +
+        "an AI acting as them must not be able to grant, read or revoke its own access";
     private const string PushDevice =
         "a device alerts itself: the browser or phone app that holds the push subscription registers, tests and " +
         "forgets it from the session on that device — an AI acting as someone has no device to be alerted on";
 
     public static readonly IReadOnlyList<Rule> All = new Rule[]
     {
+        // ---- connecting an AI app by signing in --------------------------------
+        new("GET", "/api/oauth/authorize/{request}", Connecting),
+        new("POST", "/api/oauth/authorize/{request}", Connecting),
+        new("GET", "/api/oauth/connections", Connecting),
+        new("DELETE", "/api/oauth/connections/{id:int}", Connecting),
+
         // ---- push notifications on a person's own devices ---------------------
         new("GET", "/api/push/config", PushDevice),
         new("GET", "/api/push/devices", PushDevice),

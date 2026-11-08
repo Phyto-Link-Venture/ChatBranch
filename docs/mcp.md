@@ -19,8 +19,41 @@ source `mcp`.
 |---|---|
 | URL | `https://<your-host>/api/mcp` (local dev: `http://localhost:8090/api/mcp`). The API also answers at `/mcp`, but a single-origin deployment usually proxies only `/api/` to the API, so `/api/mcp` is the address to hand out. |
 | Transport | Streamable HTTP — JSON-RPC 2.0 over `POST`, answered as plain JSON; stateless (an `Mcp-Session-Id` is issued on `initialize`, never required). `GET`/`DELETE` → 405. |
-| Auth | `Authorization: Bearer cbk_…` (or `X-Api-Key: cbk_…`). A dashboard session token is refused — create a key under **Developers → API keys** (`/developers`). |
+| Auth | **Either** sign in (the app offers "Connect", nothing to copy — see below) **or** `Authorization: Bearer cbk_…` / `X-Api-Key: cbk_…`. A dashboard session token is refused; keys are created under **Developers → API keys** (`/developers`). |
 | Methods | `initialize`, `notifications/initialized`, `ping`, `tools/list` (cursor paging), `tools/call`; batches accepted |
+
+### Signing in, with no key to copy
+
+Paste `https://<your-host>/api/mcp` into an AI app that speaks MCP and press
+Connect. The app discovers the rest and opens a page in the browser; sign in the
+way you always do, choose **Everything I can do** or **Read only**, press Allow,
+and it is connected. Nothing is ever shown to copy.
+
+Under that, it is OAuth 2.1 with PKCE and dynamic client registration:
+
+```
+POST /api/mcp            with no token  → 401 + WWW-Authenticate: …resource_metadata="…"
+GET  /.well-known/oauth-protected-resource   → which authorization server to use
+GET  /.well-known/oauth-authorization-server → where to register / authorize / get tokens
+POST /api/oauth/register                     → the app registers ITSELF (RFC 7591)
+GET  /api/oauth/authorize?…                  → the dashboard's Allow page
+POST /api/oauth/token                        → code (+ PKCE verifier) → access + refresh
+```
+
+What the app gets **acts as the person who allowed it** — the same role,
+capabilities and entity scope a personal key would have — and is marked as a
+program, not a person, so every guard that already separates the two still
+applies. Read-only narrows it to the capabilities that change nothing, exactly
+as a scoped key does.
+
+The access token lasts 8 hours and the app refreshes it by itself (each refresh
+spends the old token). A person sees every app they have connected under
+**Settings → My connections → AI apps** and can end one there; it stops working
+on the app's next request. Nothing about the flow needs configuring on the
+server.
+
+An API key is still the right answer for a script, a cron job or a server-side
+integration — nobody is there to press Allow.
 
 **Claude Code** — this repo ships a project `.mcp.json` that registers
 `chatbranch` for anyone who opens it in Claude Code; it reads two environment
@@ -600,6 +633,10 @@ conversation route.
 
 | Endpoint | Why there is no tool |
 |---|---|
+| `GET /api/oauth/authorize/{request}` | connecting an AI app: a person approves it in their browser and manages their own connections — an AI acting as them must not be able to grant, read or revoke its own access |
+| `POST /api/oauth/authorize/{request}` | connecting an AI app: a person approves it in their browser and manages their own connections — an AI acting as them must not be able to grant, read or revoke its own access |
+| `GET /api/oauth/connections` | connecting an AI app: a person approves it in their browser and manages their own connections — an AI acting as them must not be able to grant, read or revoke its own access |
+| `DELETE /api/oauth/connections/{id:int}` | connecting an AI app: a person approves it in their browser and manages their own connections — an AI acting as them must not be able to grant, read or revoke its own access |
 | `GET /api/push/config` | a device alerts itself: the browser or phone app that holds the push subscription registers, tests and forgets it from the session on that device — an AI acting as someone has no device to be alerted on |
 | `GET /api/push/devices` | a device alerts itself: the browser or phone app that holds the push subscription registers, tests and forgets it from the session on that device — an AI acting as someone has no device to be alerted on |
 | `POST /api/push/devices` | a device alerts itself: the browser or phone app that holds the push subscription registers, tests and forgets it from the session on that device — an AI acting as someone has no device to be alerted on |

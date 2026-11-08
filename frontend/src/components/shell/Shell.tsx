@@ -61,10 +61,14 @@ let identityCheckedAt = 0
  *  sign-in goes before anything else (rendered bare, like /login). */
 const ACCOUNT_SETUP = '/account-setup'
 
+/** Allowing an AI app to connect: one decision, rendered bare — no nav, nothing
+ *  to wander off into while someone is being asked to grant access. */
+const CONNECT = '/connect'
+
 export function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || HOME
   const router = useRouter()
-  const isLogin = pathname === '/login' || pathname === ACCOUNT_SETUP
+  const isLogin = pathname === '/login' || pathname === ACCOUNT_SETUP || pathname === CONNECT
   const isPublic = PUBLIC_ROUTES.some((p) => pathname === p || pathname.startsWith(p + '/'))
   const isFullBleed = FULL_BLEED.some((p) => pathname === p || pathname.startsWith(p + '/'))
 
@@ -151,7 +155,14 @@ export function Shell({ children }: { children: ReactNode }) {
   }, [pathname])
 
   useEffect(() => {
-    if (!isLogin && !isPublic && !getAuth()) router.replace('/login')
+    // Signing in should come BACK here, not dump everyone on the dashboard — it is
+    // what makes a deep link (and the Allow page an AI app opens) work for someone
+    // who was not signed in yet.
+    if (pathname !== CONNECT && !isLogin && !isPublic && !getAuth()) router.replace('/login')
+    if (pathname === CONNECT && !getAuth()) {
+      const here = pathname + (typeof window !== 'undefined' ? window.location.search : '')
+      router.replace(`/login?next=${encodeURIComponent(here)}`)
+    }
   }, [isLogin, isPublic, pathname, router])
 
   // Home (where sign-in lands) is the Dashboard; someone without it starts on

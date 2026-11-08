@@ -307,6 +307,12 @@ export const settings: Dict<typeof source> = {
     motions: { system: '跟随设备', reduce: '减少', full: '完整' },
   },
   connections: {
+    appsTitle: 'AI 应用',
+    appsHint: '你通过登录连接的应用。每个都以你的身份、按你的权限工作——断开后立即生效。',
+    appsReadOnly: '· 只读',
+    appsFull: '· 你能做的一切',
+    appsLastUsed: '最近使用 {when}',
+    appsNeverUsed: '尚未使用',
     unavailable: '你的连接不可用——API 在运行吗？',
     connected: '已连接你的 {product}。',
     cancelled: 'Google 登录已取消——未连接任何内容。',

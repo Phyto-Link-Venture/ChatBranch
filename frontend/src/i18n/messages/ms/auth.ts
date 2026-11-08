@@ -67,4 +67,23 @@ export const auth: Dict<typeof source> = {
     signOut: 'Log keluar',
     continue: 'Teruskan ke ChatBranch',
   },
+  connect: {
+    title: 'Benarkan {app} menggunakan ChatBranch?',
+    blurb:
+      '{app} meminta untuk bersambung ke ChatBranch ini dan bekerja sebagai {user}. Tiada apa-apa dikongsi sebelum anda benarkan.',
+    accessLabel: 'Apa yang boleh dilakukannya',
+    accessFull: 'Semua yang saya boleh buat',
+    accessRead: 'Baca sahaja',
+    accessFullHint: 'Ia boleh membaca dan juga bertindak — menjawab pelanggan, menukar tetapan — sama seperti anda.',
+    accessReadHint: 'Ia boleh membaca perbualan, kenalan dan laporan anda, tetapi tidak boleh menghantar mesej atau mengubah apa-apa.',
+    factPermissions: 'Ia tidak akan dapat lebih daripada yang {user} sudah ada, dan tidak akan melihat perbualan cawangan lain.',
+    factRevoke: 'Anda boleh memutuskan sambungannya bila-bila masa di Tetapan → Sambungan saya.',
+    factRedirect: 'Apabila anda membenarkannya, anda akan dihantar balik ke {host}.',
+    allow: 'Benarkan',
+    deny: 'Jangan benarkan',
+    returning: 'Menghantar anda balik ke aplikasi…',
+    cannotConnect: 'Sambungan ini tidak dapat diselesaikan',
+    noRequest: 'Halaman ini dibuka tanpa permintaan sambungan. Mulakan semula dalam aplikasi.',
+    footer: 'Diminta oleh aplikasi, bukan oleh ChatBranch. Jika anda tidak menjangkakan ini, jangan benarkan.',
+  },
 }

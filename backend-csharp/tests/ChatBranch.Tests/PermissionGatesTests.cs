@@ -364,6 +364,8 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ["/api/assistant/conversations/{id:int}"] = "one of the caller's own Ask ChatBranch conversations (someone else's answers 404)",
         ["/api/auth/me/account"] = "Settings → My account: the caller's own name, email, role, entities and session count",
         ["/api/auth/me/2fa"] = "Settings → My account: the caller's own two-step sign-in status (never a secret)",
+        ["/api/oauth/authorize/{request}"] = "the Allow page for an AI app the caller is connecting — their own decision, and a request id is meaningless on its own",
+        ["/api/oauth/connections"] = "the caller's own connected AI apps (Settings → My connections); another login's are never listed",
         ["/api/push/config"] = "whether this server can alert a device, and the VAPID public key the browser subscribes with (a public key, by design)",
         ["/api/push/devices"] = "the caller's own devices (Settings → My notifications); another login's are never listed",
     };
@@ -397,6 +399,13 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         "/api/mcp", "/api/widget.js",
         // the welcome email's set-password link: the 256-bit one-time token is the credential (stored as a hash)
         "/api/auth/set-password/{token}",
+        // connecting an AI app by signing in: the start of the flow, reached by a browser
+        // before anything (the request id it mints is meaningless alone, and the person's
+        // own session is what approves it). The discovery documents are in the docs list
+        // too — they carry URLs, no data.
+        "/api/oauth/authorize",
+        "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/{**path}",
+        "/.well-known/oauth-authorization-server", "/.well-known/oauth-authorization-server/{**path}",
     };
 
     private static readonly HashSet<string> RolePolicies = new() { AuthPolicies.AdminPlus, AuthPolicies.SuperAdmin };

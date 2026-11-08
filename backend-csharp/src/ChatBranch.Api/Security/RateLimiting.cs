@@ -13,7 +13,7 @@ namespace ChatBranch.Api.Security;
 /// <item><term>widget</term><description>the website widget's session starts + messages — per IP (<c>RATE_LIMIT_WIDGET_PER_MIN</c>, 30)</description></item>
 /// <item><term>public-link</term><description>public document links + bill PDF links — per IP (<c>RATE_LIMIT_PUBLIC_PER_MIN</c>, 60)</description></item>
 /// <item><term>media</term><description>signed media links (the inbox's players, providers fetching an attachment) — per IP (<c>RATE_LIMIT_MEDIA_PER_MIN</c>, 1200)</description></item>
-/// <item><term>oauth</term><description>the OAuth callback — per IP (<c>RATE_LIMIT_OAUTH_PER_MIN</c>, 30)</description></item>
+/// <item><term>oauth</term><description>the OAuth callback, and connecting an AI app (<c>/api/oauth/*</c>, the discovery documents) — per IP (<c>RATE_LIMIT_OAUTH_PER_MIN</c>, 30)</description></item>
 /// <item><term>user</term><description>everything a signed-in caller does — per session / API key (<c>RATE_LIMIT_USER_PER_MIN</c>, 1200)</description></item>
 /// <item><term>anonymous</term><description>every other anonymous request — per IP (<c>RATE_LIMIT_ANON_PER_MIN</c>, 300)</description></item>
 /// </list>
@@ -57,6 +57,11 @@ public static class RateLimiting
             || p.StartsWith("/api/media/public/", StringComparison.Ordinal))
             return Media;
         if (p.StartsWith("/api/integrations/oauth/", StringComparison.Ordinal) && p.EndsWith("/callback", StringComparison.Ordinal))
+            return OAuth;
+        // connecting an AI app by signing in: register / authorize / token / revoke are
+        // reached by a client with no session, so they are counted per IP like the rest
+        if (p.StartsWith("/api/oauth/", StringComparison.Ordinal)
+            || p.StartsWith("/.well-known/oauth-", StringComparison.Ordinal))
             return OAuth;
         return signedIn ? User : Anonymous;
     }

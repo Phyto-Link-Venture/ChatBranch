@@ -11,6 +11,7 @@ import { expireSessionOn401 } from '@/lib/auth'
 import { roleHeaders } from '@/lib/role'
 import { useAccess } from '@/lib/useAccess'
 import { Trans, useT, type MessageKey } from '@/i18n'
+import { ConnectedAppsCard } from './ConnectedAppsCard'
 
 interface OwnAccount {
   id: number
@@ -239,6 +240,9 @@ export function MyConnectionsSettings() {
           )}
         </div>
       </Card>
+
+      {/* AI apps that connected by signing in, rather than with a pasted key */}
+      <ConnectedAppsCard />
 
       <p data-tour="connections-order" className="text-[12.5px] text-text-muted">
         {t('settings.connections.order')}{' '}

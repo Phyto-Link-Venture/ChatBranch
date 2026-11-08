@@ -810,8 +810,29 @@ When you fix one of these, update this table, `README.md` and
   `tools/list` cursor paging, one page by default, `MCP_TOOLS_PAGE_SIZE`) over
   `Api/Tools/ToolRegistry`: the original 16 (`BuiltinTools.cs`) plus ~230
   declarative tools (`ToolCatalog.*.cs`, `EndpointTool`) covering EVERY
-  operator feature, named `domain_verb_object`, authenticated by an API key and
-  acting as its owner. A tool IS a dashboard endpoint run in-process
+  operator feature, named `domain_verb_object`, authenticated by an API key — or by
+  a CONNECTION a person approved by signing in — and acting as its owner. **Two ways
+  in** (`Auth/McpOAuth.cs`, `Endpoints/OAuthEndpoints.cs`): a personal key (`cbk_…`),
+  or **OAuth 2.1 with PKCE + dynamic client registration**, which is what MCP clients
+  look for — paste `/api/mcp` into the app, it reads the 401's
+  `WWW-Authenticate: …resource_metadata` (RFC 9728) →
+  `/.well-known/oauth-protected-resource` → `/.well-known/oauth-authorization-server`
+  → `POST /api/oauth/register` → `GET /api/oauth/authorize` (which stores the request
+  and sends the browser to the dashboard's `/connect` Allow page; the Shell renders it
+  bare and `/login?next=` brings an unsigned-in person back) → `POST /api/oauth/token`.
+  The access token (`cbo_…`, 8 h) is resolved by `TokenAuthenticationHandler` BEFORE
+  the API-key branch and decorated `auth_source=api` ON PURPOSE, so every guard that
+  separates a person from a program applies unchanged; its scopes ride on the same
+  `api_scopes` claim, so read-only (every non-write capability its owner holds) is
+  enforced by the machinery that already exists. Refresh tokens (`cbr_…`, 60 days)
+  ROTATE on use. Security: the `redirect_uri` must match what the client registered
+  exactly (an error before that is never redirected — that is how an open redirector
+  is built), the code is single-use and 5 minutes, S256 only, and a connected app may
+  never read or approve an authorization (`McpExclusions` covers the four routes). A
+  person manages theirs at Settings → My connections → AI apps
+  (`components/settings/ConnectedAppsCard.tsx`); revoking stops the next request.
+  Tables `crm_oauthclient` / `crm_oauthauthorization` / `crm_oauthtoken`; tests
+  `McpSignInTests`. A tool IS a dashboard endpoint run in-process
   (`Tools/InternalApi.cs`, JSON or multipart), so every guard applies. The
   registry adds: any-of capability, the endpoint's role policy, read-only keys
   refused for writes, the entity check on `entity` args, the conversation scope

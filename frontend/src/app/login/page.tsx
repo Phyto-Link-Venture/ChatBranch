@@ -67,7 +67,18 @@ export default function LoginPage() {
     return err instanceof Error ? err.message : String(err)
   }
 
-  const enter = (user: AuthUser) => router.replace(user.restriction ? '/account-setup' : '/dashboard')
+  /**
+   * Where signing in lands. `?next=` brings someone back to the page they were
+   * trying to open (a deep link, or the Allow page an AI app opened) — only ever a
+   * path on this site, so the parameter cannot be turned into an open redirector.
+   */
+  const next = () => {
+    if (typeof window === 'undefined') return '/dashboard'
+    const raw = new URLSearchParams(window.location.search).get('next') ?? ''
+    return raw.startsWith('/') && !raw.startsWith('//') ? raw : '/dashboard'
+  }
+
+  const enter = (user: AuthUser) => router.replace(user.restriction ? '/account-setup' : next())
 
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault()

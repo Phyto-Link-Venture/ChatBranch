@@ -65,6 +65,30 @@ public static class Seed
         AddTableIfMissing(db, "crm_teammember",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_teammember\" PRIMARY KEY AUTOINCREMENT, "
             + "\"team_id\" INTEGER NOT NULL, \"user_id\" INTEGER NOT NULL, \"created_at\" TEXT NOT NULL");
+        AddTableIfMissing(db, "crm_oauthclient",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_oauthclient\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"client_id\" TEXT NOT NULL, \"name\" TEXT NOT NULL, \"redirect_uris\" TEXT NOT NULL, "
+            + "\"uri\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, \"last_used_at\" TEXT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_oauthclient_client_id", "crm_oauthclient", "\"client_id\"",
+            "\"client_id\" <> ''");
+        AddTableIfMissing(db, "crm_oauthauthorization",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_oauthauthorization\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"request_id\" TEXT NOT NULL, \"client_id\" TEXT NOT NULL, \"redirect_uri\" TEXT NOT NULL, "
+            + "\"scope\" TEXT NOT NULL, \"state\" TEXT NOT NULL, \"code_challenge\" TEXT NOT NULL, "
+            + "\"code_challenge_method\" TEXT NOT NULL, \"resource\" TEXT NOT NULL, \"user_id\" INTEGER NULL, "
+            + "\"scopes\" TEXT NOT NULL, \"code_hash\" TEXT NOT NULL, \"used_at\" TEXT NULL, "
+            + "\"expires_at\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_oauthauth_request_id", "crm_oauthauthorization", "\"request_id\"",
+            "\"request_id\" <> ''");
+        AddTableIfMissing(db, "crm_oauthtoken",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_oauthtoken\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"client_id\" TEXT NOT NULL, \"user_id\" INTEGER NOT NULL, \"scopes\" TEXT NOT NULL, "
+            + "\"requested\" TEXT NOT NULL, \"access_prefix\" TEXT NOT NULL, \"access_hash\" TEXT NOT NULL, "
+            + "\"refresh_prefix\" TEXT NOT NULL, \"refresh_hash\" TEXT NOT NULL, "
+            + "\"expires_at\" TEXT NOT NULL, \"refresh_expires_at\" TEXT NOT NULL, "
+            + "\"revoked_at\" TEXT NULL, \"created_at\" TEXT NOT NULL, \"last_used_at\" TEXT NULL");
+        AddIndexIfMissing(db, "ix_oauthtoken_access_prefix", "crm_oauthtoken", "\"access_prefix\"");
+        AddIndexIfMissing(db, "ix_oauthtoken_refresh_prefix", "crm_oauthtoken", "\"refresh_prefix\"");
         AddTableIfMissing(db, "crm_pushdevice",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_pushdevice\" PRIMARY KEY AUTOINCREMENT, "
             + "\"user_id\" INTEGER NOT NULL, \"platform\" TEXT NOT NULL, \"endpoint\" TEXT NOT NULL, "

@@ -620,6 +620,36 @@ Stamped automatically from the ambient `AuditContext` by an EF interceptor.
 **`ref_key`** (collapse key, e.g. `thread:<id>` — at most one UNREAD row per key
 per user). Written only by `NotificationService`.
 
+### `crm_pushdevice`
+`user_id` · `platform` (`web` \| `android` \| `ios`) · `endpoint` (Web Push: the
+push service's URL; the app: its Firebase token — **unique** where non-empty,
+`uniq_pushdevice_endpoint`, so re-registering a device refreshes its row) ·
+`p256dh` / `auth` (a browser subscription's own keys; "" for the app) · `label` ·
+`created_at` · `last_push_at` · `last_error` · `failures` (consecutive; at
+`PushDevice.MaxFailures` the device is parked until it registers again). A 404 or
+410 from the push service DELETES the row — that is the protocol's own expiry.
+
+### `crm_oauthclient`
+An AI app that registered itself (RFC 7591): `client_id` (**unique**) · `name` ·
+`redirect_uris` (JSON list — an exact match is required at authorize time) ·
+`uri` · `created_at` · `last_used_at`. A client id on its own can do nothing; it
+can only ask a person to approve it.
+
+### `crm_oauthauthorization`
+One sign-in in progress, and then the code it becomes: `request_id` (**unique** —
+what the Allow page's URL carries) · `client_id` · `redirect_uri` · `scope` ·
+`state` · `code_challenge` / `code_challenge_method` (PKCE, S256 only) ·
+`resource` · `user_id` (null until someone approves) · `scopes` (what they
+agreed to; empty = everything they can do) · `code_hash` · `used_at`
+(single-use) · `expires_at` (15 min for the page, 5 for the code) · `created_at`.
+
+### `crm_oauthtoken`
+A connected app's token pair, hashes only: `client_id` · `user_id` · `scopes`
+(empty = everything its owner can do) · `requested` · `access_prefix` /
+`access_hash` · `refresh_prefix` / `refresh_hash` · `expires_at` (8 h) ·
+`refresh_expires_at` (60 days) · `revoked_at` · `created_at` · `last_used_at`.
+Refreshing ROTATES both halves, so a replayed refresh token buys nothing.
+
 ### `crm_assistantaction`
 `id` (TEXT, opaque `act_…`) · `user_id` · `tool` · `args` (JSON text, exactly
 as it will run) · `summary` · `status` (`pending` \| `done` \| `failed` \|

@@ -55,6 +55,24 @@ public class TokenAuthenticationHandler : AuthenticationHandler<AuthenticationSc
             return AuthenticateResult.Success(keyTicket);
         }
 
+        // A connected AI app's token (cbo_…, OAuth): acts as the person who approved it,
+        // marked auth_source=api exactly like a key so every guard that separates a
+        // person from a program applies unchanged (McpOAuth).
+        if (McpOAuth.Presented(Request) is string oauthToken)
+        {
+            var row = await McpOAuth.ResolveAccessAsync(_db, oauthToken);
+            if (row?.User?.Profile is not Profile op)
+            {
+                if (_throttle?.ApiKeyFail(ClientIp.Of(Context)) is { } oauthLocked)
+                    LoginThrottle.Report(_db, new[] { oauthLocked }, "connected apps");
+                return AuthenticateResult.Fail("Invalid or expired access token.");
+            }
+            await McpOAuth.TouchAsync(_db, row);
+            var oauthTicket = Ticket(row.User.Username, op.Role, op.Id, op.TenantId);
+            McpOAuth.Decorate(oauthTicket.Principal, row);
+            return AuthenticateResult.Success(oauthTicket);
+        }
+
         var (profile, restriction) = await ResolveProfileAsync();
         if (profile != null && profile.User is { IsActive: true })
         {

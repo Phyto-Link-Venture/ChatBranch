@@ -306,6 +306,13 @@ export const settings = {
     motions: { system: 'Device', reduce: 'Reduce', full: 'Full' },
   },
   connections: {
+    appsTitle: 'AI apps',
+    appsHint:
+      'Apps you connected by signing in. Each works as you, with your permissions — ending one takes effect at once.',
+    appsReadOnly: '· read only',
+    appsFull: '· everything you can do',
+    appsLastUsed: 'Last used {when}',
+    appsNeverUsed: 'Not used yet',
     unavailable: 'Your connections are unavailable — is the API running?',
     connected: 'Connected your {product}.',
     cancelled: 'Google sign-in was cancelled — nothing was connected.',

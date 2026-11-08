@@ -66,4 +66,23 @@ export const auth = {
     signOut: 'Sign out',
     continue: 'Continue to ChatBranch',
   },
+  connect: {
+    title: 'Allow {app} to use ChatBranch?',
+    blurb:
+      '{app} is asking to connect to this ChatBranch and work as {user}. Nothing is shared until you allow it.',
+    accessLabel: 'What it may do',
+    accessFull: 'Everything I can do',
+    accessRead: 'Read only',
+    accessFullHint: 'It can read and also act — reply to customers, change settings — exactly as you can.',
+    accessReadHint: 'It can read your conversations, contacts and reports, but cannot send a message or change anything.',
+    factPermissions: 'It never gets more than {user} already has, and never sees another outlet’s conversations.',
+    factRevoke: 'You can disconnect it at any time under Settings → My connections.',
+    factRedirect: 'When you allow it, you are sent back to {host}.',
+    allow: 'Allow',
+    deny: 'Don’t allow',
+    returning: 'Taking you back to the app…',
+    cannotConnect: 'This connection cannot be completed',
+    noRequest: 'This page was opened without a connection request. Start again in the app.',
+    footer: 'Asked for by the app, not by ChatBranch. If you were not expecting this, don’t allow it.',
+  },
 } as const

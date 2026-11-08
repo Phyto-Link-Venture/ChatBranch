@@ -308,6 +308,13 @@ export const settings: Dict<typeof source> = {
     motions: { system: 'Peranti', reduce: 'Kurangkan', full: 'Penuh' },
   },
   connections: {
+    appsTitle: 'Aplikasi AI',
+    appsHint:
+      'Aplikasi yang anda sambungkan dengan log masuk. Setiap satu bekerja sebagai anda, dengan kebenaran anda — memutuskannya berkesan serta-merta.',
+    appsReadOnly: '· baca sahaja',
+    appsFull: '· semua yang anda boleh buat',
+    appsLastUsed: 'Terakhir digunakan {when}',
+    appsNeverUsed: 'Belum digunakan',
     unavailable: 'Sambungan anda tidak tersedia — adakah API sedang berjalan?',
     connected: '{product} anda disambungkan.',
     cancelled: 'Log masuk Google dibatalkan — tiada apa yang disambungkan.',

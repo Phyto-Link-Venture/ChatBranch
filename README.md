@@ -94,6 +94,10 @@ is a settings exercise, not a fork — see
   activity log of who did what from where (dashboard, API, MCP, assistant, flow).
 - **Paper & Ink** design system — three themes × light/dark, per-user accent,
   text size and corners; installable PWA with a phone tab bar.
+- **Connect an AI app by signing in** — paste your `/api/mcp` URL into Claude (or
+  any MCP client) and press Allow. OAuth 2.1 with PKCE and dynamic client
+  registration, so there is no key to copy; the connection acts as you, can be
+  made read-only, and is revoked from Settings → My connections.
 - **Send a file by link** (`POST /api/messaging/send-file`) — `media_url` works on
   every channel now (the server downloads it, Google Drive links included), a file
   ChatBranch already stores can be resent to another channel by message id, and one
