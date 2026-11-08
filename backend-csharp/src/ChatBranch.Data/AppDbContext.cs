@@ -306,6 +306,12 @@ public class AppDbContext : DbContext
             .IsUnique()
             .HasFilter("\"external_id\" <> ''")
             .HasDatabaseName("uniq_message_thread_external_id");
+        // a transactional send's own key (POST /api/messaging/notify): unique among
+        // the rows that carry one, so a retried request reads the message back
+        // instead of sending a second one
+        b.Entity<Message>().HasIndex(m => m.IdempotencyKey).IsUnique()
+            .HasFilter("\"idempotency_key\" <> ''")
+            .HasDatabaseName("uniq_message_idempotency");
         // receipts look a message up by its provider id alone (statuses carry no thread)
         b.Entity<Message>().HasIndex(m => m.ExternalId).HasDatabaseName("ix_message_external_id");
         // ONE conversation per customer PER COMPANY: (channel, key, company) is

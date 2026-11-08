@@ -193,7 +193,7 @@ conversation route.
 | `contacts_decide_access_request` | Approve or deny a contact access request | write | `contacts.manage` |
 | `contacts_cancel_access_request` | Cancel your contact access request | write | `contacts.manage` or `chats.send` |
 
-#### conversations (35)
+#### conversations (36)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -208,6 +208,7 @@ conversation route.
 | `conversations_get_state` | Get a conversation's state | read | `chats.view` |
 | `conversations_list_messages` | Page through messages | read | `chats.view` |
 | `conversations_start` | Start a conversation | write | `chats.send` |
+| `conversations_notify` | Send a transactional message | write | `chats.send` |
 | `conversations_send_template` | Send a WhatsApp template | write · open-world | `chats.send` |
 | `conversations_send_media` | Send a file or image | write · open-world | `chats.send` |
 | `conversations_set_ai` | Switch the AI on/off for a conversation | write | `chats.send` |

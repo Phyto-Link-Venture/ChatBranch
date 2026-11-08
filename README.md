@@ -94,6 +94,11 @@ is a settings exercise, not a fork — see
   activity log of who did what from where (dashboard, API, MCP, assistant, flow).
 - **Paper & Ink** design system — three themes × light/dark, per-user accent,
   text size and corners; installable PWA with a phone tab bar.
+- **Transactional send** (`POST /api/messaging/notify`) — one call for a message
+  another app originated (a login code, an order update): it finds or opens the
+  conversation, picks the number, falls back to a template when WhatsApp's
+  24-hour window is shut, and is idempotent on your own key. Opt-out always
+  wins; `purpose: "otp"` skips the cold-text guard.
 - **Notifications on a device, with ChatBranch closed** — Web Push for browsers
   and the installed PWA (no account anywhere: the server makes its own VAPID
   key pair), Firebase for the phone app. Settings → My notifications.

@@ -504,6 +504,34 @@ When you fix one of these, update this table, `README.md` and
   (send, template, media, AI tick, status, assign, labels, note, link, calls);
   `POST /api/inbox/threads/{channel}/{key}/handover` takes / hands back / flags
   (see Human handover).
+  **A message an APP originated** (a login code, an order update, a payment
+  reminder) goes out in ONE call: `POST /api/messaging/notify`
+  (`Endpoints/MessagingNotifyEndpoints.cs`, `chats.send`, channels =
+  `NotifyChannels` — every channel a person can start a chat on plus WhatsApp,
+  never the widget). It is a composition, not a new transport or guard set:
+  `ThreadOpen` (the find-or-open block SHARED with `POST /api/messaging/threads`,
+  so the two cannot drift — it also absorbs the two-first-sends race by finding
+  the winner's conversation instead of 500ing) → opt-out → `Routing.ForThread`
+  (`account_id` is a preference, not a command) → the cold-text guard → the 24h
+  window → `OutboundSender`. Rules: `MessageSource.System`, never `Agent`, so it
+  never runs `HumanReplied` (an order update must not close an open handover) and
+  never touches `Thread.Status`; **opt-out always refuses**, there is no `force`
+  (an operator can still make an audited exception from the inbox); `purpose`
+  `otp` SKIPS the cold-text guard (the customer asked for the code seconds ago)
+  while `notification` keeps it, which is what stops the route becoming a
+  cold-marketing path; a shut window + a `template` sends the template
+  (`sent_as: "template"`, `template_fallback: false` refuses instead); `status` is
+  the TRUTH — `sandbox` means nothing left the building and is never relabelled
+  `sent`. **It never answers 404**: clients read 404 as "this ChatBranch has no
+  /notify yet" and fall back to the two-call path, so an unknown entity is 422
+  `unknown_entity` and an out-of-scope one 403 `out_of_scope`. Idempotency is
+  `crm_message.idempotency_key` (partial unique index), claimed around the send
+  with `ThreadStore.ClaimIdempotency` — one claim point, because the row is
+  written by whichever of thirty-odd send paths the channel takes and all of them
+  end at `AppendMessage`; a retry reads its own message back (`idempotent: true`,
+  no second audit row), and the loser of a true race reads the winner's. One
+  recipient per call, no media, no queue (bulk belongs in journeys, where pacing
+  and quiet hours live). MCP tool `conversations_notify`; tests `NotifyTests`.
   Bubbles are theme tokens in `src/app/chats/chats.css` (ours = primary ink,
   theirs = a hairline card) — no WhatsApp greens. **Bubble extras** live in their
   own components (`components/chats/MessageActions.tsx` — hover / long-press bar:

@@ -73,6 +73,9 @@ public static class Seed
             + "\"last_error\" TEXT NOT NULL, \"failures\" INTEGER NOT NULL DEFAULT 0");
         AddUniqueIndexIfMissing(db, "uniq_pushdevice_endpoint", "crm_pushdevice", "\"endpoint\"",
             "\"endpoint\" <> ''");
+        AddColumnIfMissing(db, "crm_message", "idempotency_key", "TEXT NOT NULL DEFAULT ''");
+        AddUniqueIndexIfMissing(db, "uniq_message_idempotency", "crm_message", "\"idempotency_key\"",
+            "\"idempotency_key\" <> ''");
         AddColumnIfMissing(db, "crm_notification", "category", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "crm_notification", "ref_key", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "crm_profile", "preferences", "TEXT NULL");

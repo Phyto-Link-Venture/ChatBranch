@@ -282,9 +282,14 @@ resolved from `reply_to_external_id` when we hold it) · `reply_to_external_id`
 `recalled_at` (nullable — taken back on the channel, "delete for everyone" / unsend;
 `Channels/MessageRecalls.cs`) · `recalled_by` (`customer`\|`business`, `''` = never;
 the inbox's `keep_recalled` decides whether `text` / the file were kept or erased) ·
+`idempotency_key` (the caller's own key for a transactional send,
+`POST /api/messaging/notify`; `''` = not one, which is nearly every row) ·
 `created_at` (provider timestamp for inbound). **Unique**
 `(thread_id, external_id)` where `external_id <> ''`
-(`uniq_message_thread_external_id`) — the webhook-redelivery guarantee.
+(`uniq_message_thread_external_id`) — the webhook-redelivery guarantee — and
+`idempotency_key` where `idempotency_key <> ''` (`uniq_message_idempotency`),
+which is what makes a retried transactional send read its own message back
+instead of sending a second one.
 
 ### `crm_messagereaction`
 `message_id` · `thread_id` · `actor` (`contact` \| `user:<username>`) · `emoji` ·

@@ -557,62 +557,12 @@ public static class MessagingEndpoints
             if (to.Length == 0 || (channel == Channels.Email && !to.Contains('@')))
                 return Results.Json(new { detail = "Valid recipient ('to') required." }, statusCode: 400);
 
-            // the caller's OWN conversation with this address: one per company, so several
-            // the caller can see need thread_id / company (409 with the candidates); one in
-            // a branch of their company they may not open is the same 404 as the thread routes
-            var pick = await ThreadResolver.ResolveAsync(db, sc, me, channel, new[] { to },
-                IntOrNull(body, "thread_id"), Str(body, "company"));
-            if (ThreadResolver.Refusal(pick) is { } refused) return refused;
-            var existing = pick.ThreadId is int tid
-                ? await db.Threads.Include(t => t.Contact).Include(t => t.Account).FirstAsync(t => t.Id == tid)
-                : null;
-            // store._match_contact: email keys match Contact.email. Social ids
-            // (PSID/IGSID/TG chat id) have no CRM counterpart — those threads
-            // are linked by hand from the chat's Contact panel. Only a contact the
-            // caller may see is linked: starting a chat never reaches into another
-            // outlet's contact book.
-            var visible = ContactsEndpoints.ScopeContacts(db.Contacts, me, db, sc);
-            // several contacts may share the address (one per company): the one
-            // of the conversation's entity wins (ContactCompanies.Pick)
-            var forEntity = existing?.EntityId ?? await InboxEndpoints.EntityId(db, Str(body, "entity"));
-            var matched = channel == Channels.Email
-                ? ChatBranch.Data.Contacts.ContactCompanies.Pick(db, sc,
-                    await visible.Where(c => c.Email.ToLower() == to.ToLower()).ToListAsync(), forEntity)
-                : channel == Channels.Sms && PhoneMatch.Tail(to) is string smsTail
-                    ? ChatBranch.Data.Contacts.ContactCompanies.Pick(db, sc,
-                        visible.Where(c => c.Phone != "").AsEnumerable()
-                            .Where(c => PhoneMatch.Tail(c.Phone) == smsTail).ToList(), forEntity)
-                : null;
-
-            Thread thread;
-            if (existing != null)
-            {
-                thread = existing;
-                if (thread.ContactId == null && matched != null
-                    && ChatBranch.Data.Contacts.ContactCompanies.MayLink(db, sc, matched.Id, sc.ThreadCompany(thread)))
-                {
-                    thread.ContactId = matched.Id; // backfill a pre-link thread
-                    thread.Contact = matched;
-                    // The link decided the outlet — re-derive the denormalized entity.
-                    sc.SyncThreadEntity(thread, save: false);
-                    await db.SaveChangesAsync();
-                }
-            }
-            else
-            {
-                // a NEW conversation of the caller's company (ThreadStart)
-                var place = await ThreadStart.PlaceAsync(db, sc, me, Str(body, "entity"), Str(body, "company"),
-                    matched?.Id);
-                if (place.Error != null) return place.Error;
-                thread = store.GetOrCreateInCompany(channel, to, place.Company, Str(body, "name"),
-                    contactId: matched?.Id, entityHint: place.Entity);
-                if (channel == Channels.Email && thread.AiEnabled)
-                {
-                    thread.AiEnabled = false; // email has no auto-reply
-                    await db.SaveChangesAsync();
-                }
-            }
-            await db.Entry(thread).Reference(t => t.Contact).LoadAsync();
+            // Finding or opening the conversation is shared with POST /api/messaging/notify
+            // (Endpoints/ThreadOpen) so the two cannot drift apart.
+            var opened = await ThreadOpen.FindOrOpenAsync(db, store, sc, me, channel, to,
+                IntOrNull(body, "thread_id"), Str(body, "company"), Str(body, "entity"), Str(body, "name"));
+            if (opened.Error is { } refusal) return refusal;
+            var thread = opened.Thread!;
             return Results.Ok(ThreadPayload(db, thread, MessagesOf(db, thread.Id)));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.send");
 

@@ -295,6 +295,48 @@ public class ThreadStore
     /// it). Honours wamid dedup: a non-empty external_id already present on the
     /// thread collapses onto the existing row.
     /// </summary>
+    // ---- idempotency claim (POST /api/messaging/notify) ---------------------
+
+    private string _pendingIdempotencyKey = "";
+
+    /// <summary>
+    /// Stamp the NEXT outbound message this store writes with <paramref name="key"/>, so a
+    /// retried transactional send reads that message back instead of sending a second one
+    /// (<c>Endpoints/MessagingNotifyEndpoints</c>).
+    ///
+    /// It is a claim rather than a parameter because the row is written by whichever send
+    /// path the channel takes — <see cref="ChatBranch.Data.Channels.OutboundSender"/> and the
+    /// per-channel senders under it, thirty-odd call sites — and every one of them ends
+    /// here. The store is scoped to the request, so the claim cannot leak to another caller;
+    /// it covers ONE row and clears itself either way, and disposing the scope clears it
+    /// even when the send threw. The key lands in the SAME save as the message, so there is
+    /// never a key that resolves to nothing.
+    ///
+    /// <code>
+    /// using (store.ClaimIdempotency(key))
+    ///     msg = sender.Send(thread, text, MessageSource.System, account?.Id);
+    /// </code>
+    /// </summary>
+    public IDisposable ClaimIdempotency(string key)
+    {
+        _pendingIdempotencyKey = (key ?? "").Trim();
+        return new IdempotencyClaim(this);
+    }
+
+    private string TakeIdempotencyKey()
+    {
+        var key = _pendingIdempotencyKey;
+        _pendingIdempotencyKey = "";   // one row only — a follow-up note is not the message
+        return key;
+    }
+
+    private sealed class IdempotencyClaim : IDisposable
+    {
+        private readonly ThreadStore _store;
+        public IdempotencyClaim(ThreadStore store) => _store = store;
+        public void Dispose() => _store._pendingIdempotencyKey = "";
+    }
+
     public Message AppendMessage(Thread thread, string direction, string source, string text,
         string status = "sent", string externalId = "", int? accountId = null,
         bool priv = false, DateTime? providerTs = null, string replyToExternalId = "")
@@ -317,6 +359,8 @@ public class ThreadStore
             Status = status,
             Private = priv,
             CreatedAt = providerTs ?? DateTime.UtcNow,
+            // a transactional send's key, when one is claimed around this write
+            IdempotencyKey = direction == MessageDirection.Out ? TakeIdempotencyKey() : "",
         };
         // a quoted reply: keep the provider's id, and link our own row when we hold it
         if (!string.IsNullOrWhiteSpace(replyToExternalId))

@@ -20,7 +20,15 @@ namespace ChatBranch.Api.Endpoints;
 /// </summary>
 internal static class ThreadStart
 {
-    internal sealed record Place(IResult? Error, int? Company, int? Entity);
+    /// <summary>
+    /// Why a placement was refused, so a caller can answer in its own words and status.
+    /// <c>POST /api/messaging/threads</c> uses <see cref="Place.Error"/> as it always has;
+    /// <c>POST /api/messaging/notify</c> must never answer 404 (a client reads that as
+    /// "no such route"), so it maps this instead.
+    /// </summary>
+    internal enum Why { None, UnknownEntity, OutOfScope, CompanyRequired }
+
+    internal sealed record Place(IResult? Error, int? Company, int? Entity, Why Failure = Why.None);
 
     internal static async Task<Place> PlaceAsync(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
         string? entityHint = null, string? companyHint = null, int? contactId = null, int? accountId = null)
@@ -33,7 +41,8 @@ internal static class ThreadStart
         if (sc.AccountCompany(accountId) is int byAccount)
         {
             if (roots.Count > 0 && !mine.Contains(byAccount))
-                return new Place(Forbidden("That number belongs to a company outside your scope."), null, null);
+                return new Place(Forbidden("That number belongs to a company outside your scope."), null, null,
+                    Why.OutOfScope);
             var accountEntity = await db.ChannelAccounts.AsNoTracking().Where(a => a.Id == accountId)
                 .Select(a => a.EntityId).FirstOrDefaultAsync();
             return new Place(null, byAccount, accountEntity);
@@ -42,24 +51,25 @@ internal static class ThreadStart
         if (!string.IsNullOrWhiteSpace(entityHint))
         {
             var entity = await InboxEndpoints.EntityId(db, entityHint.Trim());
-            if (entity is not int e) return new Place(NotFound("Entity not found."), null, null);
+            if (entity is not int e) return new Place(NotFound("Entity not found."), null, null, Why.UnknownEntity);
             var bound = ShellScope.BoundEntityIds(db, sc, me);
             if (bound != null && !bound.Contains(e))
-                return new Place(Forbidden("That entity is outside your scope."), null, null);
+                return new Place(Forbidden("That entity is outside your scope."), null, null, Why.OutOfScope);
             return new Place(null, sc.CompanyOf(e), e);
         }
         if (!string.IsNullOrWhiteSpace(companyHint))
         {
             var (unknown, company) = await Auth.ThreadResolver.CompanyIdAsync(db, sc, companyHint);
-            if (unknown) return new Place(NotFound("Company not found."), null, null);
+            if (unknown) return new Place(NotFound("Company not found."), null, null, Why.UnknownEntity);
             if (company is int c)
             {
                 if (roots.Count > 0 && !mine.Contains(c))
-                    return new Place(Forbidden("That company is outside your scope."), null, null);
+                    return new Place(Forbidden("That company is outside your scope."), null, null, Why.OutOfScope);
                 return new Place(null, c, roots.Count > 0 ? RootIn(c) : c);
             }
             return roots.Count > 0
-                ? new Place(Forbidden("Your account is limited to its companies — pick one of them."), null, null)
+                ? new Place(Forbidden("Your account is limited to its companies — pick one of them."), null, null,
+                    Why.OutOfScope)
                 : new Place(null, null, null);
         }
         var contactCompanies = contactId is int cid ? ContactCompanies.LinkCompanies(db, sc, cid) : new HashSet<int>();
@@ -74,7 +84,7 @@ internal static class ThreadStart
                 detail = "You work for more than one company — say which one this conversation is for "
                          + "(company or entity).",
                 code = "company_required",
-            }, statusCode: StatusCodes.Status400BadRequest), null, null);
+            }, statusCode: StatusCodes.Status400BadRequest), null, null, Why.CompanyRequired);
         }
         // 4. the contact's one company, 5. else unattributed
         return contactCompanies.Count == 1 ? new Place(null, contactCompanies.First(), null) : new Place(null, null, null);

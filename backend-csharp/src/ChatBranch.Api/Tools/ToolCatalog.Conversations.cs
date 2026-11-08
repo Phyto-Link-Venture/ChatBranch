@@ -107,6 +107,36 @@ public static partial class ToolCatalog
                 A.Str("entity", "For a NEW conversation: the entity (slug) it belongs to — decides its company. Default: yours."),
             }, idempotent: true);
 
+        yield return T(g, "conversations_notify", "Send a transactional message",
+            "Send ONE message your app originated — a login code, an order update, a payment reminder — to an " +
+            "address on a channel, in a single call: it finds or opens the conversation, picks the number to send " +
+            "from, and falls back to a template when WhatsApp's 24-hour window is shut. An opt-out (STOP) always " +
+            "refuses, with no override. purpose=\"otp\" skips the cold-text guard (the customer just asked for the " +
+            "code); purpose=\"notification\" keeps it, so this is not a way to push cold marketing. Read " +
+            "message.status for what actually happened: \"sandbox\" means nothing left the building. Pass " +
+            "idempotency_key and a retry reads the same message back instead of sending twice.",
+            "POST", "/api/messaging/notify", send,
+            new[]
+            {
+                A.Str("channel", "Channel.", req: true, oneOf: EndpointTool.ChannelNames),
+                A.Str("to", "Phone (E.164 or digits), email address or chat id.", req: true),
+                A.Str("text", "What to send (required unless template is given)."),
+                A.Str("purpose", "otp (skips the cold-text guard) or notification (the default).",
+                    oneOf: new[] { "otp", "notification" }),
+                A.Str("idempotency_key", "Your own key for this message; a retry with it sends nothing twice."),
+                A.Str("name", "Display name, for a NEW conversation."),
+                A.Str("subject", "Email only: the subject line."),
+                A.Str("ai", "For a NEW conversation only: on | off (default: the inbox's own setting).",
+                    oneOf: new[] { "on", "off" }),
+                A.Obj("template", "WhatsApp only: {name, language, variables[], header_variables[], "
+                    + "button_variables[], media_url} — used when the 24-hour window is shut."),
+                A.Bool("template_fallback", "Switch to the template when the window is shut (default true)."),
+                A.Str("account_id", "Preferred sending number; routing still picks a usable one."),
+                A.Int("thread_id", ToolScope.ThreadIdHelp),
+                A.Str("company", ToolScope.CompanyHelp),
+                A.Str("entity", "For a NEW conversation: the entity (slug) it belongs to."),
+            });
+
         yield return T(g, "conversations_send_template", "Send a WhatsApp template",
             "Send an approved WhatsApp template — the only way to message someone whose 24-hour window is " +
             "closed. variables fill {{1}}…{{n}} of the body; header/button variables and a media header URL " +

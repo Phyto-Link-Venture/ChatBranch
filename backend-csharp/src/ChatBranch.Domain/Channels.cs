@@ -142,6 +142,13 @@ public class Message
     /// <summary>What a voice note / audio message SAYS — written once by the speech-to-text
     /// step (<c>Ai/Voice/VoiceTranscriber.cs</c>) so the AI reads words, not "[audio]". "" = none.</summary>
     public string Transcript { get; set; } = "";
+    /// <summary>
+    /// The caller's own key for a transactional send (<c>POST /api/messaging/notify</c>),
+    /// so a retried request reads this message back instead of sending a second one.
+    /// Unique across non-empty values; "" = not a transactional send (nearly every row).
+    /// Callers prefix their own keys (<c>onel-otp-…</c>) — see <c>MessagingNotifyEndpoints</c>.
+    /// </summary>
+    public string IdempotencyKey { get; set; } = "";
     /// <summary>When the message was RECALLED ("delete for everyone" / unsend) on the
     /// channel — by the customer, or from our own number's phone. Null = never. What
     /// is left depends on the inbox's <c>keep_recalled</c> switch: kept and marked, or

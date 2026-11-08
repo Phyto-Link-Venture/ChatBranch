@@ -307,6 +307,8 @@ app.MapMoreChannelWebhookEndpoints();
 app.MapCommerceEndpoints();
 app.MapWhatsAppBspWebhookEndpoints();
 app.MapMessagingTransportEndpoints();
+// one call for a message an APP originated (a login code, an order update)
+app.MapMessagingNotifyEndpoints();
 app.MapMessageReactionEndpoints();
 // Delete for everyone + edit, on a message already sent (QR numbers).
 app.MapMessageActionEndpoints();
