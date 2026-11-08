@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using ChatBranch.Domain;
@@ -168,6 +169,94 @@ public class IntegrationActions
             rawBody: text ?? "", rawContentType: "text/plain", ct: ct);
         if (!ok2) return Fail($"Google Drive upload: {payload2}");
         return Done($"uploaded {filename} to Drive", new() { ["file_id"] = fileId });
+    }
+
+    /// <summary>A Drive file the server pulled down for a send, or why it could not.</summary>
+    /// <param name="NotConnected">No Google Drive connection for this outlet — the caller
+    /// may still try the public share link, so this is not a failure.</param>
+    public sealed record DriveFile(byte[]? Content, string FileName, string Mime,
+        ChatBranch.Data.Channels.RemoteMediaError Error = ChatBranch.Data.Channels.RemoteMediaError.None, string Detail = "",
+        bool NotConnected = false)
+    {
+        public bool Ok => Content != null;
+    }
+
+    /// <summary>
+    /// Download a Drive file through the outlet's connected Google account, so a PRIVATE
+    /// file can be sent without anyone making it public (what a share-link rewrite cannot
+    /// do). Resolution is the usual one — the entity's connection, then its parents', then
+    /// the organization's (<see cref="IntegrationResolver"/>) — and a missing connection
+    /// comes back as <see cref="DriveFile.NotConnected"/> rather than an error, because a
+    /// genuinely public link still works without Google at all.
+    ///
+    /// Reads at most <paramref name="maxBytes"/>: Drive is asked for the size first, and
+    /// the body is capped as it is read, so a huge file cannot be pulled into memory by a
+    /// link alone. Never throws.
+    /// </summary>
+    public async Task<DriveFile> DownloadDriveFileAsync(string fileId, long maxBytes, int? entityId,
+        CancellationToken ct = default)
+    {
+        var row = _resolver.Active("google_drive", entityId, null);
+        if (row == null) return new DriveFile(null, "", "", NotConnected: true);
+        try
+        {
+            var token = await _oauth.AccessTokenAsync(row, ct);
+            if (token.Length == 0) return new DriveFile(null, "", "", NotConnected: true);
+
+            // what it is, before pulling it down
+            var (metaOk, meta) = await SendAsync(HttpMethod.Get,
+                $"https://www.googleapis.com/drive/v3/files/{Uri.EscapeDataString(fileId)}"
+                + "?fields=name,mimeType,size,shortcutDetails&supportsAllDrives=true", token, ct: ct);
+            if (!metaOk)
+                return new DriveFile(null, "", "",
+                    meta.Contains("notFound", StringComparison.OrdinalIgnoreCase)
+                        ? ChatBranch.Data.Channels.RemoteMediaError.NotFound
+                        : ChatBranch.Data.Channels.RemoteMediaError.NoAccess,
+                    "Google Drive could not open that file with the connected account.");
+            var name = JsonField(meta, "name");
+            var mime = JsonField(meta, "mimeType");
+            if (long.TryParse(JsonField(meta, "size"), out var size) && size > maxBytes)
+                return new DriveFile(null, name, mime, ChatBranch.Data.Channels.RemoteMediaError.TooLarge, "");
+            // a Google Doc / Sheet / Slide has no bytes of its own to download
+            if (mime.StartsWith("application/vnd.google-apps", StringComparison.OrdinalIgnoreCase))
+                return new DriveFile(null, name, mime, ChatBranch.Data.Channels.RemoteMediaError.Unreadable,
+                    "That is a Google Docs file, which has no file to send — export it to PDF first.");
+
+            var client = _http.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(30);
+            using var req = new HttpRequestMessage(HttpMethod.Get,
+                $"https://www.googleapis.com/drive/v3/files/{Uri.EscapeDataString(fileId)}"
+                + "?alt=media&supportsAllDrives=true");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (!res.IsSuccessStatusCode)
+                return new DriveFile(null, name, mime,
+                    res.StatusCode == System.Net.HttpStatusCode.NotFound
+                        ? ChatBranch.Data.Channels.RemoteMediaError.NotFound
+                        : ChatBranch.Data.Channels.RemoteMediaError.NoAccess,
+                    $"Google Drive answered {(int)res.StatusCode}.");
+
+            await using var body = await res.Content.ReadAsStreamAsync(ct);
+            using var buffer = new MemoryStream();
+            var chunk = new byte[64 * 1024];
+            int read;
+            while ((read = await body.ReadAsync(chunk, ct)) > 0)
+            {
+                if (buffer.Length + read > maxBytes)
+                    return new DriveFile(null, name, mime, ChatBranch.Data.Channels.RemoteMediaError.TooLarge, "");
+                buffer.Write(chunk, 0, read);
+            }
+            if (buffer.Length == 0)
+                return new DriveFile(null, name, mime, ChatBranch.Data.Channels.RemoteMediaError.Unreadable,
+                    "Google Drive returned an empty file.");
+            return new DriveFile(buffer.ToArray(), name, mime);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception e)
+        {
+            return new DriveFile(null, "", "", ChatBranch.Data.Channels.RemoteMediaError.NotFound,
+                $"Google Drive: {e.Message}");
+        }
     }
 
     /// <summary>

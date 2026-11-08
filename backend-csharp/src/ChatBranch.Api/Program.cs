@@ -159,6 +159,14 @@ builder.Services.AddHostedService<ChatBranch.Api.Workers.EmailSyncWorker>();
 // itself) and the phone app (Firebase, which fronts APNs). The worker carries the
 // notifications people already have to their devices (PUSH_WORKER=0 disables it,
 // and POST /api/push/tick drives it by hand).
+// media_url on any channel: the SERVER fetches the file, so a tool call stays one
+// line whatever the file weighs. Redirects are followed by hand (every hop is
+// re-checked against the private-address rules), hence AllowAutoRedirect = false.
+builder.Services.AddHttpClient(ChatBranch.Data.Channels.HttpRemoteMediaFetcher.ClientName)
+    .RemoveAllLoggers()
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<ChatBranch.Data.Channels.IRemoteMediaFetcher,
+    ChatBranch.Data.Channels.HttpRemoteMediaFetcher>();
 builder.Services.AddHttpClient("push").RemoveAllLoggers();
 builder.Services.AddSingleton<ChatBranch.Data.IPushSender, ChatBranch.Data.HttpPushSender>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.PushWorker>();
@@ -309,6 +317,8 @@ app.MapWhatsAppBspWebhookEndpoints();
 app.MapMessagingTransportEndpoints();
 // one call for a message an APP originated (a login code, an order update)
 app.MapMessagingNotifyEndpoints();
+// one file to one or many conversations, by link / stored message / base64
+app.MapMessagingSendFileEndpoints();
 app.MapMessageReactionEndpoints();
 // Delete for everyone + edit, on a message already sent (QR numbers).
 app.MapMessageActionEndpoints();

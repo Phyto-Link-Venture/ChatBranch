@@ -154,22 +154,34 @@ public static partial class ToolCatalog
             });
 
         yield return Custom(g, "conversations_send_media", "Send a file or image",
-            "Send a file (image, video, audio, PDF, document) into a conversation, with an optional caption. " +
-            "Pass the file as base64 (+ file_name) — WhatsApp needs the file itself; Messenger/Instagram/Telegram " +
-            "also take a public media_url. Same guards as a typed message (opt-out, windows, cold-file guard).",
-            new[] { "POST /api/whatsapp/threads/{key}/send-media", "POST " + MessagingSendMedia,
-                "POST /api/messaging/threads/{channel}/{key}/send" },
+            "Send a file (image, video, audio, PDF, document) into one or several conversations, with an " +
+            "optional caption. PREFER A SHORT REFERENCE over the file itself: media_url (any https link, on " +
+            "EVERY channel — the server fetches it, including a Google Drive share link) or " +
+            "source_message_id (a file ChatBranch already has, resent to another conversation, across " +
+            "channels). file_base64 still works and is the last resort: writing a megabyte of base64 costs " +
+            "minutes and forces the file to be shrunk, which a link does not. `targets` sends ONE file to up " +
+            "to 20 conversations in a single call, each with its own result. Same guards as a typed message " +
+            "(opt-out, windows, cold-file guard).",
+            new[] { "POST /api/messaging/send-file", "POST /api/whatsapp/threads/{key}/send-media",
+                "POST " + MessagingSendMedia },
             SendMediaAsync, send,
             new[]
             {
-                A.Str("channel", "Conversation channel.", req: true, oneOf: EndpointTool.ChannelNames),
-                A.Str("key", "Conversation key.", req: true),
+                A.Str("channel", "Conversation channel (or use targets).", oneOf: EndpointTool.ChannelNames),
+                A.Str("key", "Conversation key (or use targets)."),
+                A.Arr("targets", "Several conversations: [{channel, key, thread_id?, company?, subject?}] — "
+                    + "the file is fetched once and delivered to each, up to 20."),
                 A.Int("thread_id", ToolScope.ThreadIdHelp),
                 A.Str("company", ToolScope.CompanyHelp),
-                A.Str("file_base64", "The file, base64 encoded (max 16 MB on WhatsApp, 20 MB elsewhere)."),
-                A.Str("file_name", "File name with extension (decides the type), e.g. invoice.pdf."),
-                A.Str("media_url", "Instead of a file: a public URL (Messenger / Instagram / Telegram)."),
-                A.Str("media_type", "With media_url: image | video | audio | file.", oneOf: new[] { "image", "video", "audio", "file" }),
+                A.Str("media_url", "An https link to the file — works on every channel; the server downloads "
+                    + "it. A Google Drive share link is understood (a private file needs the Google account "
+                    + "connected in ChatBranch)."),
+                A.Int("source_message_id", "Resend a file ChatBranch already stores: the id of the message "
+                    + "that carries it (works across channels, e.g. an email attachment into a WhatsApp chat)."),
+                A.Str("file_base64", "The file itself, base64 encoded (max 16 MB on WhatsApp, 20 MB "
+                    + "elsewhere). Slow and size-limited by what the model can write — prefer media_url."),
+                A.Str("file_name", "File name with extension (decides the type), e.g. invoice.pdf. Required "
+                    + "with file_base64; optional otherwise."),
                 A.Str("caption", "Text sent with the file."),
                 A.Str("subject", "Email subject."),
                 A.Bool("force", "Send to an opted-out contact as a deliberate manual exception."),
@@ -434,6 +446,15 @@ public static partial class ToolCatalog
 
     private static async Task<object?> SendMediaAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
     {
+        // A link, several targets, or a file ChatBranch already holds: all three go
+        // through POST /api/messaging/send-file, which fetches or reads the file ONCE
+        // and answers per target. A single-conversation file_base64 keeps the older
+        // multipart path, byte for byte, so nothing about today's calls changes.
+        var hasTargets = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("targets", out var tg)
+                         && tg.ValueKind == JsonValueKind.Array && tg.GetArrayLength() > 0;
+        if (hasTargets || S(a, "media_url") is { Length: > 0 } || I(a, "source_message_id") != null)
+            return await SendFileAsync(ctx, a, ct);
+
         var t = await ToolScope.FindThreadAsync(ctx, Need(a, "channel"), Need(a, "key"), I(a, "thread_id"), S(a, "company"));
         var isWa = t.Channel == Channels.WhatsApp;
         var rv = new Dictionary<string, string> { ["channel"] = t.Channel, ["key"] = t.Key };
@@ -454,25 +475,56 @@ public static partial class ToolCatalog
             r = await ctx.CallAsync("POST", isWa ? "/api/whatsapp/threads/{key}/send-media" : MessagingSendMedia, rv,
                 query: ToolScope.ThreadQuery(t), ct: ct, form: Form(fields, "file", name, bytes));
         }
-        else if (S(a, "media_url") is { Length: > 0 } url)
-        {
-            if (isWa) throw new ToolException("WhatsApp needs the file itself — pass file_base64 and file_name.");
-            r = await ctx.CallAsync("POST", "/api/messaging/threads/{channel}/{key}/send", rv,
-                new Dictionary<string, object?>
-                {
-                    ["media_url"] = url,
-                    ["media_type"] = S(a, "media_type") ?? "image",
-                    ["text"] = S(a, "caption") ?? "",
-                    ["subject"] = S(a, "subject"),
-                    ["force"] = B(a, "force") == true,
-                }, query: ToolScope.ThreadQuery(t), ct: ct);
-        }
-        else throw new ToolException("Pass file_base64 + file_name, or media_url.");
+        else throw new ToolException(
+            "Pass media_url (an https link — best), source_message_id (a file ChatBranch already has), "
+            + "or file_base64 + file_name.");
         ToolContext.Require(r);
         ctx.Links.Add(new ToolLink($"Open {(t.Name.Length > 0 ? t.Name : t.Key)}", ToolResults.ChatLink(t.Channel, t.Key, t.Id)));
         var status = r.Body.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.Object
                      && m.TryGetProperty("status", out var st) ? st.ToString() : "";
         return new { sent = true, channel = t.Channel, key = t.Key, thread_id = t.Id, delivery_status = status,
             href = ToolResults.ChatLink(t.Channel, t.Key, t.Id) };
+    }
+
+    /// <summary>
+    /// The short-reference path: POST /api/messaging/send-file carries the file to every
+    /// target and answers one result each, so a refusal on one conversation never costs
+    /// the others. The tool passes the arguments straight through — the endpoint owns the
+    /// rules — and turns each result into a chat link the operator can open.
+    /// </summary>
+    private static async Task<object?> SendFileAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
+    {
+        var body = new Dictionary<string, object?>
+        {
+            ["channel"] = S(a, "channel"),
+            ["key"] = S(a, "key"),
+            ["thread_id"] = I(a, "thread_id"),
+            ["company"] = S(a, "company"),
+            ["media_url"] = S(a, "media_url"),
+            ["source_message_id"] = I(a, "source_message_id"),
+            ["file_base64"] = S(a, "file_base64"),
+            ["file_name"] = S(a, "file_name"),
+            ["caption"] = S(a, "caption"),
+            ["subject"] = S(a, "subject"),
+            ["force"] = B(a, "force") == true,
+        };
+        if (a.ValueKind == JsonValueKind.Object && a.TryGetProperty("targets", out var targets)
+            && targets.ValueKind == JsonValueKind.Array)
+            body["targets"] = targets;
+
+        var r = await ctx.CallAsync("POST", "/api/messaging/send-file", new Dictionary<string, string>(),
+            body, ct: ct);
+        ToolContext.Require(r);
+        if (r.Body.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array)
+            foreach (var row in results.EnumerateArray())
+            {
+                if (row.ValueKind != JsonValueKind.Object) continue;
+                var channel = row.TryGetProperty("channel", out var c) ? c.GetString() ?? "" : "";
+                var key = row.TryGetProperty("key", out var k) ? k.GetString() ?? "" : "";
+                var id = row.TryGetProperty("thread_id", out var tid) && tid.TryGetInt32(out var n) ? n : (int?)null;
+                if (channel.Length > 0 && key.Length > 0)
+                    ctx.Links.Add(new ToolLink($"Open {key}", ToolResults.ChatLink(channel, key, id)));
+            }
+        return r.Body;
     }
 }

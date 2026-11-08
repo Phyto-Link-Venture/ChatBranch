@@ -94,6 +94,11 @@ is a settings exercise, not a fork — see
   activity log of who did what from where (dashboard, API, MCP, assistant, flow).
 - **Paper & Ink** design system — three themes × light/dark, per-user accent,
   text size and corners; installable PWA with a phone tab bar.
+- **Send a file by link** (`POST /api/messaging/send-file`) — `media_url` works on
+  every channel now (the server downloads it, Google Drive links included), a file
+  ChatBranch already stores can be resent to another channel by message id, and one
+  call can deliver to up to 20 conversations. No more spelling a photo out in
+  base64.
 - **Transactional send** (`POST /api/messaging/notify`) — one call for a message
   another app originated (a login code, an order update): it finds or opens the
   conversation, picks the number, falls back to a template when WhatsApp's

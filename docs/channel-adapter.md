@@ -558,6 +558,38 @@ outbound queue are already channel-blind.
 
 ## 3. The cross-channel machinery
 
+### Sending a file by reference (`POST /api/messaging/send-file`)
+
+`media_url` is accepted on EVERY channel, not only the three whose provider APIs
+take a URL themselves: the server downloads the file and then hands it to the
+same send path a multipart upload takes, so a tool call stays one line whatever
+the file weighs. `Channels/RemoteMedia.cs` owns the fetch — https only, at most
+3 redirects with **every hop re-checked**, a 30 second budget, the channel's own
+size cap read from `Content-Length` and enforced again while reading, the type
+from `Content-Type` then the extension, the name from the request then
+`Content-Disposition` then the URL.
+
+The address rules (`RemoteMediaRules.Refuse`, unit-tested) are what keep this
+from being a server-side request forgery: loopback, link-local (including
+`169.254.169.254`), private and carrier-NAT ranges, unique-local IPv6,
+multicast, IPv4-in-IPv6, and any host with no dot or ending `.local` /
+`.internal` / `.localhost` — checked against the host's RESOLVED addresses, not
+just a literal IP. A name that resolves inside is refused. DNS could still
+change its answer between the check and the socket; the mitigation is that a
+fetched file only ever lands in the conversation it was asked for.
+
+Google Drive share links are understood (`/file/d/<id>/`, `?id=`): with a Drive
+connection for the conversation's outlet the file is downloaded through the API,
+so a PRIVATE file needs nothing made public, and without one the share link is
+rewritten to a direct download. An HTML answer is reported as "no access",
+because that is what Drive returns for a file that is not shared.
+
+Two other references avoid the file entirely: `source_message_id` resends
+something ChatBranch already stores, ACROSS channels (an email attachment into a
+WhatsApp chat — `conversations_forward_message` cannot do this, since a WhatsApp
+forward is same-channel by nature), and `targets` (≤20) delivers one fetch to
+several conversations, each with its own guards and its own result.
+
 These are channel-blind; a new channel gets them for free if it goes through
 `InboundProcessor` and `ThreadStore`.
 

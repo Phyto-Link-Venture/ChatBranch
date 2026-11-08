@@ -504,6 +504,31 @@ When you fix one of these, update this table, `README.md` and
   (send, template, media, AI tick, status, assign, labels, note, link, calls);
   `POST /api/inbox/threads/{channel}/{key}/handover` takes / hands back / flags
   (see Human handover).
+  **Sending a FILE without spelling it out**: `POST /api/messaging/send-file`
+  (`Endpoints/MessagingSendFileEndpoints.cs`, `chats.send`, conversations named in
+  the BODY so scope is `ThreadAccessFilter.InScope`). Base64 inside a tool call means
+  the model writing every character of the file — on 8 Nov 2026 a photo had to be
+  shrunk to 15 KB to be sendable and the send still took ~13 minutes — so the call
+  takes a short reference instead: **`media_url`** (an https link, now on EVERY
+  channel, fetched by `Channels/RemoteMedia.cs` → `IRemoteMediaFetcher`: https only,
+  ≤3 hops with every hop re-checked, 30 s, the channel's size cap, and
+  `RemoteMediaRules.Refuse` rejecting loopback / link-local (169.254.169.254) /
+  private / unique-local / multicast and dotless or `.local` / `.internal` names,
+  by RESOLVED address as well as literal — plus Google Drive share links, whose
+  private files go through the outlet's connected Google account
+  (`IntegrationActions.DownloadDriveFileAsync`) so nothing has to be made public),
+  **`source_message_id`** (a file ChatBranch already stores, resent ACROSS channels —
+  `conversations_forward_message` cannot, a WhatsApp forward being same-channel by
+  nature) or **`file_base64`** (unchanged, the last resort). **`targets`** (≤20)
+  carries ONE fetch to several conversations: each target runs its own guards (scope,
+  opt-out, the cold-file guard, the 24h window, Messenger's window) and gets its own
+  result, so a refusal on one never costs the others — hence a list and a 200 whenever
+  the file itself was readable. `AiControlsEndpoints.HumanReplied` runs only for a
+  PERSON (`MessagingTransportEndpoints.IsHumanSender`), never an API key or MCP. The
+  MCP tool `conversations_send_media` routes a link / several targets / a stored
+  message here and keeps the old multipart path for a single-conversation
+  `file_base64`, so today's calls are byte-for-byte unchanged. Tests `SendFileTests`,
+  `RemoteMediaTests`.
   **A message an APP originated** (a login code, an order update, a payment
   reminder) goes out in ONE call: `POST /api/messaging/notify`
   (`Endpoints/MessagingNotifyEndpoints.cs`, `chats.send`, channels =
