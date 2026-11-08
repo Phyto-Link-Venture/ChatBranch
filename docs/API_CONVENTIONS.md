@@ -218,6 +218,7 @@ Not every route — the endpoint files are authoritative — but every area.
 | Assistant | `POST /api/assistant/chat`, `/confirm`, `/cancel`; per-user history `GET/DELETE /api/assistant/conversations`, `GET/PATCH/DELETE /api/assistant/conversations/{id}` | `AssistantEndpoints` |
 | Public | `/api/help/articles[/{slug}]`, `/api/widget/{token}/*`, `/api/widget.js` (+ `/widget.js`) | `HelpCenterEndpoints`, `WidgetEndpoints` |
 | Webhooks | `/api/whatsapp/webhook`, `/api/messaging/webhook` (Messenger/Instagram), `/api/whatsapp/baileys/*`, `/api/commerce/inbound` (the marketplace seller service) | `WebhooksEndpoints`, `MetaWebhookEndpoints`, `CommerceEndpoints` |
+| Push notifications | `/api/push/config`, `/api/push/devices[/{id}]`, `/api/push/test` (the caller's own devices), `/api/push/tick` (`notifications.manage`) | `PushEndpoints`, `PushWorker` |
 | Telegram inbound | `/api/messaging/webhook/telegram/{token}` | `TelegramWebhookEndpoints` |
 | Newer channels inbound | `/api/messaging/webhook/{line\|viber\|sms\|wechat\|tiktok\|douyin\|zalo}/{account_id}` (WeChat also `GET` for URL verification) | `MoreChannelWebhookEndpoints` |
 | Email + messaging attachments | `POST /api/messaging/email/sync` (two-way IMAP sync: Inbox + Sent, read-only), `POST /api/messaging/threads/{email\|telegram\|facebook\|instagram\|line\|viber\|sms\|wechat\|tiktok\|douyin\|zalo}/{key}/send-media` (multipart `file`; the channel's transport may refuse a type it can't carry) | `MessagingTransportEndpoints` |

@@ -280,6 +280,8 @@ refused; an organization-wide one follows `OrgWideAction`). Notable gates:
 | Integrations — add / delete / shared connect (`POST/DELETE /api/integrations/accounts*` — `entity` = that entity and its branches, none = the whole organization —, `GET /api/integrations/oauth/{provider}/start?for=shared[&entity=slug]`, `POST /api/integrations/{provider}/connect`) | `integrations.manage` (`{provider}/connect` also `app_keys.manage`); someone bound to entities only for their own entities; an unknown entity is a 404 |
 | Your own account — Settings → My account (`GET/PATCH /api/auth/me/account`, `POST /api/auth/me/password`, `POST /api/auth/me/sessions/revoke-others`) | any signed-in user, always THEMSELVES (no id in the route — another user's account is unreachable); the writes are session-only (an API key → 403); wrong current passwords count toward the sign-in lock (5 per username / 30 per IP in 15 min → 429, [security.md](security.md)) |
 | Your own two-step sign-in — Settings → My account (`GET /api/auth/me/2fa`, `POST …/2fa/setup`, `…/confirm`, `…/recovery-codes`, `…/disable`) | any signed-in user, always THEMSELVES; session-only (an API key → 403); turning it off needs the password + a code and is refused (409) while the organization requires it |
+| Your own devices for notifications — Settings → My notifications (`GET/POST /api/push/devices`, `DELETE …/{id}`, `GET /api/push/config`, `POST /api/push/test`) | any signed-in user, always THEMSELVES: a device belongs to the login that registered it, another login's is a 404, and registering the same device again moves it to whoever is signed in now |
+| Deliver pending notifications to devices (`POST /api/push/tick`) | `notifications.manage` — the worker's manual seam, org-wide |
 | Reset someone's two-step sign-in (`POST /api/v1/users/{id}/2fa/reset`) | `users.manage` + the user-management tiers below; never your own; sessions only; audited `user.2fa_reset`, the target is signed out everywhere |
 | Resend the welcome email / send a password reset link (`POST /api/v1/users/{id}/invite {reset?}`) | `users.manage` + the user-management tiers below; never your own login below superadmin; `reset: true` needed for someone who already has a password; ≤ 5 links per person per hour (429); audited `user.invite_sent` |
 | Integrations — connect / disconnect your **own** Google account (`GET /api/integrations/mine`, `GET /api/integrations/oauth/{provider}/start` — `?return=connections` brings the callback back to Settings → My connections —, `POST …/accounts/{id}/disconnect`) | any signed-in user for their own row, no capability; someone else's personal row is visible only with `integrations.manage` and no entity binding; a shared row needs `integrations.manage` (inside the caller's entities) |
@@ -528,7 +530,10 @@ token, no data), `/api/developers/keys` (own keys; `?scope=tenant` needs
 `/api/integrations/oauth/{provider}/start` (connect your own Google account),
 `/api/assistant/conversations[/{id}]` (your own Ask ChatBranch history),
 `/api/auth/me/account` (your own name, email, role, entities and session count),
-`/api/auth/me/2fa` (your own two-step sign-in status — never a secret).
+`/api/auth/me/2fa` (your own two-step sign-in status — never a secret),
+`/api/push/config` (whether this server can alert a device, plus the VAPID
+PUBLIC key a browser subscribes with) and `/api/push/devices` (your own
+devices — another login's are never listed, and a delete of one answers 404).
 The anonymous GETs are the documented list in `API_CONVENTIONS.md`.
 
 ## API keys and scopes

@@ -155,6 +155,13 @@ builder.Services.AddCommerceChannels();
 builder.Services.AddScoped<ChatBranch.Data.Channels.EmailSyncService>();
 // IMAP sync on the server, so mail arrives with no dashboard open (EMAIL_SYNC_WORKER=0 disables it)
 builder.Services.AddHostedService<ChatBranch.Api.Workers.EmailSyncWorker>();
+// Push notifications: the browser (Web Push + a VAPID pair this deployment makes
+// itself) and the phone app (Firebase, which fronts APNs). The worker carries the
+// notifications people already have to their devices (PUSH_WORKER=0 disables it,
+// and POST /api/push/tick drives it by hand).
+builder.Services.AddHttpClient("push").RemoveAllLoggers();
+builder.Services.AddSingleton<ChatBranch.Data.IPushSender, ChatBranch.Data.HttpPushSender>();
+builder.Services.AddHostedService<ChatBranch.Api.Workers.PushWorker>();
 builder.Services.AddScoped<ChatBranch.Data.Channels.ChannelHealthProber>();
 builder.Services.AddSingleton(sp => new ChatBranch.Api.Workers.HealthRecheck(
     sp.GetRequiredService<IServiceScopeFactory>(),
@@ -253,6 +260,8 @@ app.MapAnalyticsEndpoints();
 app.MapAiBillingEndpoints();
 app.MapIntegrationsEndpoints();
 app.MapNotificationEndpoints();
+// notifications on a device, when ChatBranch is not open
+ChatBranch.Api.Endpoints.PushEndpoints.Map(app);
 app.MapAdminEndpoints();
 app.MapWhatsAppSettingsEndpoints();
 app.MapVoiceMessagingEndpoints();

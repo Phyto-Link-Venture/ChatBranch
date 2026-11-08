@@ -240,6 +240,11 @@ public static partial class ToolCatalog
             "PUT", "/api/auth/notification-prefs", C("notifications.manage"),
             new[] { A.Obj("categories", "{category: true|false}.", req: true, @in: ArgIn.Spread) }, idempotent: true);
 
+        yield return T(n, "notifications_push_now", "Deliver pending notifications to devices",
+            "Push the unread notifications people have just been given to their registered devices, "
+            + "instead of waiting for the worker.",
+            "POST", "/api/push/tick", C("notifications.manage"));
+
         // ---- saved views ------------------------------------------------------------
         const string v = "views";
         yield return T(v, "views_list", "List my saved inbox views",

@@ -53,6 +53,10 @@ export const settings: Overlay<Messages['settings']> = {
     movedNote:
       'AI provider keys (OpenAI, Anthropic, Gemini, Qwen, DeepSeek, OpenRouter and more, plus ElevenLabs) now stay in {page}, next to the provider picker and model. This page only keeps the WhatsApp webhook verify token.',
     verifyHint: 'All WhatsApp accounts share this one — must match what you put in the Meta webhook form.',
+    fcmHint:
+      'Paste the service-account JSON from your Firebase console (Project settings → Service accounts → Generate new private key). Only the phone app needs this one — browser notifications can work without any account.',
+    fcmStored: 'Got one stored already — paste a new one if you want to replace it.',
+    fcmConnected: 'Connected to the Firebase project {project}. Paste a new JSON to replace it.',
     voiceNote:
       'Take note: the {agent} worker reads its keys (LiveKit, realtime voice) from {env} when it starts — for those you still need to edit the env and restart the agent. Keys here apply to WhatsApp text auto-replies straight away.',
   },
@@ -97,6 +101,13 @@ export const settings: Overlay<Messages['settings']> = {
     unavailable: 'Cannot load your notification preferences — is the API running?',
     hint: 'Switch off what you never need to see. Don’t worry, nothing here affects anybody else.',
     orgMuted: 'An admin muted this for the whole organization.',
+    deviceHint:
+      'The bell and inbox only reach you while ChatBranch is open. Switch this on and this device will buzz even after you close it — every device needs to be switched on once, here.',
+    deviceUnsupported: 'This browser cannot show notifications when ChatBranch is closed, sorry ah.',
+    deviceDenied: 'Notifications are blocked for this site. Allow them in your browser or phone settings first, then try again.',
+    deviceNotConfigured: 'This server cannot send notifications to a device yet.',
+    deviceAppNotConfigured: 'The app needs Firebase credentials first — your admin adds them under Settings → App & provider keys.',
+    deviceTestNone: 'Nothing went out. {reason}',
     onlyAssignedHint:
       'New-message alerts go to the conversation’s assignee, else its team, else the admins. Switch this on if you don’t want unassigned conversations landing on you just because you’re an admin.',
   },

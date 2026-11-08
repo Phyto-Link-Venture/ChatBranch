@@ -8,6 +8,14 @@
  *   - NEVER cached: /api/* and the SSE inbox stream (text/event-stream), and
  *     anything cross-origin (the API runs on its own origin in most setups).
  *
+ * Push
+ *   - `push`: show the notification the server encrypted for this device. Browsers
+ *     require a visible notification for every push (userVisibleOnly), so a payload
+ *     that cannot be read still shows a generic one rather than nothing — a silent
+ *     push can cost the site its permission.
+ *   - `notificationclick`: focus a tab that is already open and send it to the link
+ *     (no second tab), else open one.
+ *
  * Bump VERSION to roll every cache: old caches are deleted on activate.
  */
 const VERSION = 'cb-v1'
@@ -133,4 +141,62 @@ self.addEventListener('fetch', (event) => {
   if (isStaticAsset(request, url)) {
     event.respondWith(cacheFirst(request))
   }
+})
+
+// ---- push notifications ----------------------------------------------------
+
+/** The payload the server sends (PushDelivery.Payload); any field may be missing. */
+function pushData(event) {
+  try {
+    return event.data ? event.data.json() : {}
+  } catch {
+    // not JSON (a push service test, or a future shape) — show what there is
+    try {
+      return { body: event.data.text() }
+    } catch {
+      return {}
+    }
+  }
+}
+
+self.addEventListener('push', (event) => {
+  const data = pushData(event)
+  const title = data.title || 'ChatBranch'
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.body || '',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/favicon-32.png',
+      // the server's collapse key: a second alert about the same conversation
+      // replaces the first instead of stacking up, exactly as the bell does
+      tag: data.tag || undefined,
+      renotify: !!data.tag,
+      data: { link: data.link || '/notifications' },
+    }),
+  )
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const link = (event.notification.data && event.notification.data.link) || '/notifications'
+  event.waitUntil(
+    (async () => {
+      const target = new URL(link, self.location.origin)
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      for (const client of windows) {
+        if (new URL(client.url).origin !== target.origin) continue
+        // reuse the tab they already have open rather than piling up new ones
+        await client.focus()
+        if ('navigate' in client) {
+          try {
+            await client.navigate(target.href)
+          } catch {
+            /* a cross-document navigate can be refused — the tab is focused either way */
+          }
+        }
+        return
+      }
+      await self.clients.openWindow(target.href)
+    })(),
+  )
 })

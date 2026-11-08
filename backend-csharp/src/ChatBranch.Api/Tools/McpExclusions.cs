@@ -50,9 +50,19 @@ public static class McpExclusions
         "binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file";
     private const string Export =
         "file export (CSV / vCard) of data a JSON tool already returns";
+    private const string PushDevice =
+        "a device alerts itself: the browser or phone app that holds the push subscription registers, tests and " +
+        "forgets it from the session on that device — an AI acting as someone has no device to be alerted on";
 
     public static readonly IReadOnlyList<Rule> All = new Rule[]
     {
+        // ---- push notifications on a person's own devices ---------------------
+        new("GET", "/api/push/config", PushDevice),
+        new("GET", "/api/push/devices", PushDevice),
+        new("POST", "/api/push/devices", PushDevice),
+        new("DELETE", "/api/push/devices/{id:int}", PushDevice),
+        new("POST", "/api/push/test", PushDevice),
+
         // ---- credentials: provider, app and AI keys ---------------------------
         new("PUT", "/api/settings", "raw Setting rows, credentials included (settings.raw.manage) — " + Credentials),
         new("GET", "/api/settings", "raw Setting rows (credential keys included) — the specific settings tools read their own keys"),

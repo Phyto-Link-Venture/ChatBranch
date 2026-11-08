@@ -89,6 +89,11 @@ export const settings = {
       'AI provider keys (OpenAI, Anthropic, Gemini, Qwen, DeepSeek, OpenRouter and more, plus ElevenLabs) live in {page}, next to the provider picker and model. This page only holds the WhatsApp webhook verify token.',
     verifyToken: 'Webhook verify token',
     verifyHint: 'Shared by all WhatsApp accounts — must match the Meta webhook form.',
+    fcm: 'Firebase service account (phone app notifications)',
+    fcmHint:
+      'Paste the service-account JSON from the Firebase console (Project settings → Service accounts → Generate new private key). Only the phone app needs it — browser notifications work without any account.',
+    fcmStored: 'A service account is stored — paste a new one to replace it.',
+    fcmConnected: 'Connected to the Firebase project {project}. Paste a new JSON to replace it.',
     save: 'Save app keys',
     voiceAgent: 'voice agent',
     voiceNote:
@@ -177,6 +182,25 @@ export const settings = {
     onlyAssignedHint:
       'New-message alerts go to the conversation’s assignee, else its team, else the admins. Switch this on to skip unassigned conversations that land on you only because you are an admin.',
     openInbox: 'Open my notification inbox',
+    deviceTitle: 'Alerts on this device',
+    deviceHint:
+      'The bell and the inbox only reach you while ChatBranch is open. Turn this on to be alerted on this device when it is closed — each device is turned on once, here.',
+    deviceToggle: 'Alert me on this device',
+    deviceOnHint: 'This device is alerted even when ChatBranch is closed.',
+    deviceOffHint: 'This device is only alerted while ChatBranch is open.',
+    deviceUnsupported: 'This browser cannot show notifications while ChatBranch is closed.',
+    deviceDenied: 'Notifications are blocked for this site. Allow them in your browser or phone settings, then try again.',
+    deviceNotConfigured: 'This server cannot send notifications to a device yet.',
+    deviceAppNotConfigured: 'The app needs Firebase credentials before it can be alerted — an admin adds them under Settings → App & provider keys.',
+    devicesTitle: 'Your devices',
+    deviceThis: '· this device',
+    deviceForget: 'Forget',
+    deviceTest: 'Send a test alert',
+    deviceTestSent_one: 'Sent to {count} device.',
+    deviceTestSent_other: 'Sent to {count} devices.',
+    deviceTestNone: 'Nothing was sent. {reason}',
+    deviceLastPush: 'Last alert {when}',
+    deviceNever: 'No alert sent yet',
     orgDefaults: 'Organization defaults',
   },
   appearance: {

@@ -9,12 +9,18 @@ import { tint } from '@/lib/color'
 import { NOTIF_CATEGORIES, notifApi, type NotificationPrefs } from '@/lib/notifications'
 import { useT } from '@/i18n'
 import { categoryDescription, categoryLabel } from './NotificationsSettings'
+import { PushDevicesCard } from './PushDevicesCard'
 
 /**
  * Settings → Personal → My notifications: the caller's own in-app switch per
  * category, plus "only conversations assigned to me or my teams" for customer
  * messages. Stored on the user's profile; the central notifier applies them
  * after the organization-wide defaults (a category muted there stays muted).
+ *
+ * The categories decide WHETHER a person is told something; the device card
+ * (<see cref="PushDevicesCard"/>) decides whether it also reaches them when
+ * ChatBranch is closed — so it belongs on the same page, under the switches it
+ * depends on.
  */
 export function MyNotificationsSettings() {
   const t = useT()
@@ -86,6 +92,8 @@ export function MyNotificationsSettings() {
           })}
         </div>
       </Card>
+
+      <PushDevicesCard />
 
       <Card className="p-4 sm:p-5">
         <CardTitle>{t('settings.myNotifications.scopeTitle')}</CardTitle>

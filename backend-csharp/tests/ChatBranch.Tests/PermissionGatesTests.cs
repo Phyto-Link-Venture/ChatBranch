@@ -364,6 +364,8 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ["/api/assistant/conversations/{id:int}"] = "one of the caller's own Ask ChatBranch conversations (someone else's answers 404)",
         ["/api/auth/me/account"] = "Settings → My account: the caller's own name, email, role, entities and session count",
         ["/api/auth/me/2fa"] = "Settings → My account: the caller's own two-step sign-in status (never a secret)",
+        ["/api/push/config"] = "whether this server can alert a device, and the VAPID public key the browser subscribes with (a public key, by design)",
+        ["/api/push/devices"] = "the caller's own devices (Settings → My notifications); another login's are never listed",
     };
 
     /// <summary>Gated, but inside the handler (no filter metadata) — each must also be in

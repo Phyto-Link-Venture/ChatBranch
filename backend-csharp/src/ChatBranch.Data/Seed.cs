@@ -65,6 +65,14 @@ public static class Seed
         AddTableIfMissing(db, "crm_teammember",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_teammember\" PRIMARY KEY AUTOINCREMENT, "
             + "\"team_id\" INTEGER NOT NULL, \"user_id\" INTEGER NOT NULL, \"created_at\" TEXT NOT NULL");
+        AddTableIfMissing(db, "crm_pushdevice",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_pushdevice\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"user_id\" INTEGER NOT NULL, \"platform\" TEXT NOT NULL, \"endpoint\" TEXT NOT NULL, "
+            + "\"p256dh\" TEXT NOT NULL, \"auth\" TEXT NOT NULL, \"label\" TEXT NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"last_push_at\" TEXT NULL, "
+            + "\"last_error\" TEXT NOT NULL, \"failures\" INTEGER NOT NULL DEFAULT 0");
+        AddUniqueIndexIfMissing(db, "uniq_pushdevice_endpoint", "crm_pushdevice", "\"endpoint\"",
+            "\"endpoint\" <> ''");
         AddColumnIfMissing(db, "crm_notification", "category", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "crm_notification", "ref_key", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "crm_profile", "preferences", "TEXT NULL");

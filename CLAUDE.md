@@ -703,6 +703,32 @@ When you fix one of these, update this table, `README.md` and
   (`/api/notifications*`, per-user prefs at `/api/notifications/preferences`);
   the bell keeps `/api/auth/notifications`; org defaults are
   `GET/PUT /api/auth/notification-prefs` (`notifications.manage`).
+  **On a device, when ChatBranch is closed** (`Notifications/PushSender.cs`,
+  `WebPushCrypto.cs`, `PushSettings.cs`, `Workers/PushWorker.cs`): a browser or the
+  installed PWA through **Web Push** (RFC 8291 aes128gcm + RFC 8292 VAPID, written by
+  hand — no package; checked against the RFC's own test vector) and the phone app
+  through **Firebase** (which fronts APNs, so one credential covers iOS + Android;
+  Setting `fcm_service_account` → env `FCM_SERVICE_ACCOUNT`, pasted at Settings → App
+  & provider keys). **Browsers need no account anywhere**: the VAPID pair is this
+  deployment's own identity, generated and kept in Settings `push_vapid_private/public`
+  on first use. `crm_pushdevice` is one row per device (unique `endpoint`;
+  re-registering refreshes it, a 404/410 from the push service DELETES it — that is
+  the protocol's expiry, and `MaxFailures` parks one that keeps refusing). The worker
+  (every `PUSH_INTERVAL` s, default 10; `PUSH_WORKER=0` off, the test host sets it;
+  `POST /api/push/tick` is the manual seam, `notifications.manage`) only CARRIES rows
+  `NotificationService` already wrote — so org mutes, per-user switches and "only my
+  conversations" are applied before it looks — reading fresh UNREAD rows past a
+  TIMESTAMP cursor (Setting `push_last_notified_at`; a timestamp, not an id, because a
+  collapsed `RefKey` row bumps `CreatedAt` instead of adding one) and never anything
+  older than `PushWorker.MaxAge` (10 min), so a server that was down does not come
+  back and buzz everyone. The notification's `RefKey` rides as the push tag, so a
+  second alert about the same conversation replaces the first. Devices are the
+  caller's own (`/api/push/config|devices|test`, no capability, another login's is a
+  404); `sw.js` shows the alert and `notificationclick` focuses an open tab rather
+  than opening a second. UI: Settings → My notifications →
+  `components/settings/PushDevicesCard.tsx` (permission asked only on a click,
+  `lib/push.ts`; the phone app's token comes from Capacitor's plugin registry, never
+  an import, so the web bundle stays free of it). Tests: `PushNotificationTests`.
 - **Activity log.** `AuditLog` carries provenance: `Source`
   (user|api|mcp|assistant|automation|flow|webhook|system), `EntityId`,
   method/path/status/user-agent/request-id. Rows are stamped from the ambient

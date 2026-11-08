@@ -173,6 +173,8 @@ public class ApiFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("AI_TASK_WORKER", "0");
         // no background IMAP passes (POST /api/messaging/email/sync drives them)
         Environment.SetEnvironmentVariable("EMAIL_SYNC_WORKER", "0");
+        // no background push passes (POST /api/push/tick or PushWorker.RunAsync drive them)
+        Environment.SetEnvironmentVariable("PUSH_WORKER", "0");
         // no fetch of OpenRouter's public price list — reports price from the seeded table only
         Environment.SetEnvironmentVariable("LLM_PRICE_SYNC", "0");
         Environment.SetEnvironmentVariable("AI_HUMANIZE", "0");

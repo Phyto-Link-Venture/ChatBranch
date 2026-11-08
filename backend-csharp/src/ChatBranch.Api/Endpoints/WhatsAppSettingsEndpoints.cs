@@ -39,6 +39,8 @@ public static class WhatsAppSettingsEndpoints
         "openai_api_key", "openrouter_api_key", "google_api_key", "ilmu_api_key",
         "local_base_url", "local_api_key",
         "chat_provider_pref", "quiet_start", "quiet_end",
+        // the phone app's push credential: a Firebase service-account JSON
+        PushSettings.FcmServiceAccountKey,
     };
 
     /// <summary>Setting key → the .env name that is its fallback (wa_config._GLOBAL_ENV).</summary>
@@ -55,6 +57,7 @@ public static class WhatsAppSettingsEndpoints
         ["chat_provider_pref"] = "CHAT_PROVIDER",
         ["quiet_start"] = "WHATSAPP_QUIET_START",
         ["quiet_end"] = "WHATSAPP_QUIET_END",
+        [PushSettings.FcmServiceAccountKey] = "FCM_SERVICE_ACCOUNT",
     };
 
     private static readonly string[] ChatProviders = ChatBranch.Data.Ai.LlmProviderCatalog.Ids;
@@ -1414,6 +1417,10 @@ public static class WhatsAppSettingsEndpoints
             quiet_end = Global(sc, "quiet_end"),
             configured = configured.Any(IsConfigured) || EnvAccountConfigured(),
             ai_available = AiAvailable(sc),
+            // the phone app's push credential: never echoed — only whether it is
+            // there, and the non-secret project it belongs to
+            fcm_service_account_set = PushSettings.GetFirebase(sc) != null,
+            fcm_project_id = PushSettings.GetFirebase(sc)?.ProjectId ?? "",
             webhook_path = "/api/whatsapp/webhook",
         };
     }

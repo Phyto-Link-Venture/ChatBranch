@@ -44,6 +44,7 @@ public class AppDbContext : DbContext
     // crm — audit
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<PushDevice> PushDevices => Set<PushDevice>();
     // crm — contacts
     public DbSet<Contact> Contacts => Set<Contact>();
     public DbSet<ContactEntity> ContactEntities => Set<ContactEntity>();
@@ -170,6 +171,10 @@ public class AppDbContext : DbContext
         b.Entity<RolePermission>().ToTable("crm_rolepermission");
         b.Entity<AuditLog>().ToTable("crm_auditlog");
         b.Entity<Notification>().ToTable("crm_notification");
+        b.Entity<PushDevice>().ToTable("crm_pushdevice");
+        // one row per device: re-registering the same endpoint updates it
+        b.Entity<PushDevice>().HasIndex(d => d.Endpoint).IsUnique()
+            .HasDatabaseName("uniq_pushdevice_endpoint").HasFilter("\"endpoint\" <> ''");
         b.Entity<Contact>().ToTable("crm_contact");
         b.Entity<ContactEntity>().ToTable("crm_contactentity");
         b.Entity<Record>().ToTable("crm_record");

@@ -472,7 +472,7 @@ conversation route.
 | `settings_save_custom_field` | Add or change a custom field | write | `settings.custom_fields.manage` |
 | `settings_delete_custom_field` | Delete a custom field | write · **destructive** | `settings.custom_fields.manage` |
 
-#### notifications (8)
+#### notifications (9)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -484,6 +484,7 @@ conversation route.
 | `notifications_set_my_preferences` | Set my notification switches | write | signed in |
 | `notifications_get_org_defaults` | Read organisation notification defaults | read | `notifications.manage` |
 | `notifications_set_org_defaults` | Set organisation notification defaults | write | `notifications.manage` |
+| `notifications_push_now` | Deliver pending notifications to devices | write | `notifications.manage` |
 
 #### views (5)
 
@@ -598,6 +599,11 @@ conversation route.
 
 | Endpoint | Why there is no tool |
 |---|---|
+| `GET /api/push/config` | a device alerts itself: the browser or phone app that holds the push subscription registers, tests and forgets it from the session on that device — an AI acting as someone has no device to be alerted on |
+| `GET /api/push/devices` | a device alerts itself: the browser or phone app that holds the push subscription registers, tests and forgets it from the session on that device — an AI acting as someone has no device to be alerted on |
+| `POST /api/push/devices` | a device alerts itself: the browser or phone app that holds the push subscription registers, tests and forgets it from the session on that device — an AI acting as someone has no device to be alerted on |
+| `DELETE /api/push/devices/{id:int}` | a device alerts itself: the browser or phone app that holds the push subscription registers, tests and forgets it from the session on that device — an AI acting as someone has no device to be alerted on |
+| `POST /api/push/test` | a device alerts itself: the browser or phone app that holds the push subscription registers, tests and forgets it from the session on that device — an AI acting as someone has no device to be alerted on |
 | `PUT /api/settings` | raw Setting rows, credentials included (settings.raw.manage) — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
 | `GET /api/settings` | raw Setting rows (credential keys included) — the specific settings tools read their own keys |
 | `GET /api/settings/ai-providers` | AI keys & models (settings.ai_keys.manage) — credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI |

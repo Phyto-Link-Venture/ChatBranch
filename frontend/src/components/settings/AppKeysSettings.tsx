@@ -16,7 +16,14 @@ interface GlobalSettings {
   google_api_key_masked: string
   ilmu_api_key_masked: string
   ai_available: boolean
+  /** Is a Firebase service account stored? (the JSON itself never leaves the server) */
+  fcm_service_account_set: boolean
+  /** The Firebase project it belongs to — not a secret. */
+  fcm_project_id: string
 }
+
+/** The settings key the Firebase service-account JSON is stored under. */
+const FCM_KEY = 'fcm_service_account'
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}/whatsapp/${path}`, {
@@ -70,12 +77,15 @@ export function AppKeysSettings() {
   const { ready, can } = useAccess()
   const [loaded, setLoaded] = useState<GlobalSettings | null>(null)
   const [verifyToken, setVerifyToken] = useState('')
+  // the phone app's push credential: a JSON blob, write-only (never echoed back)
+  const [fcm, setFcm] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   const seed = (s: GlobalSettings) => {
     setLoaded(s)
     setVerifyToken(s.verify_token)
+    setFcm('')
   }
 
   useEffect(() => {
@@ -108,9 +118,13 @@ export function AppKeysSettings() {
       // Only the webhook verify token is owned here now — the AI provider keys
       // moved to Settings → AI & Providers, so we never send them (that avoids
       // clobbering what that tab manages).
+      // the Firebase JSON is sent only when it was typed this time: an untouched
+      // field must not clear a credential that is already stored
+      const patch: Record<string, string> = { verify_token: verifyToken }
+      if (fcm.trim().length > 0) patch[FCM_KEY] = fcm.trim()
       const next = await api<GlobalSettings>('settings', {
         method: 'POST',
-        body: JSON.stringify({ verify_token: verifyToken }),
+        body: JSON.stringify(patch),
       })
       seed(next)
       setMsg({ ok: true, text: t('settings.appKeys.saved') })
@@ -155,6 +169,25 @@ export function AppKeysSettings() {
           hint={t('settings.appKeys.verifyHint')}
         />
       </div>
+
+      {/* Notifications in the phone app: Firebase fronts APNs, so one credential
+          covers iPhone and Android. Browsers need nothing here. */}
+      <label className="block">
+        <span className="mb-1 block text-[11px] font-bold text-text-high">{t('settings.appKeys.fcm')}</span>
+        <textarea
+          value={fcm}
+          onChange={(e) => setFcm(e.target.value)}
+          rows={4}
+          spellCheck={false}
+          placeholder={loaded.fcm_service_account_set ? t('settings.appKeys.fcmStored') : '{ "type": "service_account", … }'}
+          className="w-full rounded-lg border border-line-strong bg-card px-3 py-2 font-mono text-[11.5px] text-text-primary outline-none transition-colors focus:border-brand-400"
+        />
+        <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
+          {loaded.fcm_service_account_set
+            ? t('settings.appKeys.fcmConnected', { project: loaded.fcm_project_id })
+            : t('settings.appKeys.fcmHint')}
+        </span>
+      </label>
 
       <div className="flex items-center gap-2">
         <Button variant="primary" onClick={save} disabled={busy}>

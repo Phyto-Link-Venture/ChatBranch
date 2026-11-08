@@ -91,6 +91,11 @@ export const settings: Dict<typeof source> = {
       'Kunci penyedia AI (OpenAI, Anthropic, Gemini, Qwen, DeepSeek, OpenRouter dan lain-lain, serta ElevenLabs) berada di {page}, bersebelahan pemilih penyedia dan model. Halaman ini hanya menyimpan token pengesahan webhook WhatsApp.',
     verifyToken: 'Token pengesahan webhook',
     verifyHint: 'Dikongsi oleh semua akaun WhatsApp — mesti sepadan dengan borang webhook Meta.',
+    fcm: 'Akaun perkhidmatan Firebase (pemberitahuan aplikasi telefon)',
+    fcmHint:
+      'Tampal JSON akaun perkhidmatan dari konsol Firebase (Project settings → Service accounts → Generate new private key). Hanya aplikasi telefon memerlukannya — pemberitahuan pelayar berfungsi tanpa apa-apa akaun.',
+    fcmStored: 'Akaun perkhidmatan sudah disimpan — tampal yang baharu untuk menggantikannya.',
+    fcmConnected: 'Disambungkan ke projek Firebase {project}. Tampal JSON baharu untuk menggantikannya.',
     save: 'Simpan kunci aplikasi',
     voiceAgent: 'ejen suara',
     voiceNote:
@@ -179,6 +184,25 @@ export const settings: Dict<typeof source> = {
     onlyAssignedHint:
       'Amaran mesej baharu dihantar kepada penerima tugasan perbualan, jika tiada kepada pasukannya, jika tiada kepada pentadbir. Hidupkan ini untuk melangkau perbualan tanpa tugasan yang sampai kepada anda hanya kerana anda pentadbir.',
     openInbox: 'Buka peti pemberitahuan saya',
+    deviceTitle: 'Pemberitahuan pada peranti ini',
+    deviceHint:
+      'Loceng dan peti masuk hanya sampai kepada anda semasa ChatBranch dibuka. Hidupkan ini untuk dimaklumkan pada peranti ini walaupun ia ditutup — setiap peranti dihidupkan sekali, di sini.',
+    deviceToggle: 'Maklumkan saya pada peranti ini',
+    deviceOnHint: 'Peranti ini dimaklumkan walaupun ChatBranch ditutup.',
+    deviceOffHint: 'Peranti ini hanya dimaklumkan semasa ChatBranch dibuka.',
+    deviceUnsupported: 'Pelayar ini tidak boleh menunjukkan pemberitahuan semasa ChatBranch ditutup.',
+    deviceDenied: 'Pemberitahuan dihalang untuk laman ini. Benarkannya dalam tetapan pelayar atau telefon anda, kemudian cuba lagi.',
+    deviceNotConfigured: 'Pelayan ini belum boleh menghantar pemberitahuan ke peranti.',
+    deviceAppNotConfigured: 'Aplikasi memerlukan kelayakan Firebase sebelum boleh dimaklumkan — pentadbir menambahnya di Tetapan → Kunci apl & pembekal.',
+    devicesTitle: 'Peranti anda',
+    deviceThis: '· peranti ini',
+    deviceForget: 'Lupakan',
+    deviceTest: 'Hantar pemberitahuan ujian',
+    deviceTestSent_one: 'Dihantar ke {count} peranti.',
+    deviceTestSent_other: 'Dihantar ke {count} peranti.',
+    deviceTestNone: 'Tiada apa-apa dihantar. {reason}',
+    deviceLastPush: 'Pemberitahuan terakhir {when}',
+    deviceNever: 'Belum ada pemberitahuan dihantar',
     orgDefaults: 'Lalai organisasi',
   },
   appearance: {
