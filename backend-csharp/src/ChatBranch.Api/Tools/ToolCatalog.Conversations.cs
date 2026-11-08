@@ -161,9 +161,13 @@ public static partial class ToolCatalog
             "channels). file_base64 still works and is the last resort: writing a megabyte of base64 costs " +
             "minutes and forces the file to be shrunk, which a link does not. `targets` sends ONE file to up " +
             "to 20 conversations in a single call, each with its own result. Same guards as a typed message " +
-            "(opt-out, windows, cold-file guard).",
+            "(opt-out, windows, cold-file guard). voice_note: true (WhatsApp, with file_base64) sends an " +
+            "audio file as a real VOICE NOTE — the bubble with the waveform — instead of an audio " +
+            "attachment: mp3 / m4a / webm / wav… are converted to Ogg/Opus first, and a voice note carries " +
+            "no caption.",
             new[] { "POST /api/messaging/send-file", "POST /api/whatsapp/threads/{key}/send-media",
-                "POST " + MessagingSendMedia },
+                "POST /api/whatsapp/threads/{key}/send-voice", "POST " + MessagingSendMedia,
+                "POST /api/messaging/threads/{channel}/{key}/send" },
             SendMediaAsync, send,
             new[]
             {
@@ -185,6 +189,8 @@ public static partial class ToolCatalog
                 A.Str("file_name", "File name with extension (decides the type), e.g. invoice.pdf. Required "
                     + "with file_base64; optional otherwise."),
                 A.Str("caption", "Text sent with the file."),
+                A.Bool("voice_note", "WhatsApp: send the audio file (file_base64 + file_name: ogg, opus, mp3, m4a, " +
+                    "webm, wav, aac, amr, 3gp) as a voice note with the waveform, not as an audio attachment."),
                 A.Str("subject", "Email subject."),
                 A.Bool("force", "Send to an opted-out contact as a deliberate manual exception."),
             }, outside: true);
@@ -481,17 +487,37 @@ public static partial class ToolCatalog
         // through POST /api/messaging/send-file, which fetches or reads the file ONCE
         // and answers per target. A single-conversation file_base64 keeps the older
         // multipart path, byte for byte, so nothing about today's calls changes.
+        // A VOICE NOTE is not one of those: it needs the audio itself (it is re-containered
+        // to Ogg/Opus before it goes out), so it never takes the short-reference path —
+        // otherwise a media_url would quietly send a plain audio attachment instead.
         var hasTargets = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("targets", out var tg)
                          && tg.ValueKind == JsonValueKind.Array && tg.GetArrayLength() > 0;
-        if (hasTargets || S(a, "media_url") is { Length: > 0 } || S(a, "file_id") is { Length: > 0 }
-            || I(a, "source_message_id") != null)
+        if (B(a, "voice_note") != true
+            && (hasTargets || S(a, "media_url") is { Length: > 0 } || S(a, "file_id") is { Length: > 0 }
+                || I(a, "source_message_id") != null))
             return await SendFileAsync(ctx, a, ct);
 
         var t = await ToolScope.FindThreadAsync(ctx, Need(a, "channel"), Need(a, "key"), I(a, "thread_id"), S(a, "company"));
         var isWa = t.Channel == Channels.WhatsApp;
         var rv = new Dictionary<string, string> { ["channel"] = t.Channel, ["key"] = t.Key };
         InternalApi.Response r;
-        if (S(a, "file_base64") is { Length: > 0 })
+        if (B(a, "voice_note") == true)
+        {
+            // a real voice note (ptt + Ogg/Opus) — the route the dashboard's microphone uses,
+            // which re-containers any other recording with ffmpeg (503 naming it when absent)
+            if (!isWa) throw new ToolException("voice_note is WhatsApp only — on other channels send the audio as a file.");
+            if (S(a, "file_base64") is not { Length: > 0 })
+                throw new ToolException("voice_note needs the audio itself — pass file_base64 and file_name (e.g. reply.mp3).");
+            if (S(a, "caption") is { Length: > 0 })
+                throw new ToolException("A WhatsApp voice note carries no caption — send the text as its own message.");
+            var bytes = Base64(a, "file_base64", 16L * 1024 * 1024);
+            var name = S(a, "file_name") is { Length: > 0 } fn ? fn : "voice.ogg";
+            if (!Path.HasExtension(name)) throw new ToolException("file_name needs an extension (e.g. reply.mp3) — it decides the audio format.");
+            var fields = new Dictionary<string, string?> { ["force"] = B(a, "force") == true ? "true" : null };
+            r = await ctx.CallAsync("POST", "/api/whatsapp/threads/{key}/send-voice", rv,
+                query: ToolScope.ThreadQuery(t), ct: ct, form: Form(fields, "file", name, bytes));
+        }
+        else if (S(a, "file_base64") is { Length: > 0 })
         {
             var bytes = Base64(a, "file_base64", isWa ? 16L * 1024 * 1024 : 20L * 1024 * 1024);
             var name = S(a, "file_name") is { Length: > 0 } fn ? fn : "file";

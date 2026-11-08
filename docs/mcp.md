@@ -667,7 +667,6 @@ conversation route.
 | `POST /api/messaging/settings/test` | tests the default SMTP credentials being edited on the same settings page — credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI |
 | `GET /api/integrations/settings` | App & provider keys (OAuth client ids/secrets) — credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI |
 | `PUT /api/integrations/settings` | credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
-| `POST /api/whatsapp/threads/{key}/send-voice` | sends a voice note recorded in the operator's browser — an AI has no microphone; its own spoken replies are the ai_voice_replies behaviour setting |
 | `POST /api/integrations/{provider}/connect` | connects Shopify/Stripe with API keys — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
 | `POST /api/integrations/accounts` | creates an integration row with its API key / webhook secret — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
 | `POST /api/integrations/mcp` | external MCP server definitions carry auth tokens/headers — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
