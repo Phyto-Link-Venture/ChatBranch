@@ -91,7 +91,7 @@ groups, no video.
 | `POST /accounts/:id/send-location` | `{to, lat, lng, name?, address?}` → `{id}` |
 | `POST /accounts/:id/send-contact` | `{to, name, phones[], organization?}` → `{id}` (a vCard; the first phone is the one WhatsApp shows) |
 | `POST /accounts/:id/send-poll` | `{to, question, options[], selectable_count?}` → `{id}` (2–12 distinct options; `selectableCount` is read too, and is what the C# client sends). Votes are NOT pushed back: WhatsApp encrypts each `pollUpdateMessage` against the poll's creation message, which this gateway only holds until it restarts |
-| `POST /accounts/:id/send-media` | `{to, media_type: image\|video\|audio\|document, file_b64, mime?, filename?, caption?}` → `{id}` (≤16 MB, base64 in the body; paths/URLs refused) |
+| `POST /accounts/:id/send-media` | `{to, media_type: image\|video\|audio\|document\|sticker, file_b64, mime?, filename?, caption?}` → `{id}` (≤16 MB, base64 in the body; paths/URLs refused). `media_type: sticker` is its own kind, not an image: `image/webp` only, ≤500 KB, checked by RIFF magic, and it carries neither a caption nor a file name because WhatsApp shows neither. The API shapes the picture (512×512, EXIF pack) before it gets here — this end re-checks it anyway, because the gateway must not depend on its caller being right |
 | `POST /accounts/:id/check` | `{to}` → `{exists, jid}` |
 | `POST /accounts/:id/logout` | unpair + wipe auth state (ends any live call) |
 | `POST /accounts/:id/call` | `{to, room, livekit_url, token, max_seconds}` → call snapshot |

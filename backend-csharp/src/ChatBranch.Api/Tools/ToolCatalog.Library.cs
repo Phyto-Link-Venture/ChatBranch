@@ -29,7 +29,13 @@ public static partial class ToolCatalog
             "uploaded just now\"). Each has a file_id to pass to conversations_send_media, which beats " +
             "spelling a file out as base64. Uploads are kept 30 days.",
             "GET", "/api/media/library", mediaView,
-            new[] { A.Str("q", "Match the file name."), A.Limit(50, 200) });
+            new[]
+            {
+                A.Str("q", "Match the file name."),
+                A.Str("kind", "One kind only — pictures for a sticker, say.",
+                    oneOf: new[] { "image", "video", "audio", "document" }),
+                A.Limit(50, 200),
+            });
 
         yield return T(media, "media_create_upload", "Get a link to upload a file to",
             "A one-time https link (valid 15 minutes) to PUT a file's bytes at, plus the file_id to send it " +

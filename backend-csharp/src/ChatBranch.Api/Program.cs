@@ -323,6 +323,8 @@ app.MapMessagingNotifyEndpoints();
 app.MapMessagingSendFileEndpoints();
 // files uploaded once and sent by id (the media library)
 app.MapMediaLibraryEndpoints();
+// a picture shaped into a 512x512 WhatsApp sticker and sent as one
+app.MapMessagingStickerEndpoints();
 app.MapMessageReactionEndpoints();
 // Delete for everyone + edit, on a message already sent (QR numbers).
 app.MapMessageActionEndpoints();

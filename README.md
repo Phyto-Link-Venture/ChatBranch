@@ -105,6 +105,13 @@ is a settings exercise, not a fork — see
   ChatBranch already stores can be resent to another channel by message id, and one
   call can deliver to up to 20 conversations. No more spelling a photo out in
   base64.
+- **Send a sticker** (`POST /api/messaging/send-sticker`) — any picture, GIF or
+  short clip becomes a real WhatsApp sticker: the server crops it onto a
+  transparent 512×512 canvas, compresses it to fit WhatsApp's limit and stamps
+  the pack name, then sends it as a sticker (no bubble, no caption). Receiving
+  stickers always worked; sending them is new. QR-paired numbers only — an
+  official number is refused with the reason. The composer has a sticker button;
+  pictures can come straight from the media library.
 - **Transactional send** (`POST /api/messaging/notify`) — one call for a message
   another app originated (a login code, an order update): it finds or opens the
   conversation, picks the number, falls back to a template when WhatsApp's

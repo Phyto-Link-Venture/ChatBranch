@@ -128,6 +128,17 @@ export const bubble = {
     cancel: 'Cancel',
     close: 'Close',
   },
+  sendSticker: {
+    open: 'Send a sticker',
+    title: 'Send a sticker',
+    help: 'Any picture works — it is cropped to a 512×512 sticker and sent with no bubble. A GIF or short clip becomes an animated sticker.',
+    upload: 'Upload a picture',
+    fromLibrary: 'From the media library',
+    libraryEmpty: 'No pictures in the media library yet. Upload one above, or add some under Library → Media.',
+    wrongType: 'A sticker has to come from a picture — PNG, JPG, WebP, GIF or MP4.',
+    tooBig: 'That picture is too big. Pick one under 10 MB.',
+    readFailed: 'That file could not be read.',
+  },
   forward: {
     open: 'Forward',
     title: 'Forward this message',

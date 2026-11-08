@@ -189,6 +189,35 @@ public static partial class ToolCatalog
                 A.Bool("force", "Send to an opted-out contact as a deliberate manual exception."),
             }, outside: true);
 
+        yield return T(g, "conversations_send_sticker", "Send a WhatsApp sticker",
+            "Send a picture as a real WhatsApp STICKER (no bubble, no caption) rather than as an image. Give " +
+            "it the same short references as conversations_send_media — media_url, source_message_id, file_id " +
+            "(the media library) or file_base64 — and the server shapes it: scaled and padded onto a " +
+            "transparent 512x512 canvas, compressed until it fits WhatsApp's limit, and stamped with the pack " +
+            "name. An animated GIF or a short clip becomes an animated sticker. QR-paired WhatsApp numbers " +
+            "only: official Cloud/BSP numbers are refused with the reason, and the refusal says which kind " +
+            "of no it is. Same guards as a typed message (opt-out, the 24-hour window, the cold-outbound " +
+            "guard); read status, where \"sandbox\" means nothing left the building.",
+            "POST", "/api/messaging/send-sticker", send,
+            new[]
+            {
+                A.Str("channel", "Conversation channel — whatsapp.", req: true, oneOf: EndpointTool.ChannelNames),
+                A.Str("key", "Conversation key (the customer's number).", req: true),
+                A.Str("media_url", "An https link to the picture; the server downloads it. A Google Drive "
+                    + "share link is understood."),
+                A.Int("source_message_id", "Turn a picture ChatBranch already stores into a sticker: the id "
+                    + "of the message carrying it."),
+                A.Str("file_id", "A picture uploaded to the media library (media_list finds them)."),
+                A.Str("file_base64", "The picture itself, base64 encoded — the last resort; prefer media_url."),
+                A.Str("file_name", "File name with extension, e.g. logo.png. Required with file_base64."),
+                A.Str("pack", "The sticker pack's name, shown in WhatsApp's sticker info."),
+                A.Str("author", "The pack's publisher (default: the business name)."),
+                A.StrList("emojis", "Up to 3 emoji the sticker can be found by."),
+                A.Int("thread_id", ToolScope.ThreadIdHelp),
+                A.Str("company", ToolScope.CompanyHelp),
+                A.Bool("force", "Send to an opted-out contact as a deliberate manual exception."),
+            });
+
         yield return T(g, "conversations_set_ai", "Switch the AI on/off for a conversation",
             "The per-chat AI tick (per sending number on WhatsApp). A rule above it — the master switch or " +
             "schedule, the contact's 'never', a never-AI tag, an opt-out — still wins; conversations_get_state " +

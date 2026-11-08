@@ -368,6 +368,67 @@ public class OutboundSender
     }
 
     /// <summary>
+    /// A sticker — a 512×512 WebP shaped by <see cref="StickerImage"/> and sent as
+    /// WhatsApp's own <c>stickerMessage</c>, which is NOT an image message: it shows
+    /// with no bubble and carries no caption.
+    ///
+    /// QR (Baileys) numbers only, and honestly so: Meta's Cloud API can send a sticker
+    /// (by the media id of an uploaded WebP) but that is not wired here, while the
+    /// BSPs publish no sticker send at all — each is told which of the two it is. A
+    /// conversation with nothing live keeps a sandbox row with the sticker attached,
+    /// so the chat still shows what was meant.
+    ///
+    /// The row is stored as "[sticker]" with the file attached as an IMAGE, which is
+    /// exactly how an INBOUND sticker is recorded — so the inbox renders ours and
+    /// theirs the same way, with no second code path in the bubble.
+    /// </summary>
+    public (Message? Sent, string Error, bool Conflict) SendSticker(Thread thread, byte[] webp, string relPath,
+        string source, int? accountId = null)
+    {
+        var refused = StickerImage.Refusal(webp);
+        if (refused != null) return (null, refused, false);
+
+        var acctId = accountId ?? thread.AccountId;
+        var account = Account(acctId);
+        const string text = "[sticker]";
+        var name = Path.GetFileName(relPath);
+
+        Message msg;
+        if (BaileysLive(thread, account))
+        {
+            var r = _baileys.SendMediaAsync(account!.ExternalId, thread.Key,
+                    ChatBranch.Data.Sidecars.BaileysMedia.Sticker, webp, StickerImage.Mime, name, null)
+                .GetAwaiter().GetResult();
+            if (!r.Ok) return (null, r.Detail, r.Conflict);
+            msg = _threads.AppendMessage(thread, MessageDirection.Out, source, text,
+                status: "sent", externalId: r.ExternalId, accountId: account.Id);
+        }
+        else if (CloudLive(thread, account))
+        {
+            // two different "no"s: Meta's API carries stickers and is simply not wired
+            // here, while the BSPs publish no sticker send at all
+            return (null, account!.Provider == Providers.Cloud
+                ? "Sending a sticker from the WhatsApp Cloud API isn't wired up in ChatBranch yet — "
+                  + "a QR-paired number can."
+                : $"{WhatsAppProviders.Label(account.Provider)} cannot send stickers — its API has no "
+                  + "sticker message.", true);
+        }
+        else if (account != null && account.Channel != ChatBranch.Domain.Channels.WhatsApp)
+        {
+            return (null, $"Sending a sticker isn't supported on {account.Channel}.", true);
+        }
+        else
+        {
+            msg = _threads.AppendMessage(thread, MessageDirection.Out, source, text,
+                status: "sandbox", accountId: acctId);
+        }
+        // "image", not "sticker": the same shape an inbound sticker is stored with
+        AttachMedia(msg, "image", relPath, StickerImage.Mime, name,
+            _media?.Resolve(thread.Channel, relPath));
+        return (msg, "", false);
+    }
+
+    /// <summary>
     /// The shared path for the message kinds only a QR number carries: route,
     /// refuse honestly per provider, or store a sandbox row so the inbox still
     /// shows what was meant when nothing is attached.

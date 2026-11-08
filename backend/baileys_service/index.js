@@ -14,9 +14,10 @@
  *   POST /accounts/:id/send        -> { to, text, quoted_id?, quoted_from_me?, quoted_text? } -> { id }
  *                                     (quoted_* = a reply quoting that message; messages.js)
  *   POST /accounts/:id/react       -> { to, msg_id, from_me?, emoji } -> { id }  ("" removes ours)
- *   POST /accounts/:id/send-media  -> { to, media_type: image|video|audio|document,
+ *   POST /accounts/:id/send-media  -> { to, media_type: image|video|audio|document|sticker,
  *                                     file_b64, mime?, filename?, caption? } -> { id }
- *                                     (≤16 MB, base64 in the body — never a path/URL; media.js)
+ *                                     (≤16 MB, base64 in the body — never a path/URL; media.js.
+ *                                     media_type sticker = a 512x512 image/webp, no caption)
  *   POST /accounts/:id/logout      -> unpair + wipe local auth state
  *   POST /accounts/:id/call        -> { to, room, livekit_url, token, max_seconds }
  *                                     place a voice call bridged to LiveKit (calls.js)

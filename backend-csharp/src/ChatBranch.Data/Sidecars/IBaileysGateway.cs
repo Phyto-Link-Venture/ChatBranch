@@ -583,13 +583,21 @@ public class HttpBaileysGateway : IBaileysGateway
 public static class BaileysMedia
 {
     public const long MaxBytes = 16L * 1024 * 1024;
-    public static readonly string[] Types = { "image", "video", "audio", "document" };
+    /// <summary>
+    /// <c>sticker</c> is its own type, not an image: WhatsApp only renders one for a
+    /// 512×512 WebP inside its own (far smaller) ceiling and shows no caption for it.
+    /// </summary>
+    public static readonly string[] Types = { "image", "video", "audio", "document", "sticker" };
+
+    public const string Sticker = "sticker";
 
     /// <summary>Why this file cannot go out over Baileys (null = it can).</summary>
     public static string? Refusal(string mediaType, byte[] content)
     {
         if (!Types.Contains(mediaType)) return $"media type '{mediaType}' cannot be sent over WhatsApp";
         if (content.Length == 0) return "the file is empty";
+        // a sticker has its own shape and ceiling, checked where it is made
+        if (mediaType == Sticker) return ChatBranch.Data.Channels.StickerImage.Refusal(content);
         if (content.Length > MaxBytes) return "file too large for WhatsApp (max 16 MB)";
         return null;
     }
@@ -606,7 +614,9 @@ public static class BaileysMedia
             ["mime"] = (mime ?? "").Split(';')[0].Trim(),
             ["filename"] = Path.GetFileName(fileName ?? ""),
         };
-        if (!string.IsNullOrWhiteSpace(caption) && mediaType != "audio") body["caption"] = caption.Trim();
+        // neither audio nor a sticker carries a caption on WhatsApp
+        if (!string.IsNullOrWhiteSpace(caption) && mediaType != "audio" && mediaType != Sticker)
+            body["caption"] = caption.Trim();
         // a voice note (push-to-talk): the gateway sends audio/ogg; codecs=opus with ptt=true
         if (ptt && mediaType == "audio") body["ptt"] = true;
         return body;

@@ -124,6 +124,17 @@ export const bubble: Dict<typeof source> = {
     cancel: 'Batal',
     close: 'Tutup',
   },
+  sendSticker: {
+    open: 'Hantar pelekat',
+    title: 'Hantar pelekat',
+    help: 'Mana-mana gambar boleh — ia dipotong menjadi pelekat 512×512 dan dihantar tanpa gelembung. GIF atau klip pendek menjadi pelekat beranimasi.',
+    upload: 'Muat naik gambar',
+    fromLibrary: 'Daripada pustaka media',
+    libraryEmpty: 'Belum ada gambar dalam pustaka media. Muat naik di atas, atau tambah di Pustaka → Media.',
+    wrongType: 'Pelekat perlu daripada gambar — PNG, JPG, WebP, GIF atau MP4.',
+    tooBig: 'Gambar itu terlalu besar. Pilih yang bawah 10 MB.',
+    readFailed: 'Fail itu tidak dapat dibaca.',
+  },
   forward: {
     open: 'Kirim semula',
     title: 'Kirim semula mesej ini',

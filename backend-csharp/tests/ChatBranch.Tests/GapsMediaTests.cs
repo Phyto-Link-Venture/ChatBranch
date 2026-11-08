@@ -18,7 +18,7 @@ using Thread = ChatBranch.Domain.Thread;
 namespace ChatBranch.Tests;
 
 /// <summary>A Baileys gateway that supports media: records each send-media call, answers as scripted.</summary>
-internal sealed class MediaBaileys : IBaileysGateway
+public sealed class MediaBaileys : IBaileysGateway
 {
     public sealed record MediaCall(string Account, string To, string Type, byte[] Content, string Mime, string FileName,
         string? Caption);

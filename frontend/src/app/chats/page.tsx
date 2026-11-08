@@ -56,6 +56,7 @@ import {
 import { VoiceRecorder } from '@/components/chats/VoiceRecorder'
 import { CardComposer, type CardPayload } from '@/components/chats/CardComposer'
 import { ForwardPicker } from '@/components/chats/ForwardPicker'
+import { StickerComposer, type StickerPayload } from '@/components/chats/StickerComposer'
 import {
   CHANNELS,
   CHANNEL_META,
@@ -1132,6 +1133,28 @@ function ChatsPage() {
       await api(threadApi(active, '/send-card'), { method: 'POST', body: JSON.stringify(body) })
     })
 
+  /**
+   * Send a picture as a real WhatsApp sticker. The server shapes it (512x512 WebP,
+   * under WhatsApp's cap, pack stamped) and refuses honestly when the conversation's
+   * number cannot carry one — an official number gets a different "no" than a
+   * channel that has no stickers at all.
+   */
+  const sendSticker = (payload: StickerPayload) =>
+    run(async () => {
+      if (!active) return
+      const body: StickerPayload & { channel: string; key: string; thread_id?: number; force?: boolean } = {
+        ...payload,
+        channel: active.channel,
+        key: active.key,
+      }
+      if (active.thread_id != null) body.thread_id = active.thread_id
+      if (active.opted_out === true) {
+        if (!window.confirm(t('chats.page.confirmOptedOut'))) return
+        body.force = true
+      }
+      await api('messaging/send-sticker', { method: 'POST', body: JSON.stringify(body) })
+    })
+
   /** Forward the picked message into another conversation on the same channel. */
   const forwardTo = (target: UiThreadSummary) => {
     const m = forwarding
@@ -1411,6 +1434,9 @@ function ChatsPage() {
   const canAttach = !!active && MEDIA_CHANNELS.includes(active.channel)
   // the voice-note route is WhatsApp's own (whatsapp/threads/{key}/send-voice)
   const canRecordVoice = active?.channel === 'whatsapp'
+  // stickers too: only WhatsApp has them, and only a QR number can send one (the
+  // server refuses an official number with the reason, so the button still shows)
+  const canSendSticker = active?.channel === 'whatsapp'
 
   const activeFilterCount = countActive(chips)
   const unfiltered = activeFilterCount === 0 && !q.trim()
@@ -2512,6 +2538,13 @@ function ChatsPage() {
                         disabled={busy || composerLocked}
                         onError={setError}
                         onSend={sendCard}
+                      />
+                    )}
+                    {canSendSticker && !noteMode && (
+                      <StickerComposer
+                        disabled={busy || composerLocked}
+                        onError={setError}
+                        onSend={sendSticker}
                       />
                     )}
                     {canRecordVoice && !noteMode && (

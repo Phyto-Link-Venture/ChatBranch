@@ -74,8 +74,8 @@ public static class MediaLibraryEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.send").DisableAntiforgery();
 
         // ---- list -----------------------------------------------------------
-        app.MapGet("/api/media/library", async (string? q, int? limit, string? entity, HttpContext ctx,
-            AppDbContext db, ScopingService sc, MediaStore media, ClaimsPrincipal me) =>
+        app.MapGet("/api/media/library", async (string? q, string? kind, int? limit, string? entity,
+            HttpContext ctx, AppDbContext db, ScopingService sc, MediaStore media, ClaimsPrincipal me) =>
         {
             await Sweep(db, media);
             await db.SaveChangesAsync();
@@ -91,6 +91,9 @@ public static class MediaLibraryEndpoints
             var search = (q ?? "").Trim();
             if (search.Length > 0)
                 rows = rows.Where(m => EF.Functions.Like(m.Name, $"%{search}%"));
+            // one kind only — the sticker picker wants pictures, not every upload
+            var want = (kind ?? "").Trim().ToLowerInvariant();
+            if (want.Length > 0) rows = rows.Where(m => m.Kind == want);
             var take = Math.Clamp(limit ?? 50, 1, 200);
             var list = await rows.OrderByDescending(m => m.Id).Take(take).ToListAsync();
             return Results.Ok(new { files = list.Select(Payload).ToList() });

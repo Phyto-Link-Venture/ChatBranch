@@ -127,13 +127,19 @@ public static class MessagingSendFileEndpoints
     // =========================================================================
 
     /// <summary>The file, where it came from (url | message | base64), or the refusal.</summary>
-    private sealed record Loaded(RemoteFile? File, string From, IResult? Error);
+    /// <remarks>
+    /// Internal rather than private because <see cref="MessagingStickerEndpoints"/> takes
+    /// the SAME four references (<c>media_url</c> / <c>source_message_id</c> / <c>file_id</c>
+    /// / <c>file_base64</c>) and must read them identically — one reader, so the two routes
+    /// cannot drift.
+    /// </remarks>
+    internal sealed record Loaded(RemoteFile? File, string From, IResult? Error);
 
     /// <summary>
     /// The file to send, from whichever reference the request gave. Exactly one source
     /// is read, in the order a caller is most likely to mean it.
     /// </summary>
-    private static async Task<Loaded> ReadFileAsync(JsonElement body, AppDbContext db, ScopingService sc,
+    internal static async Task<Loaded> ReadFileAsync(JsonElement body, AppDbContext db, ScopingService sc,
         ClaimsPrincipal me, MediaStore media, VoiceAgentBridge bridge, IRemoteMediaFetcher fetcher,
         long maxBytes, CancellationToken ct)
     {
@@ -398,7 +404,7 @@ public static class MessagingSendFileEndpoints
         return list;
     }
 
-    private static bool ColdBlocked(AppDbContext db, ScopingService sc, Thread thread, ChannelAccount account)
+    internal static bool ColdBlocked(AppDbContext db, ScopingService sc, Thread thread, ChannelAccount account)
     {
         var role = account.Config.TryGetValue("role", out var raw) && (raw?.ToString() ?? "") is { Length: > 0 } r
             ? r
@@ -410,7 +416,7 @@ public static class MessagingSendFileEndpoints
                && !db.Messages.Any(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In);
     }
 
-    private static bool WindowOpen(AppDbContext db, Thread thread, ChannelAccount? account)
+    internal static bool WindowOpen(AppDbContext db, Thread thread, ChannelAccount? account)
     {
         if (account == null || account.Provider == Providers.Baileys) return true;
         var lastIn = db.Messages.AsNoTracking()
@@ -440,10 +446,10 @@ public static class MessagingSendFileEndpoints
         _ => "media_failed",
     };
 
-    private static IResult Problem(int status, string code, string detail) =>
+    internal static IResult Problem(int status, string code, string detail) =>
         Results.Json(new { detail, code }, statusCode: status);
 
-    private static string? Str(JsonElement body, string key) =>
+    internal static string? Str(JsonElement body, string key) =>
         body.ValueKind == JsonValueKind.Object && body.TryGetProperty(key, out var v)
             ? v.ValueKind == JsonValueKind.String ? v.GetString()
                 : v.ValueKind == JsonValueKind.Null ? null : v.ToString()
@@ -452,7 +458,7 @@ public static class MessagingSendFileEndpoints
     private static int? IntOrNull(JsonElement body, string key) =>
         int.TryParse(Str(body, key), out var n) && n > 0 ? n : null;
 
-    private static bool Flag(JsonElement body, string key) =>
+    internal static bool Flag(JsonElement body, string key) =>
         body.ValueKind == JsonValueKind.Object && body.TryGetProperty(key, out var v)
         && (v.ValueKind == JsonValueKind.True
             || (v.ValueKind == JsonValueKind.String && v.GetString()?.ToLowerInvariant() is "true" or "1" or "yes"));

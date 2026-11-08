@@ -226,7 +226,7 @@ conversation route.
 | `contacts_decide_access_request` | Approve or deny a contact access request | write | `contacts.manage` |
 | `contacts_cancel_access_request` | Cancel your contact access request | write | `contacts.manage` or `chats.send` |
 
-#### conversations (36)
+#### conversations (37)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -244,6 +244,7 @@ conversation route.
 | `conversations_notify` | Send a transactional message | write | `chats.send` |
 | `conversations_send_template` | Send a WhatsApp template | write · open-world | `chats.send` |
 | `conversations_send_media` | Send a file or image | write · open-world | `chats.send` |
+| `conversations_send_sticker` | Send a WhatsApp sticker | write | `chats.send` |
 | `conversations_set_ai` | Switch the AI on/off for a conversation | write | `chats.send` |
 | `conversations_set_labels` | Set conversation labels | write | `chats.send` |
 | `conversations_react_to_message` | React to a message with an emoji | write | `chats.send` |

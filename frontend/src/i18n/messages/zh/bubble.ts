@@ -123,6 +123,17 @@ export const bubble: Dict<typeof source> = {
     cancel: '取消',
     close: '关闭',
   },
+  sendSticker: {
+    open: '发送贴纸',
+    title: '发送贴纸',
+    help: '任何图片都可以——它会被裁成 512×512 的贴纸，不带气泡发送。GIF 或短视频会变成动态贴纸。',
+    upload: '上传图片',
+    fromLibrary: '来自媒体库',
+    libraryEmpty: '媒体库里还没有图片。可在上方上传，或到「资料库 → 媒体」添加。',
+    wrongType: '贴纸需要用图片制作——PNG、JPG、WebP、GIF 或 MP4。',
+    tooBig: '该图片太大，请选择 10 MB 以下的。',
+    readFailed: '无法读取该文件。',
+  },
   forward: {
     open: '转发',
     title: '转发这条消息',

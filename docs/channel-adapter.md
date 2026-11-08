@@ -598,6 +598,52 @@ WhatsApp chat — `conversations_forward_message` cannot do this, since a WhatsA
 forward is same-channel by nature), and `targets` (≤20) delivers one fetch to
 several conversations, each with its own guards and its own result.
 
+### Sending a sticker (`POST /api/messaging/send-sticker`)
+
+Receiving a sticker has always worked on Baileys (animated Lottie wrappers
+included), WhatsApp Cloud and Telegram, and the inbox renders one small with no
+bubble behind it. Sending one is a different job, because a sticker is not a
+picture with a different label: WhatsApp shows one only for a **512×512 WebP**
+under its own ceiling (100 KB still, 500 KB animated) carrying an **EXIF pack
+block**. Send an arbitrary image as a `stickerMessage` and it renders wrong or is
+dropped — so the shaping happens in `Channels/StickerImage.cs` before the gateway
+is called:
+
+* scale inside the square and pad the rest TRANSPARENT (never squash the aspect
+  ratio, never letterbox bars);
+* walk the WebP quality down until the file fits, halving an animated sticker's
+  frame rate before giving up — a slower sticker beats no sticker;
+* write the EXIF chunk (little-endian TIFF, one undefined-type entry holding the
+  pack JSON) and set the VP8X EXIF flag. Without it the sticker renders but has
+  no attribution and cannot be added to the viewer's tray.
+
+**Three input paths, because ffmpeg cannot decode an animated WebP.** An animated
+WebP is therefore passed through untouched and only stamped — and refused honestly
+when it is not already 512², since it cannot be resized here. An animated GIF or a
+short clip is converted to an animated sticker (≤6 s at 12 fps). Everything else
+becomes one still. ffmpeg is the same seam the audio renderings use
+(`AudioTranscoder.FfmpegPath`, env `MEDIA_FFMPEG`); a server without it still
+sends an already-correct WebP and refuses anything else **naming ffmpeg**, rather
+than sending something WhatsApp will drop.
+
+The picture comes from the same four references `send-file` takes — `media_url`,
+`source_message_id`, `file_id`, `file_base64` — read by that route's own loader,
+so the two cannot drift. Every guard a manual send applies still applies (scope,
+opt-out with `force`, the cold-outbound guard, the 24-hour window), and routing is
+not bypassed: a conversation pinned to a number that cannot carry a sticker fails
+over exactly as a text would.
+
+**QR-paired numbers only, and the refusal says which kind of no it is.** Meta's
+Cloud API *can* carry a sticker (by the media id of an uploaded WebP) and is told
+it is simply not wired here; the BSPs publish no sticker send at all and are told
+that. Another channel is refused by name. Telegram's `sendSticker` takes the same
+WebP and is the obvious next one — it is a gap in Telegram's adapter, not in
+WhatsApp's.
+
+The message row is stored as `[sticker]` with the file attached as an **image**,
+which is exactly how an INBOUND sticker is recorded, so the inbox needs no second
+rendering path for ours.
+
 These are channel-blind; a new channel gets them for free if it goes through
 `InboundProcessor` and `ThreadStore`.
 
