@@ -762,6 +762,19 @@ export const channels = {
     loggedOut: 'Session was logged out — generating a fresh QR…',
     contacting: 'Contacting the WhatsApp gateway…',
     pairingScope: 'Pairing session for this inbox only',
+    pairMethod: 'How do you want to link it?',
+    pairByQr: 'Scan a QR code',
+    pairByPhone: 'Use my phone number',
+    pairPhoneLabel: 'The WhatsApp number you are linking',
+    pairPhoneHelp:
+      'WhatsApp sends an 8-character code to type on that phone — no camera needed. Use this when the phone cannot point at this screen.',
+    pairPhoneSend: 'Get a pairing code',
+    pairPhoneNeeded: 'Enter the number with its country code first.',
+    pairCodeAria: 'WhatsApp pairing code',
+    pairCodeAsking: 'Asking WhatsApp for a code…',
+    pairCodeHelp:
+      'On {number}: WhatsApp → Settings → Linked devices → Link a device → Link with phone number, then type this code.',
+    pairCodeWaiting: 'Waiting for the phone…',
     days: {
       mon: 'Monday',
       tue: 'Tuesday',

@@ -14,8 +14,16 @@ public record BaileysResult(bool Ok, string Detail, string ExternalId = "")
     public bool Conflict { get; init; }
 }
 
-/// <summary>Pairing state as the gateway reports it: {state, qr?, me?, error?}.</summary>
-public record BaileysStatus(string State, string? Qr, string? Me, string? Error);
+/// <summary>
+/// Pairing state as the gateway reports it: {state, qr?, pairing_code?, pairing_phone?,
+/// me?, error?}. A number is linked EITHER by scanning <see cref="Qr"/> or by typing
+/// <see cref="PairingCode"/> on the phone that owns <see cref="PairingPhone"/> — state
+/// "qr" or "pairing_code" says which one is waiting. The code is a credential for the
+/// length of the pairing attempt: it is never audited or logged, and
+/// <c>Tools/ToolResults</c> redacts it.
+/// </summary>
+public record BaileysStatus(string State, string? Qr, string? Me, string? Error,
+    string? PairingCode = null, string? PairingPhone = null);
 
 /// <summary>
 /// "Is this number on WhatsApp?" as the gateway answers it (POST
@@ -53,6 +61,32 @@ public static class BaileysSettings
             string str => string.Equals(str, "true", StringComparison.OrdinalIgnoreCase),
             _ => false,
         };
+}
+
+/// <summary>
+/// Pairing a QR number by PHONE NUMBER instead of a scan. Mirrors
+/// <c>backend/baileys_service/pairing.js</c> (<c>pairingPhone</c>) so the dashboard
+/// refuses an impossible number before a pairing attempt is spent — WhatsApp
+/// rate-limits them per number — and both sides agree on what Baileys is handed.
+/// </summary>
+public static class BaileysPairing
+{
+    /// <summary>E.164's own bounds: 15 digits at most, and nothing shorter than 7 is a real line.</summary>
+    public const int MinDigits = 7;
+    public const int MaxDigits = 15;
+
+    /// <summary>
+    /// The number as Baileys wants it: digits only, country code included, no "+".
+    /// "" when it cannot be one — a leading 0 means a national trunk prefix was typed
+    /// instead of a country code, which WhatsApp would reject.
+    /// </summary>
+    public static string Phone(string? raw)
+    {
+        var digits = new string((raw ?? "").Where(char.IsDigit).ToArray());
+        if (digits.StartsWith("00", StringComparison.Ordinal)) digits = digits[2..];
+        if (digits.Length is < MinDigits or > MaxDigits) return "";
+        return digits.StartsWith('0') ? "" : digits;
+    }
 }
 
 /// <summary>
@@ -179,6 +213,14 @@ public interface IBaileysGateway
     // ---- pairing (Settings → Channels → WhatsApp → Pair) ----
     Task<BaileysStatus> StatusAsync(string accountExternalId, CancellationToken ct = default);
     Task<BaileysStatus> StartAsync(string accountExternalId, CancellationToken ct = default);
+    /// <summary>
+    /// Start pairing by PHONE NUMBER: WhatsApp hands out an 8-character code for
+    /// <paramref name="pairPhone"/> (digits, country code, no "+") which the person types
+    /// under Linked devices → "Link with phone number" instead of scanning. A gateway that
+    /// cannot do it falls back to the QR start, so the dialog still has a way in.
+    /// </summary>
+    Task<BaileysStatus> StartAsync(string accountExternalId, string? pairPhone,
+        CancellationToken ct = default) => StartAsync(accountExternalId, ct);
     Task<BaileysStatus> LogoutAsync(string accountExternalId, CancellationToken ct = default);
 }
 
@@ -293,7 +335,8 @@ public class HttpBaileysGateway : IBaileysGateway
     {
         if (body.ValueKind != JsonValueKind.Object) return new BaileysStatus("error", null, null, error);
         string? Get(string k) => body.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-        return new BaileysStatus(Get("state") ?? "stopped", Get("qr"), Get("me"), Get("error") ?? (error.Length > 0 ? error : null));
+        return new BaileysStatus(Get("state") ?? "stopped", Get("qr"), Get("me"),
+            Get("error") ?? (error.Length > 0 ? error : null), Get("pairing_code"), Get("pairing_phone"));
     }
 
     public async Task<BaileysStatus> StatusAsync(string a, CancellationToken ct = default)
@@ -302,9 +345,14 @@ public class HttpBaileysGateway : IBaileysGateway
         return ok ? ToStatus(body, "") : new BaileysStatus("error", null, null, err);
     }
 
-    public async Task<BaileysStatus> StartAsync(string a, CancellationToken ct = default)
+    public Task<BaileysStatus> StartAsync(string a, CancellationToken ct = default) =>
+        StartAsync(a, null, ct);
+
+    public async Task<BaileysStatus> StartAsync(string a, string? pairPhone, CancellationToken ct = default)
     {
-        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/start", new { }, ct);
+        // {} = the gateway emits a QR; {phone} = it asks WhatsApp for a pairing code.
+        object payload = string.IsNullOrWhiteSpace(pairPhone) ? new { } : new { phone = pairPhone };
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/start", payload, ct);
         return ok ? ToStatus(body, "") : new BaileysStatus("error", null, null, err);
     }
 

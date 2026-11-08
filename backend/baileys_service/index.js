@@ -8,7 +8,9 @@
  * sessions survive restarts (scan the QR once).
  *
  *   GET  /accounts/:id/status      -> { state, qr?, me?, error? }
- *   POST /accounts/:id/start       -> begin/refresh pairing (emits a QR)
+ *   POST /accounts/:id/start       -> begin/refresh pairing; {} emits a QR,
+ *                                     {phone} asks WhatsApp for an 8-character
+ *                                     pairing code for that number instead
  *   POST /accounts/:id/send        -> { to, text, quoted_id?, quoted_from_me?, quoted_text? } -> { id }
  *                                     (quoted_* = a reply quoting that message; messages.js)
  *   POST /accounts/:id/react       -> { to, msg_id, from_me?, emoji } -> { id }  ("" removes ours)
@@ -39,6 +41,7 @@ import pino from 'pino'
 import { buildMediaMessage, MediaRequestError, MAX_SEND_MEDIA_BODY, readJsonBodyCapped } from './media.js'
 import { buildContact, buildDelete, buildEdit, buildLocation, buildPoll, buildQuoted, buildReact, editOf, KeyStore, mediaKind, messageSeconds, parseInbound, phoneSent, postWithRetry, recallOf, setNormalizer, unwrap } from './messages.js'
 import { createPresence, DEFAULT_IDLE_MS } from './presence.js'
+import { normalizePairingCode, pairingPhone } from './pairing.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -152,7 +155,14 @@ function phoneForLid(lidJid) {
 }
 
 function acct(id) {
-  if (!accounts.has(id)) accounts.set(id, { sock: null, state: 'stopped', qr: null, me: null, error: null, presence: null })
+  if (!accounts.has(id)) {
+    accounts.set(id, {
+      sock: null, state: 'stopped', qr: null, me: null, error: null, presence: null, gen: 0,
+      // "Link with phone number": the number we asked WhatsApp about, and the
+      // 8-character code the person types on the phone (null = pairing by QR).
+      pairPhone: null, pairingCode: null,
+    })
+  }
   return accounts.get(id)
 }
 
@@ -397,14 +407,35 @@ async function pushStatusEvent(id, event, reason = '') {
   }
 }
 
-async function startAccount(id) {
+/**
+ * Bring a number's session up. `phone` = pair by PHONE NUMBER (WhatsApp's
+ * "Link with phone number": the person types an 8-character code instead of
+ * scanning) — digits only, E.164 without the +; omitted = pair by QR. It is
+ * only asked for on a session that is not registered yet; a session that
+ * already has credentials just reconnects.
+ */
+async function startAccount(id, phone = null) {
   const a = acct(id)
   if (a.state === 'connected' || a.state === 'starting') return
   a.state = 'starting'
   a.error = null
+  a.pairingCode = null
+  a.pairPhone = phone || null
+  // Each start OWNS the account from here on. An older socket's events — and
+  // above all its 3s reconnect timer — must not write to the account once a
+  // newer attempt has taken over, which is exactly what happens when a person
+  // presses Pair again or switches between a QR and a phone number.
+  const gen = (a.gen = (a.gen || 0) + 1)
+  if (a.sock) {
+    try { a.sock.end(new Error('pairing restarted')) } catch { /* already closed */ }
+    a.sock = null
+  }
   const dir = path.join(AUTH_ROOT, String(id))
   mkdirSync(dir, { recursive: true })
   const { state, saveCreds } = await useMultiFileAuthState(dir)
+  // A session that is already registered reconnects with its stored keys —
+  // WhatsApp refuses a pairing code for one, so never ask.
+  if (state.creds?.registered) a.pairPhone = null
   // WhatsApp rejects/ignores stale protocol versions silently (session hangs
   // in "starting" with no QR) — always pair with the current one.
   const { version } = await fetchLatestBaileysVersion()
@@ -426,6 +457,7 @@ async function startAccount(id) {
 
   // watchdog: a healthy pairing emits a QR within seconds — surface a hang
   setTimeout(() => {
+    if (a.gen !== gen) return   // a newer attempt owns the account
     if (a.state === 'starting') {
       a.state = 'error'
       a.error = 'No response from WhatsApp within 30s — check the gateway console/network and press Pair to retry.'
@@ -436,8 +468,26 @@ async function startAccount(id) {
   sock.ev.on('creds.update', saveCreds)
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+    if (a.gen !== gen) return   // this socket has been superseded — stay quiet
     if (connection) logEvent('connection', { acct: id, connection })
     if (qr) {
+      // Pairing by phone number rides on the same event: requestPairingCode needs
+      // the handshake to be up, and the first QR is the proof that it is. If
+      // WhatsApp refuses the number we keep the QR we already have rather than
+      // leaving the person with nothing.
+      if (a.pairPhone && !a.pairingCode) {
+        try {
+          a.pairingCode = normalizePairingCode(await sock.requestPairingCode(a.pairPhone))
+          a.qr = null
+          a.state = 'pairing_code'
+          console.log(`[${id}] pairing code ready for +${a.pairPhone}`)
+          return
+        } catch (e) {
+          a.pairPhone = null
+          a.error = `WhatsApp would not give a pairing code for that number (${e.message}) — scan the QR instead.`
+          logEvent('pairingCodeFailed', { acct: id, error: e.message })
+        }
+      }
       a.qr = await toDataURL(qr)
       a.state = 'qr'
       console.log(`[${id}] QR ready — scan from the dashboard`)
@@ -445,6 +495,8 @@ async function startAccount(id) {
     if (connection === 'open') {
       a.state = 'connected'
       a.qr = null
+      a.pairingCode = null
+      a.pairPhone = null
       a.me = digits((sock.user?.id || '').split(':')[0])
       console.log(`[${id}] connected as +${a.me}`)
       // announce presence — companions that never do get their sends deprioritized;
@@ -463,6 +515,8 @@ async function startAccount(id) {
       if (code === DisconnectReason.loggedOut) {
         a.state = 'logged_out'
         a.qr = null
+        a.pairingCode = null
+        a.pairPhone = null
         a.me = null
         rmSync(dir, { recursive: true, force: true })
         console.log(`[${id}] logged out — auth state wiped`)
@@ -826,8 +880,8 @@ http
         const a = accounts.get(id)
         const keep = !!loadSettings(id).keep_phone_notifications
         return json(res, 200, a
-          ? { state: a.state, qr: a.qr, me: a.me, error: a.error, keep_phone_notifications: keep, online: a.presence ? a.presence.online : null }
-          : { state: 'stopped', qr: null, me: null, error: null, keep_phone_notifications: keep, online: null })
+          ? { state: a.state, qr: a.qr, pairing_code: a.pairingCode, pairing_phone: a.pairPhone, me: a.me, error: a.error, keep_phone_notifications: keep, online: a.presence ? a.presence.online : null }
+          : { state: 'stopped', qr: null, pairing_code: null, pairing_phone: null, me: null, error: null, keep_phone_notifications: keep, online: null })
       }
       if (action === 'settings') {
         // GET: the number's settings; POST {keep_phone_notifications}: store + apply now
@@ -847,8 +901,21 @@ http
       }
       if (req.method !== 'POST') return json(res, 405, { detail: 'POST required' })
       if (action === 'start') {
-        await startAccount(id)
-        return json(res, 200, { ok: true, state: acct(id).state })
+        // {} = pair by QR; {phone: "+60123456789"} = pair by phone number, which
+        // WhatsApp answers with an 8-character code the person types on the phone.
+        const { phone } = await readBody(req)
+        let msisdn = null
+        if (phone !== undefined && phone !== null && String(phone).trim() !== '') {
+          msisdn = pairingPhone(phone)
+          if (!msisdn) {
+            return json(res, 400, {
+              detail: 'phone must be a full international number with its country code (digits only, no leading 0).',
+            })
+          }
+        }
+        await startAccount(id, msisdn)
+        const a = acct(id)
+        return json(res, 200, { ok: true, state: a.state, pairing_code: a.pairingCode, pairing_phone: a.pairPhone })
       }
       if (action === 'send') {
         const { to, text, raw_jid, quoted_id, quoted_from_me, quoted_text } = await readBody(req)

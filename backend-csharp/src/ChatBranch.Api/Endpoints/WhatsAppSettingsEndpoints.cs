@@ -920,6 +920,10 @@ public static class WhatsAppSettingsEndpoints
         // the DB id (stable + unique), and persist that so inbound pushes
         // (/api/whatsapp/baileys/inbound {account_id}) route back to this row.
         // An unreachable gateway is a clean {state:"error", error} — never a 500.
+        // A body of {} pairs by QR; {"phone": "+60123456789"} pairs by PHONE NUMBER —
+        // WhatsApp answers with an 8-character code to type under Linked devices →
+        // "Link with phone number", which is the only way in when the phone cannot
+        // point its camera at the dashboard. The code never reaches the audit row.
         app.MapPost("/api/whatsapp/accounts/{id:int}/baileys/start", async (int id, HttpContext ctx,
             AppDbContext db, ClaimsPrincipal me, ChatBranch.Data.Sidecars.IBaileysGateway gw) =>
         {
@@ -929,11 +933,25 @@ public static class WhatsAppSettingsEndpoints
             if (ShellScope.ObjectScopeError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me,
                     acct.EntityId) is { } outside)
                 return outside;
+            var body = await ReadBody(ctx);
+            var phoneRaw = (AsString(body, "phone") ?? "").Trim();
+            var pairPhone = "";
+            if (phoneRaw.Length > 0)
+            {
+                pairPhone = BaileysPairing.Phone(phoneRaw);
+                if (pairPhone.Length == 0)
+                    return Results.Json(new
+                    {
+                        detail = "phone must be the number's full international form with its country code "
+                                 + "(for example +60123456789) — digits only, no leading 0.",
+                    }, statusCode: 400);
+            }
             var key = await EnsureBaileysKey(db, acct);
             // the session starts with the number's "keep phone notifications" setting
             await gw.SetPhoneNotificationsAsync(key, BaileysSettings.KeepPhone(acct));
-            var st = await gw.StartAsync(key);
-            await Audit(db, ctx, me, "account.baileys_start", $"whatsapp:{id}", st.State);
+            var st = await gw.StartAsync(key, pairPhone.Length > 0 ? pairPhone : null);
+            await Audit(db, ctx, me, "account.baileys_start", $"whatsapp:{id}",
+                pairPhone.Length > 0 ? $"{st.State} (by phone number)" : st.State);
             return Results.Ok(BaileysStatePayload(st));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
@@ -2184,6 +2202,9 @@ public static class WhatsAppSettingsEndpoints
         ok = st.State is not "error",
         state = st.State,
         qr = st.Qr,
+        // state "pairing_code": the person types this on the phone instead of scanning
+        pairing_code = st.PairingCode,
+        pairing_phone = st.PairingPhone,
         me = st.Me,
         error = st.Error,
     };

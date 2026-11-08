@@ -257,6 +257,23 @@ outbound queue are already channel-blind.
 ### WhatsApp over Baileys
 - Unofficial WhatsApp Web protocol. **Violates WhatsApp's ToS**; dev/demo only.
   See `backend/baileys_service/README.md` and `RESEARCH.md`.
+- **Two ways to link a number.** `POST /api/whatsapp/accounts/{id}/baileys/start`
+  with `{}` emits a QR to scan (as before); with `{"phone": "+60123456789"}` it asks
+  WhatsApp for an 8-character **pairing code** the person types under WhatsApp →
+  Linked devices → Link a device → "Link with phone number" — the only way in when
+  the phone cannot point its camera at the dashboard. The gateway requests the code
+  on the first handshake (the QR event proves it is up — `requestPairingCode`), keeps
+  the QR as the fallback if WhatsApp refuses the number, and reports `state`
+  `pairing_code` with `pairing_code` / `pairing_phone` on `/status`. The number is
+  cleaned the same way on both sides (`BaileysPairing.Phone` ↔ `pairing.js
+  pairingPhone`) so an impossible one is refused with a 400 before a pairing attempt
+  is spent — WhatsApp rate-limits them per number. The code is a credential for the
+  length of the attempt: never audited (the audit row says only "by phone number"),
+  never logged, redacted by `Tools/ToolResults`. A session that is already registered
+  reconnects and is never asked for a code. Each start supersedes the previous socket
+  (`a.gen` in `index.js`), so switching between the two — or pressing Pair again —
+  cannot leave an older socket's reconnect timer fighting the new attempt.
+  Tests: `BaileysPairingTests`, `pairing.js --selftest`.
 - **Keep phone notifications** (per number, on for a new one): WhatsApp silences the
   phone's notifications while a linked device shows as online, so the gateway stays
   offline between sends and comes online only while sending / typing

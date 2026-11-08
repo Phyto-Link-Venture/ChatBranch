@@ -769,6 +769,19 @@ export const channels: Dict<typeof source> = {
     loggedOut: 'Sesi telah dilog keluar — menjana kod QR baharu…',
     contacting: 'Menghubungi gerbang WhatsApp…',
     pairingScope: 'Sesi pemasangan untuk peti masuk ini sahaja',
+    pairMethod: 'Bagaimana anda mahu memautkannya?',
+    pairByQr: 'Imbas kod QR',
+    pairByPhone: 'Guna nombor telefon saya',
+    pairPhoneLabel: 'Nombor WhatsApp yang anda pautkan',
+    pairPhoneHelp:
+      'WhatsApp menghantar kod 8 aksara untuk ditaip pada telefon itu — tiada kamera diperlukan. Guna cara ini apabila telefon tidak boleh dihalakan ke skrin ini.',
+    pairPhoneSend: 'Dapatkan kod pemasangan',
+    pairPhoneNeeded: 'Masukkan nombor bersama kod negaranya dahulu.',
+    pairCodeAria: 'Kod pemasangan WhatsApp',
+    pairCodeAsking: 'Meminta kod daripada WhatsApp…',
+    pairCodeHelp:
+      'Pada {number}: WhatsApp → Tetapan → Peranti terpaut → Pautkan peranti → Pautkan dengan nombor telefon, kemudian taip kod ini.',
+    pairCodeWaiting: 'Menunggu telefon…',
     days: {
       mon: 'Isnin',
       tue: 'Selasa',

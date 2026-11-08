@@ -3,7 +3,8 @@
 /**
  * WhatsApp-specific pieces of the Inboxes setup (/channels): the per-account
  * "Delivery & AI" editor (quiet hours, send pacing, voice-call LLM/STT), the
- * in-drawer QR pairing panel for WhatsApp-by-QR numbers, the Meta webhook
+ * in-drawer pairing panel for WhatsApp-by-QR numbers (scan a QR, or link with
+ * a phone number), the Meta webhook
  * rows and the contacts .vcf export. The account list itself is rendered by
  * ChannelsSettings as inbox cards; these are the parts only WhatsApp has.
  *
@@ -11,9 +12,11 @@
  */
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { CheckCircle, Contact, Copy, Loader2, QrCode, RefreshCw } from 'lucide-react'
+import { CheckCircle, Contact, Copy, Loader2, QrCode, RefreshCw, Smartphone } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
+import { PhoneInput } from '@/components/ui/PhoneInput'
+import { Segmented } from '@/components/chats/Segmented'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { LLM_PROVIDER_LABELS, STT_PROVIDER_LABELS } from '@/lib/voiceProviders'
 import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
@@ -125,13 +128,37 @@ export function VcfTip() {
   )
 }
 
-// ── QR pairing (WhatsApp by QR) ──────────────────────────────────────────────
+// ── Pairing a QR number (scan a code, or link with a phone number) ──────────
+
+/** Which way the person is linking the number. */
+type PairMethod = 'qr' | 'phone'
 
 interface BaileysState {
-  state: 'stopped' | 'starting' | 'qr' | 'qr_expired' | 'connected' | 'disconnected' | 'logged_out' | 'error'
+  state:
+    | 'stopped'
+    | 'starting'
+    | 'qr'
+    | 'qr_expired'
+    | 'pairing_code'
+    | 'connected'
+    | 'disconnected'
+    | 'logged_out'
+    | 'error'
   qr: string | null
+  /** state "pairing_code": the 8 characters to type on the phone. */
+  pairing_code?: string | null
+  /** the number that code was issued for (digits, no "+"). */
+  pairing_phone?: string | null
   me: string | null
   error: string | null
+}
+
+/** One pairing attempt the poller follows. `n` makes a retry a new attempt. */
+interface PairSession {
+  method: PairMethod
+  /** E.164 with the "+", for a phone-number attempt ("" for a QR one). */
+  phone: string
+  n: number
 }
 
 async function waApi<T>(path: string, t: TFunction, init?: RequestInit): Promise<T> {
@@ -146,18 +173,56 @@ async function waApi<T>(path: string, t: TFunction, init?: RequestInit): Promise
 }
 
 /**
- * Inline QR pairing for a WhatsApp-by-QR account. Starts the gateway session
- * on mount and polls its status every 2s until the phone scans the code; the
- * poller stops on a terminal state (connected, or a gateway error such as no
- * sidecar running) and on unmount — so closing the drawer stops it.
+ * Inline pairing for a WhatsApp-by-QR account, both ways WhatsApp offers:
+ *
+ *  * <b>Scan a QR code</b> — the session starts at once and the gateway's QR is
+ *    polled until the phone scans it (what this panel always did).
+ *  * <b>Use my phone number</b> — nothing is requested until the number is typed
+ *    and the button pressed, because WhatsApp rate-limits pairing codes per
+ *    number. The 8 characters it answers with are typed on the phone under
+ *    Linked devices → "Link with phone number"; no camera is involved, which is
+ *    the only way in when the phone cannot point at this screen.
+ *
+ * Either way the status is polled every 2s until the phone joins; the poller
+ * stops on a terminal state (connected, or a gateway error such as no sidecar
+ * running) and on unmount — so closing the drawer stops it.
  */
 export function BaileysPairPanel({ accountId, onConnected }: { accountId: string; onConnected?: () => void }) {
   const t = useT()
+  const [method, setMethod] = useState<PairMethod>('qr')
+  const [phone, setPhone] = useState('')
+  // null = nothing asked for yet (phone mode, waiting for the number)
+  const [session, setSession] = useState<PairSession | null>({ method: 'qr', phone: '', n: 0 })
   const [state, setState] = useState<BaileysState | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [attempt, setAttempt] = useState(0)
+  const [copied, setCopied] = useState(false)
+
+  const begin = (m: PairMethod, e164 = '') => {
+    setError(null)
+    setState(null)
+    setSession((prev) => ({ method: m, phone: e164, n: (prev?.n ?? 0) + 1 }))
+  }
+
+  const chooseMethod = (m: PairMethod) => {
+    if (m === method) return
+    setMethod(m)
+    setError(null)
+    setState(null)
+    // QR pairing can start straight away; a code has to be asked for per number
+    if (m === 'qr') begin('qr')
+    else setSession(null)
+  }
+
+  const askForCode = () => {
+    if (phone.replace(/\D/g, '').length < 7) {
+      setError(t('channels.whatsapp.pairPhoneNeeded'))
+      return
+    }
+    begin('phone', phone)
+  }
 
   useEffect(() => {
+    if (!session) return
     let cancelled = false
     let timer: ReturnType<typeof setInterval> | null = null
     const stop = () => {
@@ -166,7 +231,11 @@ export function BaileysPairPanel({ accountId, onConnected }: { accountId: string
     }
     setError(null)
     setState(null)
-    waApi(`accounts/${accountId}/baileys/start`, t, { method: 'POST' }).catch((e) => {
+    waApi(`accounts/${accountId}/baileys/start`, t, {
+      method: 'POST',
+      // a QR attempt sends nothing; a phone attempt names the number
+      body: session.method === 'phone' ? JSON.stringify({ phone: session.phone }) : undefined,
+    }).catch((e) => {
       if (!cancelled) setError(e instanceof Error ? e.message : String(e))
     })
     const tick = async () => {
@@ -180,7 +249,7 @@ export function BaileysPairPanel({ accountId, onConnected }: { accountId: string
           return
         }
         const gatewayError = s.error || (s.state === 'error' ? t('channels.whatsapp.gatewayError') : null)
-        if (gatewayError && s.state !== 'qr' && s.state !== 'connected') {
+        if (gatewayError && s.state !== 'qr' && s.state !== 'pairing_code' && s.state !== 'connected') {
           setError(gatewayError)
           stop()
           return
@@ -206,49 +275,122 @@ export function BaileysPairPanel({ accountId, onConnected }: { accountId: string
     // onConnected is a notification only — re-running the effect for a new
     // callback identity would restart the pairing session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId, attempt])
+  }, [accountId, session])
+
+  const connected = state?.state === 'connected'
+  const code = state?.state === 'pairing_code' ? state.pairing_code || '' : ''
+  const codeFor = state?.pairing_phone || session?.phone.replace(/\D/g, '') || ''
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      /* clipboard blocked — the code is selectable */
+    }
+  }
+
+  // Retry goes back where the person can act: the form when a number is needed.
+  const retry = () => {
+    if (method === 'phone' && !phone) setSession(null)
+    else begin(method, phone)
+  }
 
   return (
-    <div className="flex flex-col items-center gap-3 rounded-xl border border-line bg-card px-4 py-5 text-center">
-      {error ? (
-        <>
-          <div className="text-[12.5px] font-semibold" style={{ color: 'var(--red-ink)' }}>
-            {error}
-          </div>
-          {state?.state !== 'qr_expired' && (
-            <p className="max-w-[340px] text-[12px] leading-relaxed text-text-muted">
-              <Trans
-                k="channels.whatsapp.pairNeedsGateway"
-                values={{ cmd: <code className="rounded bg-fill px-1">npm run dev:baileys</code> }}
-              />
-            </p>
-          )}
-          <Button variant="secondary" size="sm" onClick={() => setAttempt((n) => n + 1)}>
-            <RefreshCw size={13} aria-hidden /> {t('common.actions.retry')}
-          </Button>
-        </>
-      ) : state?.state === 'connected' ? (
-        <>
-          <CheckCircle size={36} className="text-green-300" aria-hidden />
-          <div className="text-[14px] font-bold text-text-heading">
-            {state.me ? t('channels.whatsapp.connectedAs', { number: `+${state.me}` }) : t('common.status.connected')}
-          </div>
-          <p className="text-[12px] text-text-muted">{t('channels.whatsapp.connectedBody')}</p>
-        </>
-      ) : state?.qr && state.state === 'qr' ? (
-        <>
-          {/* data-URL QR from the gateway — white box for scan contrast in every theme */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={state.qr} alt={t('channels.whatsapp.qrAlt')} className="h-56 w-56 rounded-lg bg-white p-2" />
-          <p className="max-w-[320px] text-[12px] leading-relaxed text-text-muted">{t('channels.whatsapp.scanHelp')}</p>
-        </>
-      ) : (
-        <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
-          <Loader2 size={14} className="animate-spin" aria-hidden />
-          {state?.state === 'logged_out' ? t('channels.whatsapp.loggedOut') : t('channels.whatsapp.contacting')}
-        </div>
+    <div className="flex flex-col gap-3 rounded-xl border border-line bg-card px-4 py-5">
+      {!connected && (
+        <Segmented<PairMethod>
+          value={method}
+          onChange={chooseMethod}
+          label={t('channels.whatsapp.pairMethod')}
+          options={[
+            { value: 'qr', label: t('channels.whatsapp.pairByQr') },
+            { value: 'phone', label: t('channels.whatsapp.pairByPhone') },
+          ]}
+        />
       )}
-      <span className="flex items-center gap-1 text-[11px] text-text-faint">
+      <div className="flex flex-col items-center gap-3 text-center">
+        {error ? (
+          <>
+            <div className="text-[12.5px] font-semibold" style={{ color: 'var(--red-ink)' }}>
+              {error}
+            </div>
+            {state?.state !== 'qr_expired' && (
+              <p className="max-w-[340px] text-[12px] leading-relaxed text-text-muted">
+                <Trans
+                  k="channels.whatsapp.pairNeedsGateway"
+                  values={{ cmd: <code className="rounded bg-fill px-1">npm run dev:baileys</code> }}
+                />
+              </p>
+            )}
+            <Button variant="secondary" size="sm" onClick={retry}>
+              <RefreshCw size={13} aria-hidden /> {t('common.actions.retry')}
+            </Button>
+          </>
+        ) : connected ? (
+          <>
+            <CheckCircle size={36} className="text-green-300" aria-hidden />
+            <div className="text-[14px] font-bold text-text-heading">
+              {state.me ? t('channels.whatsapp.connectedAs', { number: `+${state.me}` }) : t('common.status.connected')}
+            </div>
+            <p className="text-[12px] text-text-muted">{t('channels.whatsapp.connectedBody')}</p>
+          </>
+        ) : code ? (
+          <>
+            <div
+              className="select-all font-mono text-[26px] font-bold tracking-[0.25em] text-text-heading"
+              aria-label={t('channels.whatsapp.pairCodeAria')}
+            >
+              {code.length === 8 ? `${code.slice(0, 4)} ${code.slice(4)}` : code}
+            </div>
+            <Button variant="secondary" size="sm" onClick={copyCode}>
+              <Copy size={13} aria-hidden /> {copied ? t('common.actions.copied') : t('common.actions.copy')}
+            </Button>
+            <p className="max-w-[340px] text-[12px] leading-relaxed text-text-muted">
+              {t('channels.whatsapp.pairCodeHelp', { number: codeFor ? `+${codeFor}` : '' })}
+            </p>
+            <span className="flex items-center gap-2 text-[12px] text-text-faint">
+              <Loader2 size={13} className="animate-spin" aria-hidden />
+              {t('channels.whatsapp.pairCodeWaiting')}
+            </span>
+          </>
+        ) : method === 'phone' && !session ? (
+          <>
+            <div className="w-full max-w-[330px] text-left">
+              <span className="mb-1 block text-[12px] font-semibold text-text-mid">
+                {t('channels.whatsapp.pairPhoneLabel')}
+              </span>
+              <PhoneInput value={phone} onChange={setPhone} ariaLabel={t('channels.whatsapp.pairPhoneLabel')} />
+            </div>
+            <p className="max-w-[330px] text-[12px] leading-relaxed text-text-muted">
+              {t('channels.whatsapp.pairPhoneHelp')}
+            </p>
+            <Button size="sm" onClick={askForCode}>
+              <Smartphone size={13} aria-hidden /> {t('channels.whatsapp.pairPhoneSend')}
+            </Button>
+          </>
+        ) : state?.qr && state.state === 'qr' ? (
+          <>
+            {/* data-URL QR from the gateway — white box for scan contrast in every theme */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={state.qr} alt={t('channels.whatsapp.qrAlt')} className="h-56 w-56 rounded-lg bg-white p-2" />
+            <p className="max-w-[320px] text-[12px] leading-relaxed text-text-muted">
+              {t('channels.whatsapp.scanHelp')}
+            </p>
+          </>
+        ) : (
+          <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
+            <Loader2 size={14} className="animate-spin" aria-hidden />
+            {state?.state === 'logged_out'
+              ? t('channels.whatsapp.loggedOut')
+              : method === 'phone'
+                ? t('channels.whatsapp.pairCodeAsking')
+                : t('channels.whatsapp.contacting')}
+          </div>
+        )}
+      </div>
+      <span className="flex items-center justify-center gap-1 text-[11px] text-text-faint">
         <QrCode size={11} aria-hidden /> {t('channels.whatsapp.pairingScope')}
       </span>
     </div>

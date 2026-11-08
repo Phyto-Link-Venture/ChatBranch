@@ -597,7 +597,16 @@ When you fix one of these, update this table, `README.md` and
   sender switches. Baileys: `IBaileysGateway` (`Sidecars/IBaileysGateway.cs`,
   Setting `baileys_url`/`baileys_secret` → env → default) drives the gateway;
   gateway pushes come in on `/api/whatsapp/baileys/*` authenticated by
-  `X-Baileys-Secret`. ⚠ Baileys is a ToS-violating transport — dev/demo only;
+  `X-Baileys-Secret`. **A number is linked two ways** (`baileys/start`): `{}` = a QR
+  to scan; `{phone}` = WhatsApp's "Link with phone number" — `requestPairingCode` on
+  the first handshake → state `pairing_code` and an 8-character code to type on that
+  phone, the QR kept as the fallback when WhatsApp refuses the number. The number is
+  cleaned identically on both sides (`BaileysPairing.Phone` ↔ `pairing.js
+  pairingPhone`), so an impossible one is a 400 before a rate-limited attempt is
+  spent; the code is never audited (the row says only "by phone number") or logged,
+  and `ToolResults` redacts it. Each start supersedes the previous socket (`a.gen`),
+  so a retry or a switch between the two cannot leave two sockets fighting. Tests:
+  `BaileysPairingTests`, `pairing.js --selftest`. ⚠ Baileys is a ToS-violating transport — dev/demo only;
   read `backend/baileys_service/README.md` + `RESEARCH.md`.
 - **Inboxes (`/channels`)** — Chatwoot-style: every number, mailbox, bot, page,
   widget and the SIP trunk as a connected card (`components/channels/inboxes.ts`

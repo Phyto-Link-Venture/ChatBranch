@@ -20,6 +20,8 @@ header); the gateway pushes back to the API's `/api/whatsapp/baileys/*` routes.
 
 ## Processes & files
 
+- `pairing.js` — the pure half of pairing: cleaning the number for
+  "Link with phone number", formatting the code (`--selftest`)
 - `index.js` — pairing, text + media send/receive, HTTP control API (port
   `BAILEYS_PORT`, default 3020). One WhatsApp Web session per
   `crm.ChannelAccount` row with `provider="baileys"`; auth state persists in
@@ -77,8 +79,8 @@ groups, no video.
 
 | Route | What |
 | --- | --- |
-| `GET  /accounts/:id/status` | `{state, qr?, me?, error?}` — pairing state |
-| `POST /accounts/:id/start` | begin/refresh pairing (QR as data URL) |
+| `GET  /accounts/:id/status` | `{state, qr?, pairing_code?, pairing_phone?, me?, error?}` — pairing state (`state` `qr` = a QR is waiting, `pairing_code` = a code is waiting) |
+| `POST /accounts/:id/start` | begin/refresh pairing. `{}` emits a QR (data URL); `{phone: "+60123456789"}` asks WhatsApp for an 8-character code to type on that phone instead (**400** for a number that cannot be one — no pairing attempt is spent, WhatsApp rate-limits them per number). A session that is already registered just reconnects, code or no code |
 | `POST /accounts/:id/send` | `{to, text, quoted_id?, quoted_from_me?, quoted_text?}` → `{id}` (`quoted_*` = a reply quoting that message — the real one from the gateway's recent-message map, else rebuilt from `quoted_text`) |
 | `POST /accounts/:id/react` | `{to, msg_id, from_me?, emoji}` → `{id}` (an emoji reaction; `""` removes ours) |
 | `POST /accounts/:id/revoke` | `{to, msg_id, from_me?}` → `{id}` (“delete for everyone” on a message we sent; WhatsApp allows about two days) |

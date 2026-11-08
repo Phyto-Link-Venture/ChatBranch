@@ -30,7 +30,7 @@ public static class McpExclusions
     private const string CredentialRead =
         "credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI";
     private const string Pairing =
-        "QR pairing of a personal WhatsApp number: needs a person scanning a code with their phone";
+        "pairing a personal WhatsApp number: needs a person at the phone, scanning a QR or typing a pairing code";
     private const string Rbac =
         "RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one";
     private const string Assistant =
@@ -90,7 +90,7 @@ public static class McpExclusions
         new("POST", "/api/whatsapp/voice-settings/test", "tests the SIP credentials being edited on the same settings page — " + CredentialRead),
         new("POST", "/api/whatsapp/accounts/{id:int}/baileys/start", Pairing),
         new("POST", "/api/whatsapp/accounts/{id:int}/baileys/logout", Pairing),
-        new("GET", "/api/whatsapp/accounts/{id:int}/baileys/status", Pairing + " (the status carries the pairing QR)"),
+        new("GET", "/api/whatsapp/accounts/{id:int}/baileys/status", Pairing + " (the status carries the pairing QR / code)"),
 
         // ---- RBAC, keys, sessions -------------------------------------------
         new("PUT", "/api/auth/permissions", Rbac),

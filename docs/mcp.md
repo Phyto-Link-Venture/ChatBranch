@@ -627,9 +627,9 @@ conversation route.
 | `GET /api/whatsapp/voice-settings` | SIP trunk settings (masked password) — credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI |
 | `PUT /api/whatsapp/voice-settings` | SIP trunk username/password — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
 | `POST /api/whatsapp/voice-settings/test` | tests the SIP credentials being edited on the same settings page — credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI |
-| `POST /api/whatsapp/accounts/{id:int}/baileys/start` | QR pairing of a personal WhatsApp number: needs a person scanning a code with their phone |
-| `POST /api/whatsapp/accounts/{id:int}/baileys/logout` | QR pairing of a personal WhatsApp number: needs a person scanning a code with their phone |
-| `GET /api/whatsapp/accounts/{id:int}/baileys/status` | QR pairing of a personal WhatsApp number: needs a person scanning a code with their phone (the status carries the pairing QR) |
+| `POST /api/whatsapp/accounts/{id:int}/baileys/start` | pairing a personal WhatsApp number: needs a person at the phone, scanning a QR or typing a pairing code |
+| `POST /api/whatsapp/accounts/{id:int}/baileys/logout` | pairing a personal WhatsApp number: needs a person at the phone, scanning a QR or typing a pairing code |
+| `GET /api/whatsapp/accounts/{id:int}/baileys/status` | pairing a personal WhatsApp number: needs a person at the phone, scanning a QR or typing a pairing code (the status carries the pairing QR / code) |
 | `PUT /api/auth/permissions` | RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one |
 | `POST /api/auth/roles` | RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one |
 | `PATCH /api/auth/roles/{slug}` | RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one |

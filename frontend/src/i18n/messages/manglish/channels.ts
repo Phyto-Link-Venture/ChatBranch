@@ -310,6 +310,13 @@ export const channels: Overlay<Messages['channels']> = {
     scanHelp: 'On the phone: WhatsApp → Settings → Linked devices → Link a device, then scan. The code refreshes by itself, no need to reload.',
     loggedOut: 'Session got logged out — making a fresh QR…',
     contacting: 'Calling up the WhatsApp gateway, wait ah…',
+    pairPhoneHelp:
+      'WhatsApp will give you an 8-character code to type on that phone — no camera needed. Best when the phone cannot face this screen.',
+    pairPhoneNeeded: 'Put the number with its country code first ah.',
+    pairCodeAsking: 'Asking WhatsApp for a code, wait ah…',
+    pairCodeHelp:
+      'On {number}: WhatsApp → Settings → Linked devices → Link a device → Link with phone number, then key in this code.',
+    pairCodeWaiting: 'Waiting for the phone to join…',
     errors: {
       pacingWhole: 'Send pacing gaps must be whole seconds (0 or more), no decimals.',
       pacingOrder: 'The minimum send gap cannot be bigger than the maximum lah.',
