@@ -35,7 +35,7 @@
  * ⚠ Baileys speaks WhatsApp's unofficial protocol — it violates WhatsApp's
  * ToS and numbers can get banned. Use a dedicated/spare number.
  */
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } from '@whiskeysockets/baileys'
+import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage, Browsers } from '@whiskeysockets/baileys'
 import * as Baileys from '@whiskeysockets/baileys'
 import { toDataURL } from 'qrcode'
 import http from 'http'
@@ -491,7 +491,10 @@ async function startAccount(id, phone = null) {
     auth: state,
     logger,
     printQRInTerminal: false,
-    browser: ['ChatBranch', 'Chrome', '1.0'],
+    // Must be a REAL os/browser pair. "Link with phone number" sends it to the
+    // phone as the companion's platform, and a made-up OS name ("ChatBranch")
+    // makes the phone reject the code with "couldn't link device — get a new code".
+    browser: Browsers.ubuntu('Chrome'),
     syncFullHistory: wantsFullSync(historyDays),
     // "Keep phone notifications": never announce online on connect (presence.js)
     markOnlineOnConnect: !keepPhone,
@@ -530,6 +533,10 @@ async function startAccount(id, phone = null) {
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (a.gen !== gen) return   // this socket has been superseded — stay quiet
     if (connection) logEvent('connection', { acct: id, connection })
+    // Once a pairing code is on screen, WhatsApp keeps rotating QR refs every
+    // ~20s on the same socket. Those must NOT replace the code: flipping the
+    // state back to "qr" made the dashboard drop the code mid-typing.
+    if (qr && a.pairingCode) return
     if (qr) {
       // Pairing by phone number rides on the same event: requestPairingCode needs
       // the handshake to be up, and the first QR is the proof that it is. If
@@ -581,12 +588,18 @@ async function startAccount(id, phone = null) {
         rmSync(dir, { recursive: true, force: true })
         console.log(`[${id}] logged out — auth state wiped`)
         pushStatusEvent(id, 'logged_out', `${disconnectReasonName(code)} (${code})`)
-      } else if (code === 408 && !state.creds?.me) {
-        // Never paired and the QR codes ran out unscanned. Reconnecting here
+      } else if (code === 408 && !state.creds?.registered) {
+        // Never paired and the QR / pairing code ran out unused. Reconnecting here
         // only mints new QRs nobody sees, forever — stop and wait for Pair.
+        // (`registered`, not `me`: requestPairingCode already fills creds.me, and
+        // reconnecting on those half-made creds ends in a 401 that wipes them.)
         a.state = 'qr_expired'
         a.qr = null
+        a.pairingCode = null
+        a.pairPhone = null
         a.error = null
+        // drop the half-made pairing creds so the next Pair starts clean
+        rmSync(dir, { recursive: true, force: true })
         console.log(`[${id}] QR not scanned in time — waiting for Pair`)
         pushStatusEvent(id, 'qr_expired', 'not paired: the QR code was not scanned in time')
       } else {
