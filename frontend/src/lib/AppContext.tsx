@@ -95,7 +95,10 @@ type AppContextValue = {
   /** Save the organization's call voice (Voice & calls; admins): every call without a voice uses it. */
   saveDefaultVoice: (id: string) => Promise<'saved' | 'local'>
   previewVoice: (voiceId: string, text: string) => Promise<void>
-  cloneVoice: (name: string, audio: Blob, language: string, persona: string, gender?: string) => Promise<void>
+  /** Who can clone a voice right now (elevenlabs / voicestudio), from GET /api/voices. */
+  cloneProviders: string[]
+  /** Clone a voice; rejects with the server's own words (e.g. the provider's refusal). */
+  cloneVoice: (name: string, audio: Blob, language: string, persona: string, gender?: string, provider?: string) => Promise<void>
   importVoice: (elevenVoiceId: string, name?: string) => Promise<void>
   updateVoice: (voiceId: string, patch: { name?: string; gender?: string; accent?: string; language?: string; persona?: string }) => Promise<void>
   deleteVoice: (voiceId: string) => Promise<void>
@@ -153,6 +156,17 @@ const AppCtx = createContext<AppContextValue | null>(null)
 
 /** Any of these opens GET /api/contacts (the server's read gate). */
 const CONTACT_LIST_CAPS = ['contacts.view', 'chats.view', 'users.manage']
+
+/** The API's own words for a refusal ({detail}), else the fallback. */
+async function serverDetail(resp: Response, fallback: string): Promise<string> {
+  try {
+    const d = await resp.json()
+    if (d && typeof d.detail === 'string' && d.detail) return d.detail
+  } catch {
+    /* not JSON */
+  }
+  return fallback
+}
 
 export function AppProvider({ children }: { children: ReactNode }) {
   // Data — loaded from the Django /contacts endpoint, with the
@@ -223,12 +237,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Voice / persona
   const [voices, setVoices] = useState<Voice[]>(VOICES)
   const [selectedVoice, setSelectedVoice] = useState<string>(VOICES[0]?.id ?? 'marin')
+  const [cloneProviders, setCloneProviders] = useState<string[]>([])
 
   useEffect(() => {
     fetch(`${API}/voices`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => {
         if (Array.isArray(d.voices) && d.voices.length) setVoices(d.voices)
+        if (Array.isArray(d.clone_providers)) setCloneProviders(d.clone_providers)
         // the organization's saved voice (Voice & calls) is the starting pick after every reload
         if (typeof d.default_voice === 'string' && d.default_voice) setSelectedVoice(d.default_voice)
       })
@@ -256,18 +272,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   )
 
-  const cloneVoice = useCallback(async (name: string, audio: Blob, language: string, persona: string, gender?: string) => {
-    const fd = new FormData()
-    fd.append('name', name)
-    fd.append('language', language)
-    fd.append('persona', persona)
-    if (gender) fd.append('gender', gender)
-    fd.append('audio', audio, audio instanceof File ? audio.name : 'sample.webm')
-    const resp = await fetch(`${API}/voice/clone`, { method: 'POST', body: fd, headers: authHeaders() })
-    if (!resp.ok) throw new Error(`clone failed (${resp.status})`)
-    const { voice } = await resp.json()
-    setVoices((prev) => [...prev, voice])
-  }, [])
+  const cloneVoice = useCallback(
+    async (name: string, audio: Blob, language: string, persona: string, gender?: string, provider?: string) => {
+      const fd = new FormData()
+      fd.append('name', name)
+      fd.append('language', language)
+      fd.append('persona', persona)
+      if (gender) fd.append('gender', gender)
+      if (provider) fd.append('provider', provider)
+      fd.append('audio', audio, audio instanceof File ? audio.name : 'sample.webm')
+      const resp = await fetch(`${API}/voice/clone`, { method: 'POST', body: fd, headers: authHeaders() })
+      if (!resp.ok) throw new Error(await serverDetail(resp, `clone failed (${resp.status})`))
+      const { voice } = await resp.json()
+      setVoices((prev) => [...prev, voice])
+    },
+    [],
+  )
 
   const importVoice = useCallback(async (elevenVoiceId: string, name?: string) => {
     const resp = await fetch(`${API}/voice/import`, {
@@ -275,7 +295,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ voiceId: elevenVoiceId, name }),
     })
-    if (!resp.ok) throw new Error(`import failed (${resp.status})`)
+    if (!resp.ok) throw new Error(await serverDetail(resp, `import failed (${resp.status})`))
     const { voice } = await resp.json()
     setVoices((prev) => (prev.some((v) => v.id === voice.id) ? prev : [...prev, voice]))
   }, [])
@@ -297,7 +317,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteVoice = useCallback(
     async (voiceId: string) => {
       const resp = await fetch(`${API}/voice/${voiceId}`, { method: 'DELETE', headers: authHeaders() })
-      if (!resp.ok) throw new Error(`delete failed (${resp.status})`)
+      if (!resp.ok) throw new Error(await serverDetail(resp, `delete failed (${resp.status})`))
       setVoices((prev) => prev.filter((v) => v.id !== voiceId))
       setSelectedVoice((prev) => (prev === voiceId ? VOICES[0]?.id ?? 'marin' : prev))
     },
@@ -612,7 +632,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AppContextValue>(
     () => ({
       contacts, activities, reloadContacts,
-      voices, selectedVoice, setSelectedVoice, saveDefaultVoice, previewVoice, cloneVoice, importVoice, updateVoice, deleteVoice,
+      voices, selectedVoice, setSelectedVoice, saveDefaultVoice, previewVoice, cloneProviders, cloneVoice, importVoice, updateVoice, deleteVoice,
       launchTone, launchPersona, launchGender, launchMethod, launchVoiceProvider,
       setLaunchTone, setLaunchPersona, setLaunchGender, setLaunchMethod,
       setLaunchVoiceProvider,
@@ -623,7 +643,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }),
     [
       contacts, activities, reloadContacts,
-      voices, selectedVoice, saveDefaultVoice, previewVoice, cloneVoice, importVoice, updateVoice, deleteVoice,
+      voices, selectedVoice, saveDefaultVoice, previewVoice, cloneProviders, cloneVoice, importVoice, updateVoice, deleteVoice,
       launchTone, launchPersona, launchGender, launchMethod, launchVoiceProvider,
       campaignModal, campaignStep, campaignSel, openCampaign, closeCampaign, toggleCampaign, launchCampaign,
       liveContactId, liveLineCount, liveSeconds, responseDraft, injectResponse, currentTranscript,

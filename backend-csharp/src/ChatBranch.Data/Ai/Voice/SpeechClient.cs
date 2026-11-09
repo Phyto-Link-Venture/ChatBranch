@@ -33,7 +33,7 @@ public sealed record SttResult(bool Ok, string Text, string Provider, string Mod
 /// back as data so a reply falls back to text and a voice note stays "[audio]".
 /// ⚠ Built to the documented request shapes; the tests run against fakes.
 /// </summary>
-public class SpeechClient
+public partial class SpeechClient
 {
     public const string HttpClientName = "speech";
     public const string DefaultVoiceId = "21m00Tcm4TlvDq8ikWAM"; // ElevenLabs' stock "Rachel"
@@ -75,7 +75,8 @@ public class SpeechClient
 
     public string ElevenLabsKey => Key("elevenlabs_api_key", "ELEVENLABS_API_KEY");
     public string OpenAiKey => Key("openai_api_key", "OPENAI_API_KEY");
-    public bool TtsConfigured => ElevenLabsKey.Length > 0;
+    /// <summary>Any text-to-speech provider configured (ElevenLabs key, or a VoiceStudio address).</summary>
+    public bool TtsConfigured => ElevenLabsKey.Length > 0 || VoiceStudioConfigured;
 
     /// <summary>Speech-to-text choices for Setting <c>transcription_provider</c> ("" = automatic).</summary>
     public static readonly string[] SttChoices = { "", "openai", "elevenlabs", "local", "off" };
@@ -142,6 +143,7 @@ public class SpeechClient
     public static string MimeFor(string outputFormat) =>
         outputFormat.StartsWith("opus", StringComparison.Ordinal) ? "audio/ogg" : "audio/mpeg";
 
+    /// <summary>ElevenLabs text-to-speech (the original path; <see cref="SynthesizeWithAsync"/> routes by provider).</summary>
     public async Task<TtsResult> SynthesizeAsync(string text, string voiceId, string outputFormat,
         CancellationToken ct = default)
     {

@@ -419,12 +419,12 @@ export const ai = {
       voiceReplies: {
         label: 'Reply with voice notes',
         help:
-          'Needs an ElevenLabs API key (Settings → AI keys & models). Mirror: when the customer’s latest message was a voice note, the AI answers with one. Always: every reply is a voice note. The words are kept on the message for the team. Works on WhatsApp (QR numbers, Cloud API, YCloud), Telegram, Messenger and Instagram; everywhere else — and when a reply has a link, is very long, or the voice can’t be made — it goes as text.',
+          'Needs an ElevenLabs API key or a VoiceStudio server (Settings → AI keys & models). Mirror: when the customer’s latest message was a voice note, the AI answers with one. Always: every reply is a voice note. The words are kept on the message for the team. Works on WhatsApp (QR numbers, Cloud API, YCloud), Telegram, Messenger and Instagram; everywhere else — and when a reply has a link, is very long, or the voice can’t be made — it goes as text.',
       },
       voiceId: {
-        label: 'ElevenLabs voice ID',
+        label: 'Voice for voice replies',
         help:
-          'Optional. Empty uses the organization’s call voice when it is an ElevenLabs voice, else ElevenLabs’ default voice.',
+          'Optional. A voice-library voice id (e.g. a clone — ElevenLabs or VoiceStudio) or a raw ElevenLabs voice ID. Empty uses the organization’s call voice when it is an ElevenLabs or VoiceStudio voice, else the default voice of whichever is set up.',
       },
       reviewMode: {
         label: 'Who checks the AI before it sends',

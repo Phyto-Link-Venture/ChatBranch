@@ -46,11 +46,28 @@ internal sealed class FakeSpeech : HttpMessageHandler, IHttpClientFactory
             var ogg = request.RequestUri.Query.Contains("opus") && !NotOgg;
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(ogg ? Ogg : Mp3) };
         }
-        return new HttpResponseMessage(HttpStatusCode.OK)
+        // OpenAI-compatible speech (VoiceStudio / OpenAI): Ogg for response_format opus, else MP3
+        if (path.EndsWith("/audio/speech"))
         {
-            Content = new StringContent(JsonSerializer.Serialize(new { text = Transcript }), Encoding.UTF8, "application/json"),
-        };
+            if (FailTts) return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("{\"detail\":\"engine not loaded\"}") };
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(body.Contains("\"opus\"") ? Ogg : Mp3) };
+        }
+        if (request.Method == HttpMethod.Delete) return new HttpResponseMessage(HttpStatusCode.OK);
+        if (path.EndsWith("/v1/voices/add"))
+            return Json(new { voice_id = "el-clone-1", requires_verification = false });
+        if (path.EndsWith("/profiles"))
+            return Json(new { id = "vs-profile-1", name = "x", kind = "clone" });
+        if (path.StartsWith("/v1/voices/"))
+            return Json(new { voice_id = path[11..], name = "Imported Ella" });
+        return Json(new { text = Transcript });
     }
+
+    private static HttpResponseMessage Json(object o) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(JsonSerializer.Serialize(o), Encoding.UTF8, "application/json"),
+    };
+
+    public List<Call> Speak => Calls.Where(c => c.Path.EndsWith("/audio/speech")).ToList();
 }
 
 /// <summary>A Baileys gateway that records voice notes (and texts).</summary>

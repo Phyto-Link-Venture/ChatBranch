@@ -472,18 +472,17 @@ public static class CallsVoiceEndpoints
 
     private static void MapVoiceTooling(IEndpointRouteBuilder app)
     {
-        // Open like the Django voice views — lib/voice.ts and AppContext.tsx
-        // call all five with a bare fetch(). PATCH/DELETE touch only the local
-        // custom-voice file and expose no secrets.
+        // lib/voice.ts and AppContext.tsx call these with a bare fetch(); the
+        // provider ids stay server-side (voices.json), never in a payload.
 
         // ---- POST /api/voice/preview ----------------------------------------
-        // On success Django streams audio/mpeg; on failure it returns
-        // {detail}, which lib/voice.ts:52 reads out of the error body and
-        // surfaces verbatim. No TTS client exists in this build (no OpenAI /
-        // ElevenLabs speech call), so this is always the failure branch — but
-        // the request-shape validation is real, so a caller still learns when
-        // the fault is theirs.
-        app.MapPost("/api/voice/preview", (Dictionary<string, JsonElement>? body) =>
+        // audio/mpeg on success; {detail} on failure, which lib/voice.ts reads
+        // out of the error body and shows verbatim. The voice's own provider
+        // speaks it: a clone through ElevenLabs or VoiceStudio, the presets
+        // marin / cedar / alloy through OpenAI, the VoiceStudio entry through
+        // VoiceStudio. Puck (Gemini realtime) has no standalone speech call.
+        app.MapPost("/api/voice/preview", async (Dictionary<string, JsonElement>? body, IConfiguration config,
+            ChatBranch.Data.Ai.Voice.SpeechClient speech, CancellationToken ct) =>
         {
             var voiceId = (body.Str("voiceId") ?? "").Trim();
             var text = (body.Str("text") ?? "").Trim();
@@ -492,17 +491,40 @@ public static class CallsVoiceEndpoints
             if (text.Length > 400)  // previews are short persona lines
                 return Bad("text too long for preview (max 400 chars).");
 
-            return Unavailable(
-                "Voice preview is not available in this build: no TTS provider client is wired up "
-                + "(OpenAI / ElevenLabs speech synthesis lives in the Python service).");
+            string provider, remote;
+            if (voiceId == VoiceDispatch.VoiceStudioDefaultId)
+                (provider, remote) = ("voicestudio", ChatBranch.Data.Ai.Voice.SpeechClient.VoiceStudioDefaultVoice);
+            else if (voiceId is "marin" or "cedar" or "alloy")
+                (provider, remote) = ("openai", voiceId);
+            else if (voiceId == "puck")
+                return Unavailable("Puck is a Gemini live-call voice — it has no preview.", 400);
+            else if (VoiceDispatch.Lookup(DataDir(config), voiceId) is { } hit && hit.RemoteId.Length > 0)
+                (provider, remote) = (hit.Provider, hit.RemoteId);
+            else
+                return Results.Json(new { detail = "Voice not found." }, statusCode: 404);
+
+            if (!speech.TtsReady(provider))
+                return Unavailable(provider switch
+                {
+                    "openai" => "Previewing this voice needs an OpenAI API key (Settings → AI keys & models).",
+                    "voicestudio" => "VoiceStudio is not set up (Settings → AI keys & models → VoiceStudio address).",
+                    _ => "Previewing this voice needs an ElevenLabs API key (Settings → AI keys & models).",
+                }, 503);
+            var tts = await speech.SynthesizeWithAsync(provider, text, remote,
+                ChatBranch.Data.Ai.Voice.SpeechClient.FileFormat, ct);
+            return tts.Ok
+                ? Results.File(tts.Audio, "audio/mpeg")
+                : Results.Json(new { detail = $"Preview failed: {tts.Detail}" }, statusCode: 502);
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- POST /api/voice/clone ------------------------------------------
-        // multipart/form-data (name, language, persona, gender, audio). Cloning
-        // is an ElevenLabs round-trip; with no client here every well-formed
-        // request ends 501. AppContext.tsx:233 throws on !ok, so the operator
-        // gets the detail — and the 400s below still catch a malformed upload.
-        app.MapPost("/api/voice/clone", async (HttpContext ctx) =>
+        // multipart/form-data (name, language, persona, gender, audio, provider).
+        // provider = elevenlabs (instant voice cloning, uses a voice slot) |
+        // voicestudio (a profile on the self-hosted VoiceStudio); empty = the
+        // first one set up. The clone lands in data/voices.json with the
+        // provider's id kept server-side (never in the payload).
+        app.MapPost("/api/voice/clone", async (HttpContext ctx, IConfiguration config,
+            ChatBranch.Data.Ai.Voice.SpeechClient speech) =>
         {
             if (!ctx.Request.HasFormContentType)
                 return Bad("name, audio, and language (en/ms/zh) are required.");
@@ -518,27 +540,74 @@ public static class CallsVoiceEndpoints
                 return Bad("name, audio, and language (en/ms/zh) are required.");
             if (audio.Length > 10 * 1024 * 1024)
                 return Bad("audio too large (max 10 MB).");
-            if (!(audio.ContentType ?? "").StartsWith("audio/", StringComparison.OrdinalIgnoreCase))
+            if (!(audio.ContentType ?? "").StartsWith("audio/", StringComparison.OrdinalIgnoreCase)
+                && !(audio.ContentType ?? "").StartsWith("video/webm", StringComparison.OrdinalIgnoreCase))
                 return Bad("audio must be an audio file.");
+            var persona = form["persona"].ToString().Trim();
+            if (!ValidPersonas.Contains(persona)) persona = ValidPersonas[0];
+            var gender = form["gender"].ToString().Trim();
 
-            return Unavailable(Env("ELEVENLABS_API_KEY").Length == 0
-                ? "Voice cloning not configured (ELEVENLABS_API_KEY unset)."
-                : "Voice cloning is not available in this build (no ElevenLabs client in the C# API).");
+            var ready = speech.CloneProviders();
+            var provider = form["provider"].ToString().Trim().ToLowerInvariant();
+            if (provider.Length == 0) provider = ready.FirstOrDefault() ?? "";
+            if (provider.Length == 0)
+                return Unavailable("Voice cloning needs ElevenLabs (an API key) or VoiceStudio (its address) — "
+                    + "set one in Settings → AI keys & models.", 503);
+            if (provider is not ("elevenlabs" or "voicestudio"))
+                return Bad("provider must be elevenlabs or voicestudio.");
+            if (!ready.Contains(provider))
+                return Unavailable(provider == "voicestudio"
+                    ? "VoiceStudio is not set up (Settings → AI keys & models → VoiceStudio address)."
+                    : "No ElevenLabs API key (Settings → AI keys & models).", 503);
+
+            byte[] bytes;
+            using (var ms = new MemoryStream())
+            {
+                await audio.CopyToAsync(ms, ctx.RequestAborted);
+                bytes = ms.ToArray();
+            }
+            var made = await speech.CloneVoiceAsync(provider, name, bytes, audio.FileName, audio.ContentType ?? "",
+                language, $"ChatBranch voice clone ({persona})", ctx.RequestAborted);
+            if (!made.Ok)
+                return Results.Json(new { detail = $"Clone failed: {made.Detail}" }, statusCode: 502);
+
+            var record = new JsonObject
+            {
+                ["id"] = $"custom-{Guid.NewGuid():N}"[..19],
+                ["name"] = name,
+                ["language"] = language,
+                ["persona"] = persona,
+                ["provider"] = provider,
+                ["status"] = "ready",
+                ["custom"] = true,
+                ["tag"] = "Cloned",
+                [provider == "voicestudio" ? "remoteVoiceId" : "elevenVoiceId"] = made.RemoteId,
+                ["createdAt"] = DateTime.UtcNow.ToString("o"),
+            };
+            if (gender.Length > 0) record["gender"] = gender;
+            var doc = LoadVoicesDoc(config);
+            ((JsonArray)doc["voices"]!).Add(record);
+            try { SaveVoicesDoc(config, doc); }
+            catch (Exception e)
+            {
+                // don't leave a paid-for clone nobody can see or delete
+                await speech.DeleteRemoteVoiceAsync(provider, made.RemoteId);
+                return Unavailable($"Could not write the voice registry: {e.Message}", 503);
+            }
+            return Results.Ok(new { voice = ClientView(record) });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage")
           .OrgWideAction();   // the organization's voice library (Voice & calls)
 
         // ---- POST /api/voice/import -----------------------------------------
         // Import copies an existing ElevenLabs voice into the local registry.
-        // Django gates on the API key first, and so does this: without a key
-        // there is nothing to look the id up against. AppContext.tsx:245 reads
-        // {voice} on success and throws the status otherwise.
-        app.MapPost("/api/voice/import", (ImportWrite? body, IConfiguration config) =>
+        // AppContext.tsx reads {voice} on success and throws the status otherwise.
+        app.MapPost("/api/voice/import", async (ImportWrite? body, IConfiguration config,
+            ChatBranch.Data.Ai.Voice.SpeechClient speech, CancellationToken ct) =>
         {
             var elId = (body?.voiceId ?? "").Trim();
             if (elId.Length == 0) return Bad("voiceId is required.");
 
-            // Already imported? Django's fast path returns the local record
-            // without touching ElevenLabs — the one import that can succeed here.
+            // Already imported? The local record, without touching ElevenLabs.
             var doc = LoadVoicesDoc(config);
             var existing = (doc["voices"] as JsonArray)?
                 .OfType<JsonObject>()
@@ -546,9 +615,30 @@ public static class CallsVoiceEndpoints
             if (existing != null)
                 return Results.Ok(new { voice = ClientView(existing) });
 
-            return Unavailable(Env("ELEVENLABS_API_KEY").Length == 0
-                ? "Voice import not configured (ELEVENLABS_API_KEY unset)."
-                : "Voice import is not available in this build (no ElevenLabs client in the C# API).");
+            var found = await speech.ElevenVoiceAsync(elId, ct);
+            if (!found.Ok)
+                return Results.Json(new { detail = $"Import failed: {found.Detail}" },
+                    statusCode: speech.ElevenLabsKey.Length == 0 ? 503 : 502);
+            var persona = (body?.persona ?? "").Trim();
+            var record = new JsonObject
+            {
+                ["id"] = $"custom-{Guid.NewGuid():N}"[..19],
+                ["name"] = (body?.name ?? "").Trim() is { Length: > 0 } n ? n : (found.Name.Length > 0 ? found.Name : elId),
+                ["language"] = "unknown",
+                ["persona"] = ValidPersonas.Contains(persona) ? persona : ValidPersonas[0],
+                ["provider"] = "elevenlabs",
+                ["status"] = "ready",
+                ["custom"] = true,
+                ["tag"] = "Imported",
+                ["elevenVoiceId"] = elId,
+                ["imported"] = true,
+                ["createdAt"] = DateTime.UtcNow.ToString("o"),
+            };
+            if ((body?.gender ?? "").Trim() is { Length: > 0 } g) record["gender"] = g;
+            ((JsonArray)doc["voices"]!).Add(record);
+            try { SaveVoicesDoc(config, doc); }
+            catch (Exception e) { return Unavailable($"Could not write the voice registry: {e.Message}", 503); }
+            return Results.Ok(new { voice = ClientView(record) });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage")
           .OrgWideAction();   // the organization's voice library (Voice & calls)
 
@@ -609,12 +699,12 @@ public static class CallsVoiceEndpoints
           .OrgWideAction();   // the organization's voice library (Voice & calls)
 
         // ---- DELETE /api/voice/{voiceId} -------------------------------------
-        // Deleting an ElevenLabs-backed voice has to delete it UPSTREAM too, or
-        // the account keeps paying for an orphaned clone — Django refuses when
-        // it can't do that, and so does this build, which can never do it. A
-        // local-only custom voice is genuinely removed. AppContext.tsx:226 drops
+        // Deleting a cloned voice deletes it at its provider too (ElevenLabs /
+        // VoiceStudio), or the account keeps an orphaned clone; when that fails
+        // the local record is kept. A local-only custom voice is just removed. AppContext.tsx:226 drops
         // the voice from its list on any 2xx.
-        app.MapDelete("/api/voice/{voiceId}", (string voiceId, IConfiguration config) =>
+        app.MapDelete("/api/voice/{voiceId}", async (string voiceId, IConfiguration config,
+            ChatBranch.Data.Ai.Voice.SpeechClient speech) =>
         {
             var doc = LoadVoicesDoc(config);
             var voice = FindCustomVoice(doc, voiceId);
@@ -622,12 +712,17 @@ public static class CallsVoiceEndpoints
                 return Results.Json(new { detail = "Voice not found (presets can't be edited or deleted)." },
                     statusCode: 404);
 
-            var remoteId = (string?)voice["elevenVoiceId"];
-            if ((string?)voice["provider"] == "elevenlabs" && !string.IsNullOrWhiteSpace(remoteId))
-                return Unavailable(Env("ELEVENLABS_API_KEY").Length == 0
-                    ? "Voice delete not configured (ELEVENLABS_API_KEY unset)."
-                    : "Deleting the upstream ElevenLabs voice is not available in this build, so the "
-                      + "local record was kept to avoid orphaning the clone.");
+            // Delete the provider's copy first, or the account keeps an orphaned clone (an
+            // ElevenLabs voice slot). An IMPORTED voice was never ours to delete upstream.
+            var provider = (string?)voice["provider"] ?? "";
+            var remoteId = provider == "voicestudio" ? (string?)voice["remoteVoiceId"] : (string?)voice["elevenVoiceId"];
+            if (provider is "elevenlabs" or "voicestudio" && !string.IsNullOrWhiteSpace(remoteId)
+                && (bool?)voice["imported"] != true)
+            {
+                var (ok, why) = await speech.DeleteRemoteVoiceAsync(provider, remoteId!);
+                if (!ok)
+                    return Unavailable($"The voice was kept: {why}.", 502);
+            }
 
             (doc["voices"] as JsonArray)?.Remove(voice);
             try { SaveVoicesDoc(config, doc); }

@@ -160,11 +160,11 @@ export const ai: Overlay<Messages['ai']> = {
       },
       voiceReplies: {
         help:
-          'Needs an ElevenLabs API key first (Settings → AI keys & models). Mirror: if the customer’s latest message was a voice note, the AI answers with one too. Always: every reply is a voice note. The words still stay on the message for the team. Works on WhatsApp (QR numbers, Cloud API, YCloud), Telegram, Messenger and Instagram; anywhere else — or when a reply has a link, is very long, or the voice cannot be made — it goes out as text.',
+          'Needs an ElevenLabs API key or a VoiceStudio server first (Settings → AI keys & models). Mirror: if the customer’s latest message was a voice note, the AI answers with one too. Always: every reply is a voice note. The words still stay on the message for the team. Works on WhatsApp (QR numbers, Cloud API, YCloud), Telegram, Messenger and Instagram; anywhere else — or when a reply has a link, is very long, or the voice cannot be made — it goes out as text.',
       },
       voiceId: {
         help:
-          'Optional. Leave empty and it uses the organization’s call voice if that one is an ElevenLabs voice, else ElevenLabs’ default voice.',
+          'Optional. Put a voice-library id (like your clone — ElevenLabs or VoiceStudio) or a raw ElevenLabs voice ID. Leave empty and it uses the organization’s call voice if that one is ElevenLabs or VoiceStudio, else the default voice of whichever one is set up.',
       },
       reviewMode: {
         help:

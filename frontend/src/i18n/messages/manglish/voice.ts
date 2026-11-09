@@ -16,7 +16,7 @@ export const voice: Overlay<Messages['voice']> = {
     savedForAll: 'Saved liao — every AI call uses this voice now.',
     savedLocal: 'Picked for this browser only ah — ask an admin if you want it for every call.',
     namePrompt: 'Give this voice a name:',
-    cloneFailed: 'Alamak, clone failed — check ELEVENLABS_API_KEY and the voice-slot limit.',
+    cloneFailed: 'Alamak, clone failed — check the ElevenLabs key (and its voice-slot limit) or the VoiceStudio address.',
     importFailed: 'Import didn’t go through — check the voice ID and ELEVENLABS_API_KEY.',
     updateFailed: 'Aiyo, update failed. Try again can?',
     deleteFailed: 'Cannot delete leh — check ELEVENLABS_API_KEY.',

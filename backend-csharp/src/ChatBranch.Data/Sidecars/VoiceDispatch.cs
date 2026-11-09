@@ -78,6 +78,10 @@ public static class VoiceDispatch
             voice = saved;
             provider = scoping.SettingValue("default_voice_provider").Trim().ToLowerInvariant();
         }
+        // The voice agent has no VoiceStudio pipeline yet (it would hand a VoiceStudio profile id to
+        // OpenAI realtime and the call would fail): a VoiceStudio voice is for voice NOTES only, so a
+        // call falls back to the agent's own default voice.
+        if (provider == "voicestudio") { provider = ""; voice = null; }
         Put("voice_provider", provider);
         Put("voice", ResolveVoice(dataDir, provider, voice));
         Put("llm_provider", o.LlmProvider);
@@ -121,27 +125,44 @@ public static class VoiceDispatch
     }
 
     /// <summary>
-    /// The dashboard lists ElevenLabs clones by its own id; the agent needs the
-    /// real ElevenLabs voice_id (voices.json <c>elevenVoiceId</c>). Anything else
-    /// passes through unchanged.
+    /// The dashboard lists clones by its own id; the agent and the TTS calls need the
+    /// provider's real voice id (voices.json <c>elevenVoiceId</c> / <c>remoteVoiceId</c>).
+    /// Anything else passes through unchanged.
     /// </summary>
     public static string? ResolveVoice(string dataDir, string provider, string? voice)
     {
-        if (provider != "elevenlabs" || string.IsNullOrWhiteSpace(voice)) return voice;
+        if (string.IsNullOrWhiteSpace(voice)) return voice;
+        if (provider == "voicestudio" && voice == VoiceStudioDefaultId) return Ai.Voice.SpeechClient.VoiceStudioDefaultVoice;
+        if (provider is not ("elevenlabs" or "voicestudio")) return voice;
+        return Lookup(dataDir, voice) is { } hit && hit.Provider == provider && hit.RemoteId.Length > 0 ? hit.RemoteId : voice;
+    }
+
+    /// <summary>The library's built-in VoiceStudio entry: its active engine's default voice.</summary>
+    public const string VoiceStudioDefaultId = "voicestudio-default";
+
+    /// <summary>
+    /// A custom voice in <c>voices.json</c> by the dashboard's id → its provider and the provider's
+    /// own voice id (<c>elevenVoiceId</c> for ElevenLabs, <c>remoteVoiceId</c> for VoiceStudio).
+    /// Null when there is no such voice (or the registry can't be read).
+    /// </summary>
+    public static (string Provider, string RemoteId)? Lookup(string dataDir, string voiceId)
+    {
         try
         {
             var path = Path.Combine(dataDir, "voices.json");
-            if (File.Exists(path))
+            if (!File.Exists(path)) return null;
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            if (!doc.RootElement.TryGetProperty("voices", out var voices) || voices.ValueKind != JsonValueKind.Array) return null;
+            foreach (var v in voices.EnumerateArray())
             {
-                using var doc = JsonDocument.Parse(File.ReadAllText(path));
-                if (doc.RootElement.TryGetProperty("voices", out var voices) && voices.ValueKind == JsonValueKind.Array)
-                    foreach (var v in voices.EnumerateArray())
-                        if (v.TryGetProperty("id", out var id) && id.GetString() == voice
-                            && v.TryGetProperty("elevenVoiceId", out var el) && el.GetString() is { Length: > 0 } real)
-                            return real;
+                if (!v.TryGetProperty("id", out var id) || id.GetString() != voiceId) continue;
+                var provider = v.TryGetProperty("provider", out var p) && p.GetString() is { Length: > 0 } ps ? ps : "elevenlabs";
+                var remoteKey = provider == "voicestudio" ? "remoteVoiceId" : "elevenVoiceId";
+                var remote = v.TryGetProperty(remoteKey, out var r) && r.GetString() is { Length: > 0 } rs ? rs : "";
+                return (provider, remote);
             }
         }
-        catch { /* unreadable registry → the id as given */ }
-        return voice;
+        catch { /* unreadable registry */ }
+        return null;
     }
 }

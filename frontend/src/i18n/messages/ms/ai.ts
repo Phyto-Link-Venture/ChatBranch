@@ -416,12 +416,12 @@ export const ai: Dict<typeof source> = {
       voiceReplies: {
         label: 'Balas dengan nota suara',
         help:
-          'Memerlukan kunci API ElevenLabs (Tetapan → Kunci & model AI). Cermin: apabila mesej terkini pelanggan ialah nota suara, AI membalas dengan nota suara. Sentiasa: setiap balasan ialah nota suara. Perkataannya disimpan pada mesej untuk pasukan. Berfungsi di WhatsApp (nombor QR, Cloud API, YCloud), Telegram, Messenger dan Instagram; di tempat lain — dan apabila balasan mengandungi pautan, terlalu panjang, atau suara tidak dapat dibuat — ia dihantar sebagai teks.',
+          'Memerlukan kunci API ElevenLabs atau pelayan VoiceStudio (Tetapan → Kunci & model AI). Cermin: apabila mesej terkini pelanggan ialah nota suara, AI membalas dengan nota suara. Sentiasa: setiap balasan ialah nota suara. Perkataannya disimpan pada mesej untuk pasukan. Berfungsi di WhatsApp (nombor QR, Cloud API, YCloud), Telegram, Messenger dan Instagram; di tempat lain — dan apabila balasan mengandungi pautan, terlalu panjang, atau suara tidak dapat dibuat — ia dihantar sebagai teks.',
       },
       voiceId: {
-        label: 'ID suara ElevenLabs',
+        label: 'Suara untuk balasan suara',
         help:
-          'Pilihan. Kosong menggunakan suara panggilan organisasi jika ia suara ElevenLabs, jika tidak suara lalai ElevenLabs.',
+          'Pilihan. ID suara dari pustaka suara (cth. suara klon — ElevenLabs atau VoiceStudio) atau ID suara ElevenLabs. Kosong menggunakan suara panggilan organisasi jika ia suara ElevenLabs atau VoiceStudio, jika tidak suara lalai penyedia yang disediakan.',
       },
       reviewMode: {
         label: 'Siapa menyemak AI sebelum ia menghantar',

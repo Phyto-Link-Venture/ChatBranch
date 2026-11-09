@@ -122,19 +122,34 @@ public class VoiceReplyService
         return s;
     }
 
-    /// <summary>The voice: <c>ai_voice_id</c> → the organization's call voice when it is ElevenLabs → ElevenLabs' default.</summary>
-    public string VoiceFor(AiBehaviour policy)
+    /// <summary>
+    /// The provider + voice for a reply: <c>ai_voice_id</c> (a library voice → its own provider; any
+    /// other id = a raw ElevenLabs voice id, as before) → the organization's call voice when it is an
+    /// ElevenLabs or VoiceStudio voice → ElevenLabs' stock voice with a key → VoiceStudio's default.
+    /// </summary>
+    public (string Provider, string Voice) VoiceFor(AiBehaviour policy)
     {
-        if (policy.VoiceId.Trim().Length > 0) return policy.VoiceId.Trim();
+        var dataDir = _media?.DataDir ?? "";
+        var picked = policy.VoiceId.Trim();
+        if (picked.Length > 0)
+        {
+            if (picked == Sidecars.VoiceDispatch.VoiceStudioDefaultId)
+                return ("voicestudio", SpeechClient.VoiceStudioDefaultVoice);
+            if (Sidecars.VoiceDispatch.Lookup(dataDir, picked) is { } hit && hit.Provider is "elevenlabs" or "voicestudio")
+                return (hit.Provider, hit.RemoteId.Length > 0 ? hit.RemoteId : picked);
+            return ("elevenlabs", picked);
+        }
         try
         {
             var saved = _scoping.SettingValue("default_voice");
             var provider = _scoping.SettingValue("default_voice_provider").Trim().ToLowerInvariant();
-            if (saved.Length > 0 && provider == "elevenlabs")
-                return Sidecars.VoiceDispatch.ResolveVoice(_media?.DataDir ?? "", "elevenlabs", saved) ?? saved;
+            if (saved.Length > 0 && provider is "elevenlabs" or "voicestudio" && _speech.TtsReady(provider))
+                return (provider, Sidecars.VoiceDispatch.ResolveVoice(dataDir, provider, saved) ?? saved);
         }
         catch { /* the stock voice */ }
-        return SpeechClient.DefaultVoiceId;
+        return _speech.ElevenLabsKey.Length == 0 && _speech.VoiceStudioConfigured
+            ? ("voicestudio", SpeechClient.VoiceStudioDefaultVoice)
+            : ("elevenlabs", SpeechClient.DefaultVoiceId);
     }
 
     /// <summary>
@@ -146,7 +161,7 @@ public class VoiceReplyService
         var words = Speakable(text);
         if (words == null) return (null, "the reply has a link or is too long for a voice note");
         if (_media == null) return (null, "no media store");
-        if (!_speech.TtsConfigured) return (null, "no ElevenLabs API key");
+        if (!_speech.TtsConfigured) return (null, "no text-to-speech provider (ElevenLabs key or VoiceStudio)");
         try
         {
             if (AiQuota.EntityBlock(_db, _scoping, thread.EntityId) is { } cap)
@@ -155,11 +170,13 @@ public class VoiceReplyService
         catch { /* a quota read failure fails open */ }
 
         var format = FormatFor(thread.Channel);
-        var voice = VoiceFor(policy);
+        var (provider, voice) = VoiceFor(policy);
+        if (!_speech.TtsReady(provider))
+            return (null, provider == "voicestudio" ? "VoiceStudio is not set up" : "no ElevenLabs API key");
         TtsResult tts;
-        try { tts = Task.Run(() => _speech.SynthesizeAsync(words, voice, format)).GetAwaiter().GetResult(); }
+        try { tts = Task.Run(() => _speech.SynthesizeWithAsync(provider, words, voice, format)).GetAwaiter().GetResult(); }
         catch (Exception ex) { tts = TtsResult.Fail(ex.GetType().Name); }
-        if (tts.Ok) Meter(thread, words, voice, format, tts.Ok);
+        if (tts.Ok) Meter(thread, words, provider, voice, format, tts.Ok);
         if (!tts.Ok) return (null, tts.Detail);
         try
         {
@@ -171,13 +188,13 @@ public class VoiceReplyService
         catch (Exception ex) { return (null, $"the voice note could not be stored ({ex.GetType().Name})"); }
     }
 
-    private void Meter(Thread thread, string words, string voice, string format, bool ok)
+    private void Meter(Thread thread, string words, string provider, string voice, string format, bool ok)
     {
         try
         {
             _db.LlmUsage.Add(new LlmUsage
             {
-                Feature = Feature, Provider = "elevenlabs", Model = SpeechClient.TtsModel, Channel = thread.Channel,
+                Feature = Feature, Provider = provider, Model = _speech.TtsModelFor(provider), Channel = thread.Channel,
                 ContactId = thread.ContactId, EntityId = thread.EntityId, Ref = thread.Key,
                 PromptTokens = words.Length, CompletionTokens = 0,
                 Detail = new Dictionary<string, object?>

@@ -1402,8 +1402,27 @@ When you fix one of these, update this table, `README.md` and
   **Voice replies** (`Ai/Voice/`, same `human` group): `ai_voice_replies` off
   (default) | mirror (the customer's latest message was audio — `MediaType` audio or
   its "[audio]" placeholder) | always, + `ai_voice_id` (empty = Setting
-  `default_voice` when `default_voice_provider` is elevenlabs, else ElevenLabs'
-  stock voice). Decided at DELIVERY by `VoiceReplyService.Wants` (mode + channel
+  `default_voice` when `default_voice_provider` is elevenlabs or voicestudio, else
+  ElevenLabs' stock voice, or VoiceStudio's when only VoiceStudio is set up; a
+  voice-library id resolves to its provider + the provider's own id through
+  `VoiceDispatch.Lookup`). **Two TTS providers** (`Ai/Voice/SpeechVoices.cs`):
+  ElevenLabs, and **VoiceStudio** — the self-hosted, open-source ElevenLabs
+  alternative (github.com/debpalash/VoiceStudio, AGPL, its own container: compose
+  profile `voicestudio`, internal only) through its OpenAI-compatible
+  `/v1/audio/speech` (`response_format` opus | mp3), ON once Setting
+  `voicestudio_base_url` (env `VOICESTUDIO_URL`) is set, + `voicestudio_api_key`
+  (its `OMNIVOICE_API_KEY`) and `voicestudio_model` (default `tts-1` = its active
+  engine); the library lists a "VoiceStudio default" entry (`voicestudio-default`)
+  once it is set up. **The voice library is real** (`CallsVoiceEndpoints`
+  `/api/voice/clone|preview|import|{id}`): clone = ElevenLabs instant cloning
+  (`/v1/voices/add`) or a VoiceStudio `clone` profile (`/profiles`), form field
+  `provider` (default the first set up; `GET /api/voices` → `clone_providers`),
+  the provider's id kept server-side in `voices.json` (`elevenVoiceId` /
+  `remoteVoiceId`); preview speaks through the voice's provider (presets
+  marin/cedar/alloy through OpenAI); delete removes the provider's copy first
+  (never for an imported voice) and keeps the record when that fails. Live CALLS
+  (the voice agent) still speak through ElevenLabs/OpenAI only. Tests:
+  `VoiceLibraryTests`. Decided at DELIVERY by `VoiceReplyService.Wants` (mode + channel
   `Supports`: WhatsApp Baileys / Cloud / YCloud / sandbox, Telegram, Messenger,
   Instagram + `Speakable` — markdown/emoji/ids stripped; a link, nothing speakable or
   over 1500 chars = text). `AiGate.Deliver` → `StartVoiceSend` (ONE message, never

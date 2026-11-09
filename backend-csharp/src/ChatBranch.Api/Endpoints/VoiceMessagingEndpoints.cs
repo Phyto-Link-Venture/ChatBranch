@@ -191,22 +191,26 @@ public static class VoiceMessagingEndpoints
         // GET /api/voices — merged preset + cloned voice list.
         // Open like Django's calls/views.voices_list (no rbac gate): the voice
         // picker fetches it without auth headers, and it exposes no secrets.
-        app.MapGet("/api/voices", (IConfiguration config, ScopingService sc) =>
+        app.MapGet("/api/voices", (IConfiguration config, ScopingService sc,
+            ChatBranch.Data.Ai.Voice.SpeechClient speech) =>
         {
-            var voices = new List<Dictionary<string, object?>>(VoicePresets);
-            voices.AddRange(ClonedVoices(config));
-            // the organization's chosen voice (Voice & calls) — what calls use when none is picked
-            return Results.Ok(new { voices, default_voice = sc.SettingValue(DefaultVoiceKey) });
+            var voices = AllVoices(config, speech);
+            // the organization's chosen voice (Voice & calls) — what calls use when none is picked;
+            // clone_providers = who can clone right now (elevenlabs / voicestudio), so the page can offer the choice
+            return Results.Ok(new
+            {
+                voices, default_voice = sc.SettingValue(DefaultVoiceKey), clone_providers = speech.CloneProviders(),
+            });
         }).AllowAnonymous();
 
         // The voice picked on Voice & calls, saved for the whole organization:
         // every call that doesn't name a voice uses it (VoiceDispatch). The
         // voice's own provider is saved with it, so a clone keeps its pipeline.
-        var saveDefault = (DefaultVoiceWrite body, IConfiguration config, ScopingService sc) =>
+        var saveDefault = (DefaultVoiceWrite body, IConfiguration config, ScopingService sc,
+            ChatBranch.Data.Ai.Voice.SpeechClient speech) =>
         {
             var id = (body?.voice ?? "").Trim();
-            var all = new List<Dictionary<string, object?>>(VoicePresets);
-            all.AddRange(ClonedVoices(config));
+            var all = AllVoices(config, speech);
             var hit = all.FirstOrDefault(v => v.TryGetValue("id", out var x) && x as string == id);
             if (hit == null)
                 return Results.Json(new { detail = "Unknown voice — pick one from the library." }, statusCode: 400);
@@ -217,6 +221,24 @@ public static class VoiceMessagingEndpoints
         };
         app.MapPut("/api/voice/default-voice", saveDefault).RequireAuthorization(AuthPolicies.Authenticated).OrgWideOnly()
             .RequireCapability("settings.ai.manage");   // the Voice & calls page's capability
+    }
+
+    /// <summary>VoiceStudio's own default voice, listed once VoiceStudio is set up — so it can be
+    /// picked before anything is cloned there.</summary>
+    private static readonly Dictionary<string, object?> VoiceStudioPreset = new()
+    {
+        ["id"] = ChatBranch.Data.Sidecars.VoiceDispatch.VoiceStudioDefaultId, ["name"] = "VoiceStudio default",
+        ["gender"] = "Neutral", ["accent"] = "Self-hosted", ["language"] = "en", ["persona"] = "advisor",
+        ["provider"] = "voicestudio", ["status"] = "ready", ["custom"] = false, ["tag"] = "Self-hosted",
+    };
+
+    private static List<Dictionary<string, object?>> AllVoices(IConfiguration config,
+        ChatBranch.Data.Ai.Voice.SpeechClient speech)
+    {
+        var all = new List<Dictionary<string, object?>>(VoicePresets);
+        if (speech.VoiceStudioConfigured) all.Add(VoiceStudioPreset);
+        all.AddRange(ClonedVoices(config));
+        return all;
     }
 
     internal const string DefaultVoiceKey = "default_voice";
@@ -343,6 +365,17 @@ public static class VoiceMessagingEndpoints
     {
         new() { key = "elevenlabs_api_key", label = "ElevenLabs API key", group = "providers", kind = "secret",
                 help = "Voice listing / cloning / preview / TTS. Live voice calls read the key from the agent's .env." },
+        // the self-hosted TTS provider (Ai/Voice/SpeechVoices.cs) — github.com/debpalash/VoiceStudio
+        new() { key = "voicestudio_base_url", label = "VoiceStudio address", group = "voicestudio", kind = "text",
+                help = "Your own VoiceStudio server (the open-source, self-hosted ElevenLabs alternative), e.g. " +
+                       "http://voicestudio:3900 for the docker compose service. Setting it turns VoiceStudio on: its " +
+                       "voices appear in the voice library, voices can be cloned there, and AI voice replies can use it. " +
+                       "Empty = off." },
+        new() { key = "voicestudio_api_key", label = "VoiceStudio API key", group = "voicestudio", kind = "secret",
+                help = "The OMNIVOICE_API_KEY the VoiceStudio server was started with (empty if it has none)." },
+        new() { key = "voicestudio_model", label = "VoiceStudio engine", group = "voicestudio", kind = "text",
+                help = "Empty = tts-1, which VoiceStudio maps to its active engine. Or an engine id such as " +
+                       "omnivoice, kittentts, voxcpm2, cosyvoice." },
         new() { key = "chat_provider_pref", label = "Chat AI provider", group = "providers", kind = "select" },
         new() { key = "chat_provider_order", label = "Provider fallback order", group = "providers", kind = "order",
                 help = "Only used in Automatic mode — the priority the chat brain tries providers " +
@@ -394,6 +427,9 @@ public static class VoiceMessagingEndpoints
     private static readonly Dictionary<string, string> EnvFor = ProviderEnv(new()
     {
         ["elevenlabs_api_key"] = "ELEVENLABS_API_KEY",
+        ["voicestudio_base_url"] = "VOICESTUDIO_URL",
+        ["voicestudio_api_key"] = "VOICESTUDIO_API_KEY",
+        ["voicestudio_model"] = "VOICESTUDIO_MODEL",
         ["transcription_provider"] = "STT_PROVIDER",
         ["transcription_base_url"] = "STT_BASE_URL",
         ["transcription_model"] = "STT_MODEL",

@@ -54,6 +54,12 @@ services:
       - STT_PROVIDER=${STT_PROVIDER:-}
       - STT_BASE_URL=${STT_BASE_URL:-}
       - STT_MODEL=${STT_MODEL:-}
+      # Self-hosted text-to-speech + voice cloning (profile `voicestudio` below).
+      # Empty = off; e.g. VOICESTUDIO_URL=http://voicestudio:3900. Also settable in
+      # Settings → AI keys & models (a Setting row wins over these).
+      - VOICESTUDIO_URL=${VOICESTUDIO_URL:-}
+      - VOICESTUDIO_API_KEY=${VOICESTUDIO_API_KEY:-}
+      - VOICESTUDIO_MODEL=${VOICESTUDIO_MODEL:-}
       # Database: sqlite (the file below) | postgres (profile `postgres`). The URL
       # is only read for postgres; DB_IMPORT_SQLITE copies an old SQLite file in on
       # the first Postgres boot (an empty database only — safe to leave set).
@@ -182,6 +188,25 @@ services:
     restart: unless-stopped
     profiles: ["stt"]
 
+  # Optional: VoiceStudio (github.com/debpalash/VoiceStudio, AGPL-3.0) — a self-
+  # hosted ElevenLabs alternative: AI voice replies + voice cloning without an
+  # ElevenLabs account. INTERNAL ONLY — no `ports:`; the API calls
+  # http://voicestudio:3900 (OpenAI-compatible /v1/audio/speech + /profiles).
+  # Turn it on with COMPOSE_PROFILES=voicestudio and VOICESTUDIO_URL=
+  # http://voicestudio:3900 (or the VoiceStudio address in Settings). ~2.4 GB of
+  # model weights download on first start; on a CPU-only host keep replies short.
+  # VOICESTUDIO_IMAGE pins the release (a -cuda / -rocm tag for a GPU host).
+  voicestudio:
+    image: ${VOICESTUDIO_IMAGE:-ghcr.io/debpalash/voicestudio:0.5.7}
+    environment:
+      - OMNIVOICE_API_KEY=${VOICESTUDIO_API_KEY:-}
+      - OMNIVOICE_DATA_DIR=/app/omnivoice_data
+    volumes:
+      - voicestudio-data:/app/omnivoice_data
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    profiles: ["voicestudio"]
+
   # Optional: PostgreSQL instead of the SQLite file (profile `postgres` +
   # DATABASE_PROVIDER=postgres on the api). INTERNAL ONLY — no `ports:`; the api
   # reaches it as postgres:5432. C.UTF-8 = byte-order sorting like SQLite, with
@@ -241,4 +266,5 @@ volumes:
   chatbranch-data:
   baileys-auth:
   whisper-models:
+  voicestudio-data:
   postgres-data:

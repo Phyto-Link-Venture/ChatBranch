@@ -81,6 +81,18 @@ const RECORDING_SCRIPTS: Record<string, string> = {
   zh: '下午好。我叫Aisha,是ChatBranch打来关于您账户的电话。我在这里是想确保一切进展顺利。我们可以聊聊最新的进展以及您可能有的任何问题。请告诉我现在是否方便通话。谢谢您的时间,如果您有任何问题,请随时提出。',
 }
 
+/** Brand names, not translated. */
+const CLONE_PROVIDER_NAMES: Record<string, string> = {
+  elevenlabs: 'ElevenLabs',
+  voicestudio: 'VoiceStudio (self-hosted)',
+}
+
+/** The API's own refusal text (AppContext throws it), or null when only a status came back. */
+function serverWords(e: unknown): string | null {
+  const m = e instanceof Error ? e.message : ''
+  return m && !/^(clone|import|delete) failed \(\d+\)$/.test(m) ? m : null
+}
+
 export default function PersonaPage() {
   const t = useT()
   const {
@@ -88,6 +100,7 @@ export default function PersonaPage() {
     selectedVoice,
     saveDefaultVoice,
     previewVoice,
+    cloneProviders,
     cloneVoice,
     importVoice,
     updateVoice,
@@ -112,6 +125,8 @@ export default function PersonaPage() {
   const [cloneLanguage, setCloneLanguage] = useState('en')
   const [previewLangTab, setPreviewLangTab] = useState('en')
   const [clonePersona, setClonePersona] = useState(PERSONAS[0].id)
+  // ElevenLabs or the self-hosted VoiceStudio — whichever is set up ('' = the first one)
+  const [cloneProvider, setCloneProvider] = useState('')
   const [genderFilter, setGenderFilter] = useState('')
   const [languageFilter, setLanguageFilter] = useState('')
   const [accentFilter, setAccentFilter] = useState('')
@@ -170,10 +185,10 @@ export default function PersonaPage() {
     setBusy(true)
     setCloneErr(null)
     try {
-      await cloneVoice(name, blob, cloneLanguage, clonePersona)
+      await cloneVoice(name, blob, cloneLanguage, clonePersona, undefined, cloneProvider || cloneProviders[0])
       setShowAddVoice(false)
-    } catch {
-      setCloneErr(t('voice.library.cloneFailed'))
+    } catch (e) {
+      setCloneErr(serverWords(e) ?? t('voice.library.cloneFailed'))
     } finally {
       setBusy(false)
     }
@@ -189,8 +204,8 @@ export default function PersonaPage() {
       setShowAddVoice(false)
       setImportId('')
       setImportName('')
-    } catch {
-      setCloneErr(t('voice.library.importFailed'))
+    } catch (e) {
+      setCloneErr(serverWords(e) ?? t('voice.library.importFailed'))
     } finally {
       setBusy(false)
     }
@@ -232,9 +247,9 @@ export default function PersonaPage() {
     setVoiceActionErrId(null)
     try {
       await deleteVoice(v.id)
-    } catch {
+    } catch (e) {
       setVoiceActionErrId(v.id)
-      setVoiceActionErrMsg(t('voice.library.deleteFailed'))
+      setVoiceActionErrMsg(serverWords(e) ?? t('voice.library.deleteFailed'))
     } finally {
       setVoiceActionBusy(false)
     }
@@ -383,6 +398,16 @@ export default function PersonaPage() {
                     ariaLabel={t('voice.library.voiceLanguage')}
                     className="w-[130px]"
                   />
+                  {cloneProviders.length > 1 && (
+                    <Select
+                      value={cloneProvider || cloneProviders[0]}
+                      onChange={setCloneProvider}
+                      disabled={busy || recording}
+                      options={cloneProviders.map((p) => ({ value: p, label: CLONE_PROVIDER_NAMES[p] ?? p }))}
+                      ariaLabel={t('voice.library.cloneWith')}
+                      className="w-[170px]"
+                    />
+                  )}
                   <Select
                     value={clonePersona}
                     onChange={setClonePersona}

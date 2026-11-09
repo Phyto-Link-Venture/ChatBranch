@@ -172,9 +172,10 @@ public static class AiBehaviourSettings
             + "on the message for the team. Works on WhatsApp (QR numbers, Cloud API, YCloud), Telegram, Messenger "
             + "and Instagram; everywhere else — and when a reply has a link, is very long, or the voice can't be "
             + "made — it goes as text.", VoiceModes),
-        new(VoiceId, "human", "text", "", "ElevenLabs voice ID",
-            "Optional. Empty uses the organization's call voice when it is an ElevenLabs voice, else ElevenLabs' "
-            + "default voice."),
+        new(VoiceId, "human", "text", "", "Voice for voice replies",
+            "Optional. A voice from the voice library (its id, e.g. a clone — ElevenLabs or VoiceStudio) or a raw "
+            + "ElevenLabs voice ID. Empty uses the organization's call voice when it is an ElevenLabs or VoiceStudio "
+            + "voice, else ElevenLabs' default voice (or VoiceStudio's when only VoiceStudio is set up)."),
 
         // ---- follow-ups when the customer goes quiet ------------------------
         new(FollowUp, "followup", "bool", "false", "Follow up when the customer goes quiet",

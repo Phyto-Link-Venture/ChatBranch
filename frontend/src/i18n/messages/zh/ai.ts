@@ -414,12 +414,12 @@ export const ai: Dict<typeof source> = {
       voiceReplies: {
         label: '用语音消息回复',
         help:
-          '需要 ElevenLabs API 密钥（设置 → AI 密钥与模型）。镜像：客户最新一条消息是语音时，AI 用语音回复。始终：每条回复都是语音。文字内容会保存在消息上供团队查看。适用于 WhatsApp（扫码号码、Cloud API、YCloud）、Telegram、Messenger 和 Instagram；其他渠道——以及回复含链接、过长或无法生成语音时——以文字发送。',
+          '需要 ElevenLabs API 密钥或 VoiceStudio 服务器（设置 → AI 密钥与模型）。镜像：客户最新一条消息是语音时，AI 用语音回复。始终：每条回复都是语音。文字内容会保存在消息上供团队查看。适用于 WhatsApp（扫码号码、Cloud API、YCloud）、Telegram、Messenger 和 Instagram；其他渠道——以及回复含链接、过长或无法生成语音时——以文字发送。',
       },
       voiceId: {
-        label: 'ElevenLabs 声音 ID',
+        label: '语音回复使用的声音',
         help:
-          '可选。留空时，如果组织的通话声音是 ElevenLabs 声音就用它，否则用 ElevenLabs 的默认声音。',
+          '可选。声音库中的声音 ID（例如克隆声音——ElevenLabs 或 VoiceStudio），或 ElevenLabs 声音 ID。留空时，如果组织的通话声音是 ElevenLabs 或 VoiceStudio 声音就用它，否则用已设置的服务的默认声音。',
       },
       reviewMode: {
         label: '发送前由谁检查 AI',

@@ -270,6 +270,23 @@ public class LiveKitTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task A_VoiceStudio_call_voice_falls_back_to_the_agents_default_for_calls()
+    {
+        using var t = new TestDb();
+        var scoping = new ScopingService(t.Db);
+        var knowledge = new KnowledgeService(t.Db, scoping);
+        var assistant = new AssistantService(t.Db, scoping, new PersonaService(scoping), knowledge, new SandboxLlmClient());
+        scoping.SetSetting("default_voice", "custom-vs");
+        scoping.SetSetting("default_voice_provider", "voicestudio");
+
+        var md = JsonSerializer.SerializeToElement(await VoiceDispatch.BuildAsync(t.Db, knowledge, assistant, scoping,
+            Path.GetTempPath(), null, new VoiceCallOptions("+60123456789")));
+        // the agent has no VoiceStudio pipeline: no provider/voice = its own default, never a broken call
+        Assert.False(md.TryGetProperty("voice_provider", out _));
+        Assert.False(md.TryGetProperty("voice", out _));
+    }
+
+    [Fact]
     public async Task A_call_without_a_voice_uses_the_organizations_saved_voice()
     {
         using var t = new TestDb();
