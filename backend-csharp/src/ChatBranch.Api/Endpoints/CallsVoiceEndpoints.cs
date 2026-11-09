@@ -581,10 +581,12 @@ public static class CallsVoiceEndpoints
                 ["status"] = "ready",
                 ["custom"] = true,
                 ["tag"] = "Cloned",
+                ["gender"] = "",
+                ["accent"] = provider == "voicestudio" ? "VoiceStudio clone" : "ElevenLabs clone",
                 [provider == "voicestudio" ? "remoteVoiceId" : "elevenVoiceId"] = made.RemoteId,
                 ["createdAt"] = DateTime.UtcNow.ToString("o"),
             };
-            if (gender.Length > 0) record["gender"] = gender;
+            if (gender.Length > 0) record["gender"] = gender;   // else the "" above
             var doc = LoadVoicesDoc(config);
             ((JsonArray)doc["voices"]!).Add(record);
             try { SaveVoicesDoc(config, doc); }
@@ -630,6 +632,8 @@ public static class CallsVoiceEndpoints
                 ["status"] = "ready",
                 ["custom"] = true,
                 ["tag"] = "Imported",
+                ["gender"] = "",
+                ["accent"] = "ElevenLabs",
                 ["elevenVoiceId"] = elId,
                 ["imported"] = true,
                 ["createdAt"] = DateTime.UtcNow.ToString("o"),

@@ -57,13 +57,14 @@ function VoiceFilterSelect({
 // Free-text fields (gender, accent) come from ElevenLabs labels or manual entry with
 // inconsistent casing ("female" vs "Female") -- normalize so they don't split into
 // duplicate filter options that are really the same tag.
-function titleCase(s: string): string {
-  return s.replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
+// Null-safe: a cloned voice may have no gender / accent yet.
+function titleCase(s: string | null | undefined): string {
+  return (s ?? '').replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
 }
 
 function voiceFilterOpts(voices: Voice[], field: 'gender' | 'accent' | 'language' | 'provider' | 'persona', allLabel: string, labelMap?: Record<string, string>) {
   const norm = (v: string) => (labelMap ? v : titleCase(v))
-  const vals = Array.from(new Set(voices.map((v) => norm(v[field])))).sort()
+  const vals = Array.from(new Set(voices.map((v) => norm(v[field] ?? '')))).filter(Boolean).sort()
   return [{ value: '', label: allLabel }, ...vals.map((v) => ({ value: v, label: labelMap?.[v] ?? v }))]
 }
 // What each voice SAYS when previewed — in the voice's own language (spoken
@@ -596,7 +597,9 @@ export default function PersonaPage() {
                     ) : (
                       <>
                         <div className="text-[13px] font-bold leading-snug text-text-high">{v.name}</div>
-                        <div className="truncate text-[10px] text-text-muted">{titleCase(v.gender)} · {titleCase(v.accent)}</div>
+                        <div className="truncate text-[10px] text-text-muted">
+                          {[titleCase(v.gender), titleCase(v.accent)].filter(Boolean).join(' · ') || '—'}
+                        </div>
                         <div className="truncate text-[10px] text-text-muted">
                           {languageName(v.language)} · {personaName(v.persona)}
                         </div>

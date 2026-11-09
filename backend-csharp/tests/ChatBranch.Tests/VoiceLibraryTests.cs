@@ -152,6 +152,11 @@ public class VoiceLibraryApiTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task Clone_and_preview_say_what_to_set_up_instead_of_a_bare_501()
     {
+        // a clone stored with no gender / accent (what production had) — the list must still fill them
+        var path = Path.Combine(ApiFactory.DataDir, "voices.json");
+        Directory.CreateDirectory(ApiFactory.DataDir);
+        if (!File.Exists(path))
+            File.WriteAllText(path, """{"voices":[{"id":"custom-bare","name":"Kx","language":"en","persona":"advisor","provider":"elevenlabs","status":"ready","custom":true,"elevenVoiceId":"abc"}]}""");
         var admin = await Platform.As(_f, "admin", "admin123");
         var list = await admin.GetFromJsonAsync<JsonElement>("/api/voices");
         Assert.Equal(JsonValueKind.Array, list.GetProperty("clone_providers").ValueKind);
@@ -168,6 +173,11 @@ public class VoiceLibraryApiTests : IClassFixture<ApiFactory>
             Assert.Equal(HttpStatusCode.ServiceUnavailable, resp.StatusCode);
             Assert.Contains("VoiceStudio", await resp.Content.ReadAsStringAsync());
         }
+
+        // every voice carries the display fields the page reads, even one saved without them
+        foreach (var v in list.GetProperty("voices").EnumerateArray())
+            foreach (var key in new[] { "gender", "accent", "language", "persona", "provider" })
+                Assert.Equal(JsonValueKind.String, v.GetProperty(key).ValueKind);
 
         var unknown = await admin.PostAsJsonAsync("/api/voice/preview", new { voiceId = "custom-nope", text = "Hi" });
         Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);

@@ -179,6 +179,9 @@ public static class VoiceMessagingEndpoints
                     tag.ValueKind == JsonValueKind.String &&
                     !string.IsNullOrEmpty(tag.GetString()))
                     item["tag"] = tag.GetString();
+                // the dashboard reads these on every voice — a clone made without them must not crash it
+                foreach (var key in new[] { "gender", "accent", "language", "persona", "provider" })
+                    if (!item.TryGetValue(key, out var have) || have is null) item[key] = "";
                 if (item.ContainsKey("id")) outv.Add(item);
             }
         }
