@@ -180,7 +180,7 @@ export default function PersonaPage() {
     setPersonaFilter('')
   }
 
-  async function submitClone(blob: Blob) {
+  async function submitClone(blob: Blob | Blob[]) {
     const name = window.prompt(t('voice.library.namePrompt'))?.trim()
     if (!name) return
     setBusy(true)
@@ -212,9 +212,10 @@ export default function PersonaPage() {
     }
   }
 
+  // several clips of the same speaker → one voice (ElevenLabs uses them all, up to 25)
   function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (file) void submitClone(file)
+    const files = Array.from(e.target.files ?? []).slice(0, 25)
+    if (files.length) void submitClone(files)
     e.target.value = ''
   }
 
@@ -432,7 +433,7 @@ export default function PersonaPage() {
                     {recording ? t('voice.addVoice.stopRecording') : t('voice.addVoice.record')}
                   </button>
                 </div>
-                <input ref={fileRef} type="file" accept="audio/*" hidden onChange={onFile} />
+                <input ref={fileRef} type="file" accept="audio/*" multiple hidden onChange={onFile} />
                 <div className="mt-1 text-[10px] text-text-muted">{t('voice.addVoice.consent')}</div>
                 <Advanced
                   className="mt-3 w-full text-left"

@@ -56,11 +56,11 @@ export const voice = {
   addVoice: {
     title: 'Add a voice',
     ownVoice: 'Add your own voice',
-    fileHint: 'MP3 or WAV · 30–60 s of clear speech recommended',
+    fileHint: 'MP3, WAV or M4A · pick several clips of the same person (up to 25) — 1–2 min of clear speech in total is best',
     recordingScript: 'Recording script · {language} · Read aloud',
     recordingTip: 'Speak naturally in a quiet room and keep the microphone 15–20 cm away.',
     processing: 'Processing…',
-    uploadFile: 'Upload file',
+    uploadFile: 'Upload files',
     record: 'Record',
     stopRecording: 'Stop recording',
     consent: 'By adding a voice you confirm you have the speaker’s consent to clone it.',

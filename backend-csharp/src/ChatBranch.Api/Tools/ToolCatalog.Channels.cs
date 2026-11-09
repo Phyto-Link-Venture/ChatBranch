@@ -284,6 +284,25 @@ public static partial class ToolCatalog
                 A.Str("voice_id", "Provider voice id.", req: true, @as: "voiceId"), A.Str("name", "Name."),
                 A.Str("gender", "Gender."), A.Str("persona", "When to use it."),
             });
+        yield return T(vo, "voice_clone_voice", "Clone a voice from recordings",
+            "Make a new voice in the library from 1–25 recordings of one person (ElevenLabs uses every clip; "
+            + "VoiceStudio uses the first). Point at the audio instead of pasting it: each source is "
+            + "{source_message_id} (a voice note already in a chat — find it with conversations_list_messages), "
+            + "{file_id} (the media library), {media_url} (an https link) or, last resort, {file_base64, file_name}. "
+            + "Cleaner and longer audio (1–2 minutes in total, one speaker, no music) clones better. "
+            + "ONLY with the speaker's consent: ask the person first, then send consent: true.",
+            "POST", "/api/voice/clone-from", aiManage,
+            new[]
+            {
+                A.Str("name", "Name for the new voice.", req: true),
+                A.Str("language", "en | ms | zh — the language the recordings are in.", req: true),
+                A.Arr("sources", "1–25 recordings: [{source_message_id} | {file_id} | {media_url} | {file_base64, file_name}].",
+                    req: true),
+                A.Bool("consent", "true = the person whose voice this is agreed to it being cloned.", req: true),
+                A.Str("provider", "elevenlabs | voicestudio. Empty = the first one set up."),
+                A.Str("persona", "advisor | negotiator | counsellor | officer."),
+                A.Str("gender", "Gender label."),
+            });
         yield return T(vo, "voice_update_voice", "Edit a voice",
             "Rename or describe a voice in the call voice library.", "PATCH", "/api/voice/{voiceId}", aiManage,
             new[]

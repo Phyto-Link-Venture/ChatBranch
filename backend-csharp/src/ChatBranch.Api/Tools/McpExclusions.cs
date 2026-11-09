@@ -160,7 +160,7 @@ public static class McpExclusions
         new("POST", "/api/aicore/skills/documents/template/analyze", "reads an uploaded design (multipart PDF / PNG / JPEG) into a proposed Documents template — a file upload for the template designer; skills_assist_document_template edits a template from words"),
         new("POST", "/api/aicore/skills/documents/html/draft", "drafts a custom layout (HTML template) from an uploaded design (multipart PDF / PNG / JPEG) — a file upload for the custom layout editor; skills_assist_document_layout edits a layout from words and skills_preview_document_layout renders one"),
         new("POST", "/api/voice/preview", "returns synthesized audio — " + Binary),
-        new("POST", "/api/voice/clone", "clones a voice from an uploaded recording — needs the speaker's own audio sample and consent"),
+        new("POST", "/api/voice/clone", "the dashboard's multipart upload — MCP clones through voice_clone_voice (/api/voice/clone-from), which takes references instead of raw audio"),
         new("GET", "/api/billing/ai/pdf", "the AI bill as a PDF — " + Binary + " (billing_get_ai_bill returns the same figures)"),
         new("POST", "/api/billing/ai/pdf/link", "mints a 5-minute signed link to the AI bill PDF for a browser that cannot send an auth header (the installed iOS app); sessions only, API keys get 403 — " + Binary),
         new("GET", "/api/audit.csv", Export + " (activity_search_log)"),

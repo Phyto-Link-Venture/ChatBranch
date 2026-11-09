@@ -129,6 +129,30 @@ public class VoiceLibraryTests
     }
 
     [Fact]
+    public async Task Several_clips_all_reach_ElevenLabs_but_VoiceStudio_takes_the_first()
+    {
+        using var r = new VoiceRig();
+        r.Sc.SetSetting("voicestudio_base_url", "http://vs.test:3900");
+        var speech = new SpeechClient(r.Sc, r.Speech);
+        var clips = Enumerable.Range(1, 3)
+            .Select(i => new VoiceClip(FakeSpeech.Ogg, $"take-{i}.ogg", "audio/ogg")).ToList();
+
+        Assert.True((await speech.CloneVoiceAsync("elevenlabs", "Boss", clips, "en", "")).Ok);
+        var el = r.Speech.Calls.Single(c => c.Path == "/v1/voices/add").Body.Replace("\"", "");
+        Assert.Equal(3, el.Split("name=files").Length - 1);
+        foreach (var i in new[] { 1, 2, 3 }) Assert.Contains($"take-{i}.ogg", el);
+
+        Assert.True((await speech.CloneVoiceAsync("voicestudio", "Boss", clips, "en", "")).Ok);
+        var vs = r.Speech.Calls.Single(c => c.Path == "/profiles").Body.Replace("\"", "");
+        Assert.Equal(1, vs.Split("name=ref_audio").Length - 1);
+        Assert.Contains("take-1.ogg", vs);
+
+        var tooMany = Enumerable.Range(0, SpeechClient.MaxCloneClips + 1)
+            .Select(_ => new VoiceClip(FakeSpeech.Ogg, "x.ogg", "audio/ogg")).ToList();
+        Assert.False((await speech.CloneVoiceAsync("elevenlabs", "Boss", tooMany, "en", "")).Ok);
+    }
+
+    [Fact]
     public async Task Nothing_set_up_means_no_clone_providers_and_an_honest_refusal()
     {
         using var r = new VoiceRig();
@@ -179,9 +203,78 @@ public class VoiceLibraryApiTests : IClassFixture<ApiFactory>
             foreach (var key in new[] { "gender", "accent", "language", "persona", "provider" })
                 Assert.Equal(JsonValueKind.String, v.GetProperty(key).ValueKind);
 
+        // the upload takes several recordings in one request (the same field repeated)
+        using var multi = new MultipartFormDataContent();
+        multi.Add(new StringContent("Me"), "name");
+        multi.Add(new StringContent("en"), "language");
+        for (var i = 0; i < 3; i++)
+        {
+            var clip = new ByteArrayContent(FakeSpeech.Ogg);
+            clip.Headers.ContentType = new("audio/ogg");
+            multi.Add(clip, "audio", $"take-{i}.ogg");
+        }
+        var multiResp = await admin.PostAsync("/api/voice/clone", multi);
+        Assert.NotEqual(HttpStatusCode.BadRequest, multiResp.StatusCode);
+
         var unknown = await admin.PostAsJsonAsync("/api/voice/preview", new { voiceId = "custom-nope", text = "Hi" });
         Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
         var puck = await admin.PostAsJsonAsync("/api/voice/preview", new { voiceId = "puck", text = "Hi" });
         Assert.Equal(HttpStatusCode.BadRequest, puck.StatusCode);
+    }
+}
+
+/// <summary>POST /api/voice/clone-from — the by-reference clone the MCP tool voice_clone_voice calls.</summary>
+public class VoiceCloneFromApiTests : IClassFixture<ApiFactory>
+{
+    private readonly ApiFactory _f;
+    public VoiceCloneFromApiTests(ApiFactory f) => _f = f;
+
+    private static object Clip(string name = "take.ogg") =>
+        new { file_base64 = Convert.ToBase64String(FakeSpeech.Ogg), file_name = name };
+
+    [Fact]
+    public async Task It_needs_consent_audio_sources_and_then_a_provider()
+    {
+        var admin = await Platform.As(_f, "admin", "admin123");
+
+        var noConsent = await admin.PostAsJsonAsync("/api/voice/clone-from",
+            new { name = "Ah Kow", language = "ms", sources = new[] { Clip() } });
+        Assert.Equal((HttpStatusCode)422, noConsent.StatusCode);
+        Assert.Contains("consent_required", await noConsent.Content.ReadAsStringAsync());
+
+        var noSources = await admin.PostAsJsonAsync("/api/voice/clone-from",
+            new { name = "Ah Kow", language = "ms", consent = true, sources = Array.Empty<object>() });
+        Assert.Equal(HttpStatusCode.BadRequest, noSources.StatusCode);
+
+        var notAudio = await admin.PostAsJsonAsync("/api/voice/clone-from", new
+        {
+            name = "Ah Kow", language = "ms", consent = true,
+            sources = new[] { new { file_base64 = Convert.ToBase64String("hello"u8.ToArray()), file_name = "notes.txt" } },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, notAudio.StatusCode);
+        Assert.Contains("not an audio file", await notAudio.Content.ReadAsStringAsync());
+
+        var missingMessage = await admin.PostAsJsonAsync("/api/voice/clone-from", new
+        {
+            name = "Ah Kow", language = "ms", consent = true, sources = new[] { new { source_message_id = 987654321 } },
+        });
+        Assert.Equal(HttpStatusCode.NotFound, missingMessage.StatusCode);
+
+        // well-formed: three clips read; with no provider configured on the test host it says what to set up
+        var list = await admin.GetFromJsonAsync<JsonElement>("/api/voices");
+        var ok = await admin.PostAsJsonAsync("/api/voice/clone-from", new
+        {
+            name = "Ah Kow", language = "ms", consent = true, sources = new[] { Clip("a.ogg"), Clip("b.ogg"), Clip("c.ogg") },
+        });
+        if (list.GetProperty("clone_providers").GetArrayLength() == 0)
+        {
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, ok.StatusCode);
+            Assert.Contains("VoiceStudio", await ok.Content.ReadAsStringAsync());
+        }
+
+        var agent = await Platform.As(_f, "agent", "agent123");
+        var denied = await agent.PostAsJsonAsync("/api/voice/clone-from",
+            new { name = "x", language = "en", consent = true, sources = new[] { Clip() } });
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
     }
 }

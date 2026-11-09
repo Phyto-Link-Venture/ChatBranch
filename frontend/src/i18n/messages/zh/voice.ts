@@ -55,7 +55,7 @@ export const voice: Dict<typeof source> = {
   addVoice: {
     title: '添加声音',
     ownVoice: '添加你自己的声音',
-    fileHint: 'MP3 或 WAV · 建议 30–60 秒清晰的语音',
+    fileHint: 'MP3、WAV 或 M4A · 可选择同一人的多段录音（最多 25 段）——总计 1–2 分钟清晰语音效果最佳',
     recordingScript: '录音脚本 · {language} · 请朗读',
     recordingTip: '在安静的房间里自然地说话，麦克风保持 15–20 厘米距离。',
     processing: '处理中……',

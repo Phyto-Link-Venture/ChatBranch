@@ -55,7 +55,7 @@ export const voice: Dict<typeof source> = {
   addVoice: {
     title: 'Tambah suara',
     ownVoice: 'Tambah suara anda sendiri',
-    fileHint: 'MP3 atau WAV · disyorkan 30–60 saat pertuturan yang jelas',
+    fileHint: 'MP3, WAV atau M4A · pilih beberapa klip orang yang sama (sehingga 25) — jumlah 1–2 minit pertuturan jelas paling baik',
     recordingScript: 'Skrip rakaman · {language} · Baca dengan kuat',
     recordingTip: 'Bercakap secara semula jadi di bilik yang senyap dan jauhkan mikrofon 15–20 cm.',
     processing: 'Memproses…',

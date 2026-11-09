@@ -596,7 +596,7 @@ conversation route.
 | `calls_hang_up` | Hang up a call | write · **destructive** · open-world | `chats.send` |
 | `calls_list_logs` | List call logs | read | `call_logs.view` |
 
-#### voice (10)
+#### voice (11)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -606,6 +606,7 @@ conversation route.
 | `voice_set_llm_provider` | Set the voice language model | write | `settings.ai.manage` |
 | `voice_set_default_voice` | Set the organization's call voice | write | `settings.ai.manage` |
 | `voice_import_voice` | Add a voice to the library | write | `settings.ai.manage` |
+| `voice_clone_voice` | Clone a voice from recordings | write | `settings.ai.manage` |
 | `voice_update_voice` | Edit a voice | write | `settings.ai.manage` |
 | `voice_delete_voice` | Delete a voice | write · **destructive** | `settings.ai.manage` |
 | `voice_get_pronunciation` | Read the pronunciation list | read | signed in |
@@ -724,7 +725,7 @@ conversation route.
 | `POST /api/aicore/skills/documents/template/analyze` | reads an uploaded design (multipart PDF / PNG / JPEG) into a proposed Documents template — a file upload for the template designer; skills_assist_document_template edits a template from words |
 | `POST /api/aicore/skills/documents/html/draft` | drafts a custom layout (HTML template) from an uploaded design (multipart PDF / PNG / JPEG) — a file upload for the custom layout editor; skills_assist_document_layout edits a layout from words and skills_preview_document_layout renders one |
 | `POST /api/voice/preview` | returns synthesized audio — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
-| `POST /api/voice/clone` | clones a voice from an uploaded recording — needs the speaker's own audio sample and consent |
+| `POST /api/voice/clone` | the dashboard's multipart upload — MCP clones through voice_clone_voice (/api/voice/clone-from), which takes references instead of raw audio |
 | `GET /api/billing/ai/pdf` | the AI bill as a PDF — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file (billing_get_ai_bill returns the same figures) |
 | `POST /api/billing/ai/pdf/link` | mints a 5-minute signed link to the AI bill PDF for a browser that cannot send an auth header (the installed iOS app); sessions only, API keys get 403 — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `GET /api/audit.csv` | file export (CSV / vCard) of data a JSON tool already returns (activity_search_log) |

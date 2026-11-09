@@ -91,6 +91,7 @@ public class PermissionMatrixTests : IClassFixture<ApiFactory>
         new("DELETE", "/api/aicore/booking-hours", G("integrations.manage", "settings.ai.manage")),
         // voice & calls
         new("POST", "/api/voice/clone", G("settings.ai.manage"), new { }),
+        new("POST", "/api/voice/clone-from", G("settings.ai.manage"), new { }),
         new("POST", "/api/voice/import", G("settings.ai.manage"), new { }),
         new("PATCH", "/api/voice/no-such-voice", G("settings.ai.manage"), new { name = "x" }),
         new("DELETE", "/api/voice/no-such-voice", G("settings.ai.manage")),

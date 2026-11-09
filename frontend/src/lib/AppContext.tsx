@@ -98,7 +98,7 @@ type AppContextValue = {
   /** Who can clone a voice right now (elevenlabs / voicestudio), from GET /api/voices. */
   cloneProviders: string[]
   /** Clone a voice; rejects with the server's own words (e.g. the provider's refusal). */
-  cloneVoice: (name: string, audio: Blob, language: string, persona: string, gender?: string, provider?: string) => Promise<void>
+  cloneVoice: (name: string, audio: Blob | Blob[], language: string, persona: string, gender?: string, provider?: string) => Promise<void>
   importVoice: (elevenVoiceId: string, name?: string) => Promise<void>
   updateVoice: (voiceId: string, patch: { name?: string; gender?: string; accent?: string; language?: string; persona?: string }) => Promise<void>
   deleteVoice: (voiceId: string) => Promise<void>
@@ -273,14 +273,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const cloneVoice = useCallback(
-    async (name: string, audio: Blob, language: string, persona: string, gender?: string, provider?: string) => {
+    async (name: string, audio: Blob | Blob[], language: string, persona: string, gender?: string, provider?: string) => {
       const fd = new FormData()
       fd.append('name', name)
       fd.append('language', language)
       fd.append('persona', persona)
       if (gender) fd.append('gender', gender)
       if (provider) fd.append('provider', provider)
-      fd.append('audio', audio, audio instanceof File ? audio.name : 'sample.webm')
+      // one field per recording — the API takes up to 25 clips of the same speaker
+      for (const [i, clip] of (Array.isArray(audio) ? audio : [audio]).entries())
+        fd.append('audio', clip, clip instanceof File ? clip.name : `sample-${i + 1}.webm`)
       const resp = await fetch(`${API}/voice/clone`, { method: 'POST', body: fd, headers: authHeaders() })
       if (!resp.ok) throw new Error(await serverDetail(resp, `clone failed (${resp.status})`))
       const { voice } = await resp.json()

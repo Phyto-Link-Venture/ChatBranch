@@ -5,6 +5,9 @@ using System.Text.Json;
 
 namespace ChatBranch.Data.Ai.Voice;
 
+/// <summary>One recording handed to a clone.</summary>
+public sealed record VoiceClip(byte[] Audio, string FileName, string Mime);
+
 /// <summary>One voice clone / import answer: the provider's own voice id, or why there is none.</summary>
 public sealed record VoiceCloneResult(bool Ok, string RemoteId, string Name, string Detail)
 {
@@ -141,17 +144,32 @@ public partial class SpeechClient
         }
     }
 
+    /// <summary>ElevenLabs takes up to 25 samples for one instant clone.</summary>
+    public const int MaxCloneClips = 25;
+
+    /// <summary>One recording — kept for callers that have a single clip.</summary>
+    public Task<VoiceCloneResult> CloneVoiceAsync(string provider, string name, byte[] audio, string fileName,
+        string mime, string language, string description, CancellationToken ct = default) =>
+        CloneVoiceAsync(provider, name, new[] { new VoiceClip(audio, fileName, mime) }, language, description, ct);
+
     /// <summary>
-    /// Clone a voice from one recording. ElevenLabs: instant voice cloning (counts against the
-    /// plan's voice slots). VoiceStudio: a <c>clone</c> voice profile on the self-hosted server.
+    /// Clone a voice from one or more recordings. ElevenLabs: instant voice cloning with every clip
+    /// as a sample (≤ 25; counts against the plan's voice slots). VoiceStudio: a <c>clone</c> voice
+    /// profile — it takes ONE reference clip, so the first is used.
     /// </summary>
-    public async Task<VoiceCloneResult> CloneVoiceAsync(string provider, string name, byte[] audio, string fileName,
-        string mime, string language, string description, CancellationToken ct = default)
+    public async Task<VoiceCloneResult> CloneVoiceAsync(string provider, string name, IReadOnlyList<VoiceClip> clips,
+        string language, string description, CancellationToken ct = default)
     {
-        if (audio.Length == 0) return VoiceCloneResult.Fail("empty recording");
-        var file = new ByteArrayContent(audio);
-        file.Headers.ContentType = new MediaTypeHeaderValue(Blank(mime) ? "audio/webm" : mime.Split(';')[0].Trim());
-        var fname = Blank(fileName) ? "sample.webm" : fileName;
+        clips = clips.Where(c => c.Audio.Length > 0).ToList();
+        if (clips.Count == 0) return VoiceCloneResult.Fail("empty recording");
+        if (clips.Count > MaxCloneClips) return VoiceCloneResult.Fail($"at most {MaxCloneClips} recordings per voice");
+        static ByteArrayContent Part(VoiceClip c)
+        {
+            var part = new ByteArrayContent(c.Audio);
+            part.Headers.ContentType = new MediaTypeHeaderValue(Blank(c.Mime) ? "audio/webm" : c.Mime.Split(';')[0].Trim());
+            return part;
+        }
+        static string NameOf(VoiceClip c, int i) => Blank(c.FileName) ? $"sample-{i + 1}.webm" : c.FileName;
         using var form = new MultipartFormDataContent();
         HttpRequestMessage req;
         string label;
@@ -163,7 +181,7 @@ public partial class SpeechClient
             form.Add(new StringContent("clone"), "kind");
             // VoiceStudio detects the language itself; its own names are "English", "Malay"…
             form.Add(new StringContent("Auto"), "language");
-            form.Add(file, "ref_audio", fname);
+            form.Add(Part(clips[0]), "ref_audio", NameOf(clips[0], 0));
             req = new HttpRequestMessage(HttpMethod.Post, $"{VoiceStudioBaseUrl}/profiles") { Content = form };
             if (VoiceStudioKey.Length > 0) req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", VoiceStudioKey);
         }
@@ -174,7 +192,7 @@ public partial class SpeechClient
             form.Add(new StringContent(name), "name");
             if (!Blank(description)) form.Add(new StringContent(description), "description");
             form.Add(new StringContent(JsonSerializer.Serialize(new { language })), "labels");
-            form.Add(file, "files", fname);
+            for (var i = 0; i < clips.Count; i++) form.Add(Part(clips[i]), "files", NameOf(clips[i], i));
             req = new HttpRequestMessage(HttpMethod.Post, $"{ElevenBase}/v1/voices/add") { Content = form };
             req.Headers.Add("xi-api-key", ElevenLabsKey);
         }

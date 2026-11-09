@@ -518,11 +518,11 @@ public static class CallsVoiceEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- POST /api/voice/clone ------------------------------------------
-        // multipart/form-data (name, language, persona, gender, audio, provider).
-        // provider = elevenlabs (instant voice cloning, uses a voice slot) |
-        // voicestudio (a profile on the self-hosted VoiceStudio); empty = the
-        // first one set up. The clone lands in data/voices.json with the
-        // provider's id kept server-side (never in the payload).
+        // multipart/form-data (name, language, persona, gender, provider, audio×1..25).
+        // provider = elevenlabs (instant voice cloning — every clip a sample, uses a
+        // voice slot) | voicestudio (a profile on the self-hosted VoiceStudio — it
+        // takes ONE reference clip, the first); empty = the first one set up. The
+        // clone lands in data/voices.json with the provider's id kept server-side.
         app.MapPost("/api/voice/clone", async (HttpContext ctx, IConfiguration config,
             ChatBranch.Data.Ai.Voice.SpeechClient speech) =>
         {
@@ -533,72 +533,71 @@ public static class CallsVoiceEndpoints
             try { form = await ctx.Request.ReadFormAsync(); }
             catch { return Bad("Malformed multipart upload."); }
 
-            var name = form["name"].ToString().Trim();
-            var language = form["language"].ToString().Trim();
-            var audio = form.Files["audio"];
-            if (name.Length == 0 || audio == null || language is not ("en" or "ms" or "zh"))
-                return Bad("name, audio, and language (en/ms/zh) are required.");
-            if (audio.Length > 10 * 1024 * 1024)
-                return Bad("audio too large (max 10 MB).");
-            if (!(audio.ContentType ?? "").StartsWith("audio/", StringComparison.OrdinalIgnoreCase)
-                && !(audio.ContentType ?? "").StartsWith("video/webm", StringComparison.OrdinalIgnoreCase))
-                return Bad("audio must be an audio file.");
-            var persona = form["persona"].ToString().Trim();
-            if (!ValidPersonas.Contains(persona)) persona = ValidPersonas[0];
-            var gender = form["gender"].ToString().Trim();
-
-            var ready = speech.CloneProviders();
-            var provider = form["provider"].ToString().Trim().ToLowerInvariant();
-            if (provider.Length == 0) provider = ready.FirstOrDefault() ?? "";
-            if (provider.Length == 0)
-                return Unavailable("Voice cloning needs ElevenLabs (an API key) or VoiceStudio (its address) — "
-                    + "set one in Settings → AI keys & models.", 503);
-            if (provider is not ("elevenlabs" or "voicestudio"))
-                return Bad("provider must be elevenlabs or voicestudio.");
-            if (!ready.Contains(provider))
-                return Unavailable(provider == "voicestudio"
-                    ? "VoiceStudio is not set up (Settings → AI keys & models → VoiceStudio address)."
-                    : "No ElevenLabs API key (Settings → AI keys & models).", 503);
-
-            byte[] bytes;
-            using (var ms = new MemoryStream())
+            var files = form.Files.GetFiles("audio");
+            if (files.Count == 0) return Bad("name, audio, and language (en/ms/zh) are required.");
+            if (files.Count > ChatBranch.Data.Ai.Voice.SpeechClient.MaxCloneClips)
+                return Bad($"At most {ChatBranch.Data.Ai.Voice.SpeechClient.MaxCloneClips} recordings per voice.");
+            var clips = new List<ChatBranch.Data.Ai.Voice.VoiceClip>();
+            foreach (var audio in files)
             {
+                if (audio.Length > MaxClipBytes) return Bad($"{audio.FileName}: too large (max 10 MB per recording).");
+                if (!IsAudio(audio.ContentType)) return Bad($"{audio.FileName}: not an audio file.");
+                using var ms = new MemoryStream();
                 await audio.CopyToAsync(ms, ctx.RequestAborted);
-                bytes = ms.ToArray();
+                clips.Add(new(ms.ToArray(), audio.FileName, audio.ContentType ?? ""));
             }
-            var made = await speech.CloneVoiceAsync(provider, name, bytes, audio.FileName, audio.ContentType ?? "",
-                language, $"ChatBranch voice clone ({persona})", ctx.RequestAborted);
-            if (!made.Ok)
-                return Results.Json(new { detail = $"Clone failed: {made.Detail}" }, statusCode: 502);
-
-            var record = new JsonObject
-            {
-                ["id"] = $"custom-{Guid.NewGuid():N}"[..19],
-                ["name"] = name,
-                ["language"] = language,
-                ["persona"] = persona,
-                ["provider"] = provider,
-                ["status"] = "ready",
-                ["custom"] = true,
-                ["tag"] = "Cloned",
-                ["gender"] = "",
-                ["accent"] = provider == "voicestudio" ? "VoiceStudio clone" : "ElevenLabs clone",
-                [provider == "voicestudio" ? "remoteVoiceId" : "elevenVoiceId"] = made.RemoteId,
-                ["createdAt"] = DateTime.UtcNow.ToString("o"),
-            };
-            if (gender.Length > 0) record["gender"] = gender;   // else the "" above
-            var doc = LoadVoicesDoc(config);
-            ((JsonArray)doc["voices"]!).Add(record);
-            try { SaveVoicesDoc(config, doc); }
-            catch (Exception e)
-            {
-                // don't leave a paid-for clone nobody can see or delete
-                await speech.DeleteRemoteVoiceAsync(provider, made.RemoteId);
-                return Unavailable($"Could not write the voice registry: {e.Message}", 503);
-            }
-            return Results.Ok(new { voice = ClientView(record) });
+            return await CloneAsync(config, speech, form["name"].ToString(), form["language"].ToString(),
+                form["persona"].ToString(), form["gender"].ToString(), form["provider"].ToString(), clips,
+                ctx.RequestAborted);
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage")
           .OrgWideAction();   // the organization's voice library (Voice & calls)
+
+        // ---- POST /api/voice/clone-from -------------------------------------
+        // The same clone, from recordings referenced instead of uploaded — what an MCP
+        // client or the assistant can send without spelling audio out as base64:
+        // {name, language, persona?, gender?, provider?, consent: true,
+        //  sources: [{media_url | source_message_id | file_id | file_base64 + file_name}]}.
+        // Each source is read by the SAME reader send-file uses (scope-checked: a
+        // message id is not a key to another outlet's voice notes). `consent` must be
+        // true: cloning a real person's voice needs that person's agreement.
+        app.MapPost("/api/voice/clone-from", async (JsonElement body, HttpContext ctx, IConfiguration config,
+            ChatBranch.Data.Ai.Voice.SpeechClient speech, AppDbContext db, ScopingService sc, MediaStore media,
+            VoiceAgentBridge bridge, IRemoteMediaFetcher fetcher) =>
+        {
+            if (body.ValueKind != JsonValueKind.Object) return Bad("A JSON object is required.");
+            string S(string k) => body.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+            if (!(body.TryGetProperty("consent", out var consent) && consent.ValueKind == JsonValueKind.True))
+                return Results.Json(new
+                {
+                    detail = "Cloning a voice needs the speaker's consent — confirm the person whose voice this is "
+                             + "agreed, then send consent: true.",
+                    code = "consent_required",
+                }, statusCode: 422);
+            if (!body.TryGetProperty("sources", out var sources) || sources.ValueKind != JsonValueKind.Array
+                || sources.GetArrayLength() == 0)
+                return Bad("sources is required: a list of {media_url | source_message_id | file_id | file_base64 + file_name}.");
+            if (sources.GetArrayLength() > ChatBranch.Data.Ai.Voice.SpeechClient.MaxCloneClips)
+                return Bad($"At most {ChatBranch.Data.Ai.Voice.SpeechClient.MaxCloneClips} recordings per voice.");
+
+            var me = ctx.User;
+            var clips = new List<ChatBranch.Data.Ai.Voice.VoiceClip>();
+            var n = 0;
+            foreach (var src in sources.EnumerateArray())
+            {
+                n++;
+                if (src.ValueKind != JsonValueKind.Object) return Bad($"sources[{n - 1}] must be an object.");
+                var loaded = await MessagingSendFileEndpoints.ReadFileAsync(src, db, sc, me, media, bridge, fetcher,
+                    MaxClipBytes, ctx.RequestAborted);
+                if (loaded.Error != null) return loaded.Error;
+                var f = loaded.File!;
+                if (!IsAudio(f.Mime) && f.Kind != "audio")
+                    return Bad($"sources[{n - 1}] ({f.FileName}) is not an audio file.");
+                clips.Add(new(f.Content, f.FileName, f.Mime));
+            }
+            return await CloneAsync(config, speech, S("name"), S("language"), S("persona"), S("gender"),
+                S("provider"), clips, ctx.RequestAborted);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage")
+          .OrgWideAction();
 
         // ---- POST /api/voice/import -----------------------------------------
         // Import copies an existing ElevenLabs voice into the local registry.
@@ -735,6 +734,82 @@ public static class CallsVoiceEndpoints
             return Results.Ok(new { deleted = voiceId });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage")
           .OrgWideAction();   // the organization's voice library (Voice & calls)
+    }
+
+    private const long MaxClipBytes = 10 * 1024 * 1024;
+
+    private static bool IsAudio(string? contentType)
+    {
+        var ct = (contentType ?? "").ToLowerInvariant();
+        // browsers record webm/mp4 containers; a phone's voice memo is often video/mp4 or m4a
+        return ct.StartsWith("audio/") || ct.StartsWith("video/webm") || ct.StartsWith("video/mp4")
+               || ct.StartsWith("video/ogg") || ct == "application/ogg";
+    }
+
+    /// <summary>
+    /// Clone a voice from the clips both clone routes gathered and file it in voices.json.
+    /// One place, so the upload and the by-reference route cannot drift.
+    /// </summary>
+    private static async Task<IResult> CloneAsync(IConfiguration config, ChatBranch.Data.Ai.Voice.SpeechClient speech,
+        string name, string language, string persona, string gender, string provider,
+        List<ChatBranch.Data.Ai.Voice.VoiceClip> clips, CancellationToken ct)
+    {
+        name = name.Trim();
+        language = language.Trim();
+        if (name.Length == 0 || clips.Count == 0 || language is not ("en" or "ms" or "zh"))
+            return Bad("name, audio, and language (en/ms/zh) are required.");
+        persona = persona.Trim();
+        if (!ValidPersonas.Contains(persona)) persona = ValidPersonas[0];
+        gender = gender.Trim();
+
+        var ready = speech.CloneProviders();
+        provider = provider.Trim().ToLowerInvariant();
+        if (provider.Length == 0) provider = ready.FirstOrDefault() ?? "";
+        if (provider.Length == 0)
+            return Unavailable("Voice cloning needs ElevenLabs (an API key) or VoiceStudio (its address) — "
+                + "set one in Settings → AI keys & models.", 503);
+        if (provider is not ("elevenlabs" or "voicestudio"))
+            return Bad("provider must be elevenlabs or voicestudio.");
+        if (!ready.Contains(provider))
+            return Unavailable(provider == "voicestudio"
+                ? "VoiceStudio is not set up (Settings → AI keys & models → VoiceStudio address)."
+                : "No ElevenLabs API key (Settings → AI keys & models).", 503);
+
+        var made = await speech.CloneVoiceAsync(provider, name, clips, language,
+            $"ChatBranch voice clone ({persona})", ct);
+        if (!made.Ok)
+            return Results.Json(new { detail = $"Clone failed: {made.Detail}" }, statusCode: 502);
+
+        var record = new JsonObject
+        {
+            ["id"] = $"custom-{Guid.NewGuid():N}"[..19],
+            ["name"] = name,
+            ["language"] = language,
+            ["persona"] = persona,
+            ["provider"] = provider,
+            ["status"] = "ready",
+            ["custom"] = true,
+            ["tag"] = "Cloned",
+            ["gender"] = gender,
+            ["accent"] = provider == "voicestudio" ? "VoiceStudio clone" : "ElevenLabs clone",
+            [provider == "voicestudio" ? "remoteVoiceId" : "elevenVoiceId"] = made.RemoteId,
+            // VoiceStudio uses one reference clip — say so rather than pretend all were used
+            ["samples"] = provider == "voicestudio" ? 1 : clips.Count,
+            ["createdAt"] = DateTime.UtcNow.ToString("o"),
+        };
+        var doc = LoadVoicesDoc(config);
+        ((JsonArray)doc["voices"]!).Add(record);
+        try { SaveVoicesDoc(config, doc); }
+        catch (Exception e)
+        {
+            // don't leave a paid-for clone nobody can see or delete
+            await speech.DeleteRemoteVoiceAsync(provider, made.RemoteId);
+            return Unavailable($"Could not write the voice registry: {e.Message}", 503);
+        }
+        var view = ClientView(record);
+        view["samples_used"] = provider == "voicestudio" ? 1 : clips.Count;
+        view["samples_given"] = clips.Count;
+        return Results.Ok(new { voice = view });
     }
 
     /// <summary>Loose string read off a raw JSON body (numbers/bools included).</summary>
