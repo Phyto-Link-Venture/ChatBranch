@@ -86,10 +86,37 @@ public static partial class ToolCatalog
             "GET", "/api/messaging/threads/{channel}/{key}", view, thread: true, wa: "/api/whatsapp/threads/{key}",
             args: new[] { A.Limit(20, 100) }, shape: ThreadStateShape);
 
-        yield return T(g, "conversations_list_messages", "Page through messages",
-            "Messages of one conversation, newest page first; pass before (a message id) for the page before it.",
-            "GET", "/api/whatsapp/threads/{channel}/{key}/messages", view, thread: true,
-            args: new[] { A.Limit(50, 200), A.Int("before", "Only messages older than this message id.") });
+        yield return Custom(g, "conversations_list_messages", "Page through messages",
+            "Messages of one conversation, newest page first; pass before (a message id) for the page before it. " +
+            "Each attachment is described; voice notes carry their transcript (made now when missing) and the " +
+            "page's newest pictures are attached as images. conversations_get_media opens any one file.",
+            new[] { "GET /api/whatsapp/threads/{channel}/{key}/messages" }, ListMessagesAsync, view,
+            new[]
+            {
+                A.Str("channel", "Conversation channel.", req: true, oneOf: EndpointTool.ChannelNames),
+                A.Str("key", "Conversation key.", req: true),
+                A.Int("thread_id", ToolScope.ThreadIdHelp),
+                A.Str("company", ToolScope.CompanyHelp),
+                A.Limit(50, 200),
+                A.Int("before", "Only messages older than this message id."),
+                A.Bool("include_media", "Transcribe voice notes and attach the newest pictures (default true; false = words only)."),
+                A.Int("max_images", "How many of the page's newest pictures to attach (0–8, default 4)."),
+            }, write: false);
+
+        yield return Custom(g, "conversations_get_media", "Open a message's attachment",
+            "Open the file on one message (pk from get_conversation / conversations_list_messages): a picture comes " +
+            "back as an image, a voice note or audio file as its transcript (made now when missing), a PDF / Word / " +
+            "Excel / PowerPoint / CSV file as its text (a scanned PDF as images of its first pages), a video as one " +
+            "still frame.",
+            new[] { "GET /api/whatsapp/media/{id:int}", "GET /api/messaging/media/{id:int}" }, GetMediaAsync, view,
+            new[]
+            {
+                A.Str("channel", "Conversation channel.", req: true, oneOf: EndpointTool.ChannelNames),
+                A.Str("key", "Conversation key.", req: true),
+                A.Int("thread_id", ToolScope.ThreadIdHelp),
+                A.Str("company", ToolScope.CompanyHelp),
+                A.Int("pk", "The message's pk.", req: true),
+            }, write: false);
 
         yield return Custom(g, "conversations_start", "Start a conversation",
             "Open (or find) the conversation with an address on a channel so you can message it: a WhatsApp/SMS " +
@@ -445,6 +472,25 @@ public static partial class ToolCatalog
             holder["messages"] = recent;
         }
         return ToolResults.Compact(JsonSerializer.SerializeToElement(node));
+    }
+
+    private static async Task<object?> ListMessagesAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
+    {
+        var t = await ToolScope.FindThreadAsync(ctx, Need(a, "channel"), Need(a, "key"), I(a, "thread_id"), S(a, "company"));
+        var limit = Math.Clamp(I(a, "limit") ?? 50, 1, 200);
+        var msgs = ctx.Services.GetRequiredService<ThreadStore>().GetMessages(t, limit, I(a, "before"));
+        var (shaped, shown) = await MessageMedia.ShapeAsync(ctx, t, msgs, B(a, "include_media") != false,
+            I(a, "max_images") ?? MessageMedia.DefaultImages, ct);
+        return new { channel = t.Channel, key = t.Key, thread_id = t.Id, images_attached = shown, messages = shaped };
+    }
+
+    private static async Task<object?> GetMediaAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
+    {
+        var t = await ToolScope.FindThreadAsync(ctx, Need(a, "channel"), Need(a, "key"), I(a, "thread_id"), S(a, "company"));
+        var pk = I(a, "pk") ?? throw new ToolException("'pk' is required — the message's pk from the message list.");
+        var m = await ctx.Db.Messages.AsNoTracking().FirstOrDefaultAsync(x => x.Id == pk && x.ThreadId == t.Id, ct)
+                ?? throw new ToolException($"No message {pk} in {t.Channel}:{t.Key}.", 404);
+        return await MessageMedia.OpenAsync(ctx, t, m, ct);
     }
 
     private static async Task<object?> StartConversationAsync(ToolContext ctx, JsonElement a, CancellationToken ct)

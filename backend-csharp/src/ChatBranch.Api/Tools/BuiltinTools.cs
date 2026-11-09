@@ -354,7 +354,9 @@ public static class BuiltinTools
         public override string Title => "Read a conversation";
         public override string Description =>
             "One conversation with its most recent messages (oldest first), including private " +
-            "notes, plus its status, assignee, labels and linked contact.";
+            "notes, plus its status, assignee, labels and linked contact. Attachments are described on each " +
+            "message; voice notes come with their transcript (made now if missing) and the newest pictures " +
+            "are attached as images — conversations_get_media opens any other file (documents as text).";
         public override string? Capability => "chats.view";
         public override string Domain => "conversations";
         protected override string Schema => """
@@ -362,7 +364,9 @@ public static class BuiltinTools
           "channel":{"type":"string","description":"whatsapp, email, facebook, instagram, telegram or website."},
           "key":{"type":"string","description":"The conversation key (WhatsApp number, email address, chat id…)."},
           "thread_id":{"type":"integer","description":"Which conversation, when this customer has one with more than one company (as the conversation tools return it)."},"company":{"type":"string","description":"Or that company's id or slug (one conversation per customer per company)."},
-          "limit":{"type":"integer","minimum":1,"maximum":100,"default":20}},
+          "limit":{"type":"integer","minimum":1,"maximum":100,"default":20},
+          "include_media":{"type":"boolean","default":true,"description":"Transcribe voice notes and attach the newest pictures as images. false = words only (faster)."},
+          "max_images":{"type":"integer","minimum":0,"maximum":8,"default":4,"description":"How many of the newest pictures to attach."}},
          "required":["channel","key"]}
         """;
         public override string Summarize(JsonElement a) => $"Read conversation {Str(a, "channel")}:{Str(a, "key")}";
@@ -372,6 +376,8 @@ public static class BuiltinTools
             var t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"), Int(a, "thread_id"), Str(a, "company"));
             var store = ctx.Services.GetRequiredService<ThreadStore>();
             var msgs = store.GetMessages(t, Limit(a, 20, 100));
+            var (shaped, shown) = await MessageMedia.ShapeAsync(ctx, t, msgs, Bool(a, "include_media") != false,
+                Int(a, "max_images") ?? MessageMedia.DefaultImages, ct);
             ctx.Links.Add(new ToolLink($"Open {(t.Name.Length > 0 ? t.Name : t.Key)}", ChatHref(t.Channel, t.Key, t.Id)));
             return new
             {
@@ -386,14 +392,8 @@ public static class BuiltinTools
                 labels = t.Labels,
                 opted_out = t.OptedOut,
                 contact = t.Contact == null ? null : new { id = t.Contact.Id, name = t.Contact.Name },
-                messages = msgs.Select(m => new
-                {
-                    id = m.Id,
-                    from = m.Private ? "note" : m.Direction == MessageDirection.In ? "customer" : m.Source,
-                    text = Clip(m.Text, 1200),
-                    status = m.Status,
-                    at = Iso(m.CreatedAt),
-                }),
+                images_attached = shown,
+                messages = shaped,
             };
         }
     }

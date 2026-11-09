@@ -91,6 +91,54 @@ public class VoiceTranscriber
         catch { return 0; }
     }
 
+    /// <summary>Is there a speech-to-text engine at all (a provider set and the media folder known)?</summary>
+    public bool Available => _media != null && _speech.SttProvider.Length > 0;
+
+    /// <summary>
+    /// ON DEMAND: transcribe these messages of <paramref name="thread"/> — audio with a file
+    /// and no transcript, either direction (a customer's note or an operator's recording) —
+    /// for a reader who asked to see them (the MCP read tools). Same engine, quota check,
+    /// metering and stored <c>Message.Transcript</c> as the chatbot's lazy pass, so each
+    /// note is transcribed once whoever reads it first. Returns message id → transcript for
+    /// the ones done now. Never throws.
+    /// </summary>
+    public async Task<Dictionary<int, string>> TranscribeMessagesAsync(Thread thread, IEnumerable<int> messageIds,
+        TimeSpan? timeout = null, CancellationToken ct = default)
+    {
+        var done = new Dictionary<int, string>();
+        try
+        {
+            if (!Available) return done;
+            var ids = messageIds.Distinct().ToList();
+            if (ids.Count == 0) return done;
+            var todo = await _db.Messages
+                .Where(m => m.ThreadId == thread.Id && ids.Contains(m.Id) && m.RecalledAt == null
+                            && m.MediaType == "audio" && m.MediaPath != "" && m.Transcript == "")
+                .OrderBy(m => m.Id).ToListAsync(ct);
+            if (todo.Count == 0) return done;
+            try
+            {
+                if (AiQuota.EntityBlock(_db, _scoping, thread.EntityId) != null) return done;
+            }
+            catch { /* fail open */ }
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(timeout ?? TimeSpan.FromSeconds(25));
+            foreach (var m in todo)
+            {
+                if (cts.IsCancellationRequested) break;
+                try
+                {
+                    if (await TranscribeAsync(thread, m, cts.Token)) done[m.Id] = m.Transcript;
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { break; }
+            }
+            return done;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch { return done; }
+    }
+
     private async Task<bool> TranscribeAsync(Thread thread, Message m, CancellationToken ct)
     {
         var full = _media!.Resolve(thread.Channel, m.MediaPath);

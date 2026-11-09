@@ -226,7 +226,7 @@ conversation route.
 | `contacts_decide_access_request` | Approve or deny a contact access request | write | `contacts.manage` |
 | `contacts_cancel_access_request` | Cancel your contact access request | write | `contacts.manage` or `chats.send` |
 
-#### conversations (37)
+#### conversations (38)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -240,6 +240,7 @@ conversation route.
 | `conversations_list_needing_human` | List conversations needing a human | read | `chats.view` |
 | `conversations_get_state` | Get a conversation's state | read | `chats.view` |
 | `conversations_list_messages` | Page through messages | read | `chats.view` |
+| `conversations_get_media` | Open a message's attachment | read | `chats.view` |
 | `conversations_start` | Start a conversation | write | `chats.send` |
 | `conversations_notify` | Send a transactional message | write | `chats.send` |
 | `conversations_send_template` | Send a WhatsApp template | write · open-world | `chats.send` |
@@ -711,8 +712,6 @@ conversation route.
 | `POST /api/assistant/confirm` | Ask ChatBranch itself (chat / confirm / cancel) — a tool calling the assistant would recurse |
 | `POST /api/assistant/cancel` | Ask ChatBranch itself (chat / confirm / cancel) — a tool calling the assistant would recurse |
 | `GET /api/whatsapp/stream` | server-sent event stream (the inbox's live change token) — MCP here is request/response; poll the list tools |
-| `GET /api/whatsapp/media/{id:int}` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
-| `GET /api/messaging/media/{id:int}` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `GET /api/messaging/messages/{id:int}/email` | the inbox's mail-app view — cleaned HTML for a sandboxed frame; tools read the same mail's text with conversations_list_messages |
 | `GET /api/calls/recording/{callId}` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `GET /api/whatsapp/calls/recording/{name}` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |

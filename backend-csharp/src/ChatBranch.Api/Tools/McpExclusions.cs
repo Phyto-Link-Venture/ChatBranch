@@ -148,8 +148,6 @@ public static class McpExclusions
 
         // ---- binary, streaming, exports -------------------------------------
         new("GET", "/api/whatsapp/stream", "server-sent event stream (the inbox's live change token) — MCP here is request/response; poll the list tools"),
-        new("GET", "/api/whatsapp/media/{id:int}", Binary),
-        new("GET", "/api/messaging/media/{id:int}", Binary),
         new("GET", "/api/messaging/messages/{id:int}/email", MailView),
         new("GET", "/api/calls/recording/{callId}", Binary),
         new("GET", "/api/whatsapp/calls/recording/{name}", Binary),

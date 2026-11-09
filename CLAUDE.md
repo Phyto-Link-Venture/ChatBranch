@@ -863,7 +863,20 @@ When you fix one of these, update this table, `README.md` and
   refused for writes, the entity check on `entity` args, the conversation scope
   check on thread tools, and `"confirm": true` for destructive tools over MCP
   (tool annotations carry read-only / destructive / idempotent hints). Results
-  are compacted, deep-linked and redacted (`ToolResults`). What is NOT a tool
+  are compacted, deep-linked and redacted (`ToolResults`). **Media in results:** a tool can
+  hand back pictures (`ToolContext.Images` → MCP `image` content blocks after the
+  JSON, each behind a one-line label) — the payload's media URLs need the
+  dashboard's session, so a model could never open them. `get_conversation` and
+  `conversations_list_messages` (`Tools/MessageMedia.cs`) describe every
+  attachment, transcribe voice notes ON DEMAND
+  (`VoiceTranscriber.TranscribeMessagesAsync`: same engine, quota, metering and
+  stored transcript as the chatbot's pass — so a chat with the AI off is no longer
+  "[audio]" forever) and attach the page's newest pictures (`max_images`, default
+  4; `include_media: false` = words only); `conversations_get_media(pk)` opens one
+  file — a picture full size, audio as its transcript, PDF / Word / Excel /
+  PowerPoint / CSV as text (a scanned PDF as images of its first pages), a video
+  as one ffmpeg still. Large or non-JPEG/PNG/WebP/GIF pictures are re-encoded by
+  ffmpeg (≤1568 px, ≤1.5 MB each, 6 MB per call). Tests `McpMediaReadTests`. What is NOT a tool
   is in `Tools/McpExclusions.cs` with its reason (credentials, RBAC, key
   minting, binary streams, legacy twins, `/simulate`, the Test lab);
   **`McpCoverageTests` fails on any signed-in `/api` route that is neither**

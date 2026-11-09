@@ -179,6 +179,7 @@ public static class McpServerEndpoints
                     return Error(id, -32602, $"Unknown tool: '{name}'. Call tools/list for the catalogue.");
                 var args = p.TryGetProperty("arguments", out var a) && a.ValueKind == JsonValueKind.Object
                     ? a : JsonDocument.Parse("{}").RootElement;
+                tools.Images.Clear();   // one context serves a whole batch
                 var outcome = await ToolRegistry.ExecuteAsync(tools, name, args, http.RequestAborted);
                 if (!outcome.Ok)
                     return Result(id, new
@@ -189,12 +190,17 @@ public static class McpServerEndpoints
                 var structured = JsonSerializer.SerializeToElement(outcome.Data);
                 if (structured.ValueKind != JsonValueKind.Object)
                     structured = JsonSerializer.SerializeToElement(new { result = structured });
-                return Result(id, new
+                // the JSON first, then each picture as its own image block behind a one-line label
+                var content = new List<object>
                 {
-                    content = new[] { new { type = "text", text = JsonSerializer.Serialize(structured, ToolResults.Wire) } },
-                    structuredContent = structured,
-                    isError = false,
-                });
+                    new { type = "text", text = JsonSerializer.Serialize(structured, ToolResults.Wire) },
+                };
+                foreach (var img in tools.Images)
+                {
+                    content.Add(new { type = "text", text = img.Label });
+                    content.Add(new { type = "image", data = Convert.ToBase64String(img.Data), mimeType = img.Mime });
+                }
+                return Result(id, new { content, structuredContent = structured, isError = false });
             }
             default:
                 return Error(id, -32601, $"Method not found: {method}.");

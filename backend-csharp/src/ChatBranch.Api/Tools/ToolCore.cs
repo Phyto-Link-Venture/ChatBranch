@@ -70,6 +70,15 @@ public sealed class ToolException : Exception
 
 public sealed record ToolLink(string Label, string Href);
 
+/// <summary>
+/// A picture a tool hands back alongside its JSON — a customer's photo, a frame of their
+/// video, a page of a scanned PDF. MCP carries it as an <c>image</c> content block after
+/// the text block, so the calling model SEES it (a media URL would be useless to it: the
+/// file routes need the dashboard's session). <paramref name="Label"/> is the text block
+/// placed just before it ("Image — message 123 from the customer…").
+/// </summary>
+public sealed record ToolImage(string Label, string Mime, byte[] Data);
+
 /// <summary>Who is calling, how (mcp | assistant), and what they may do.</summary>
 public sealed class ToolContext
 {
@@ -83,6 +92,9 @@ public sealed class ToolContext
     public string? EntitySlug { get; init; }
     /// <summary>Navigation suggestions the tools produced (assistant chips).</summary>
     public List<ToolLink> Links { get; } = new();
+    /// <summary>Pictures for the caller to see (<see cref="ToolImage"/>); the MCP server
+    /// sends them as image blocks and clears the list before every call.</summary>
+    public List<ToolImage> Images { get; } = new();
 
     public IServiceProvider Services => Http.RequestServices;
     public AppDbContext Db => Http.RequestServices.GetRequiredService<AppDbContext>();
