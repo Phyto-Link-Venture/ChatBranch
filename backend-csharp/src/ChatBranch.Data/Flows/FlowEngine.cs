@@ -1803,7 +1803,7 @@ public partial class FlowEngine
         else
         {
             var digits = new string(key.Where(char.IsDigit).ToArray());
-            if (digits.Length < 8) return null;
+            if (digits.Length < 9) return null;
             var tail = digits[^9..];
             var hits = _db.Contacts.AsEnumerable().Where(c =>
             {
