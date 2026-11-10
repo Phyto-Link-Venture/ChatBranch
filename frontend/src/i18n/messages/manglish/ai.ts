@@ -22,7 +22,7 @@ export const ai: Overlay<Messages['ai']> = {
     personaHelp: 'Who the AI is and how it talks: your business, its tone, what it helps with. Only one persona applies — the nearest level that has one wins.',
     ownOn: 'This outlet uses its own persona — the one above won’t apply here.',
     ownOff: 'Now following the persona from {source}.',
-    inheritedFrom: 'Coming from {source} — switch on “own persona” if you want to change it here.',
+    inheritedFrom: 'Coming from {source} — pick “Write its own” if you want to change it here.',
     rulesHelp: 'Rules every reply must follow, like “Always be polite” or “Never quote a delivery date”. They stack up: an outlet keeps all the rules above it and can add its own also.',
     onePerLine: 'One rule per line ah.',
     safetyHelp: 'These always come first in every prompt, for every outlet. Personas and house rules sit below them and cannot remove them. Keep the honesty, privacy and hand-off rules — they stop the AI from simply making up prices or leaking data.',
