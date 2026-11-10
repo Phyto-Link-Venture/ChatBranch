@@ -666,14 +666,14 @@ public class ZernioTests : IClassFixture<ZernioFactory>
     public async Task The_key_is_saved_with_the_app_keys_masked_and_the_webhook_registers_with_a_secret()
     {
         var super = await SettingsTestKit.Client(_f, "superadmin", "super123");
-        var save = await super.PostAsJsonAsync("/api/whatsapp/settings", new { zernio_api_key = "sk_test_1234567890abcd" });
+        var save = await super.PostAsJsonAsync("/api/whatsapp/settings", new { zernio_api_key = "sk_test_0123456789abcdef" });
         Assert.Equal(HttpStatusCode.OK, save.StatusCode);
         var masked = (await save.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("zernio_api_key_masked").GetString();
-        Assert.Equal("••••abcd", masked);
-        Assert.Equal("sk_test_1234567890abcd", InDb(db => new ScopingService(db).SettingValue("zernio_api_key")));
+        Assert.Equal("••••cdef", masked);
+        Assert.Equal("sk_test_0123456789abcdef", InDb(db => new ScopingService(db).SettingValue("zernio_api_key")));
 
         var status = await super.GetFromJsonAsync<JsonElement>("/api/zernio/status");
-        Assert.Equal("••••abcd", status.GetProperty("key_masked").GetString());
+        Assert.Equal("••••cdef", status.GetProperty("key_masked").GetString());
         Assert.DoesNotContain("1234567890", status.GetRawText());
 
         InDb(db => { var sc = new ScopingService(db); sc.SetSetting("zernio_webhook_secret", ""); sc.SetSetting("zernio_webhook_id", ""); return 0; });
