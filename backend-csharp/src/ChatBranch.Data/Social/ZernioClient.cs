@@ -95,6 +95,12 @@ public interface IZernioClient
     Task<ZernioReply> ConnectUrlAsync(string platform, string profileId, string redirectUrl, CancellationToken ct = default);
     /// <summary>DELETE /v1/accounts/{accountId}.</summary>
     Task<ZernioReply> DeleteAccountAsync(string accountId, CancellationToken ct = default);
+    /// <summary>PATCH /v1/accounts/{accountId} {profileId} → {message, profileId} (moveAccountToProfile).</summary>
+    Task<ZernioReply> MoveAccountAsync(string accountId, string profileId, CancellationToken ct = default);
+    /// <summary>GET /v1/accounts/{accountId}/facebook-page[?refresh=true] → {pages:[{id, name, username, category}], selectedPageId} (getFacebookPages).</summary>
+    Task<ZernioReply> FacebookPagesAsync(string accountId, bool refresh = false, CancellationToken ct = default);
+    /// <summary>PUT /v1/accounts/{accountId}/facebook-page {selectedPageId} → {selectedPage} (updateFacebookPage).</summary>
+    Task<ZernioReply> SelectFacebookPageAsync(string accountId, string pageId, CancellationToken ct = default);
 
     // ---- webhooks --------------------------------------------------------------
     /// <summary>GET /v1/webhooks/settings → {webhooks:[{_id, url, events…}]}.</summary>
@@ -154,6 +160,9 @@ public sealed class NullZernioClient : IZernioClient
     public Task<ZernioReply> ListAccountsAsync(string? p = null, CancellationToken ct = default) => No();
     public Task<ZernioReply> ConnectUrlAsync(string pl, string p, string r, CancellationToken ct = default) => No();
     public Task<ZernioReply> DeleteAccountAsync(string a, CancellationToken ct = default) => No();
+    public Task<ZernioReply> MoveAccountAsync(string a, string p, CancellationToken ct = default) => No();
+    public Task<ZernioReply> FacebookPagesAsync(string a, bool r = false, CancellationToken ct = default) => No();
+    public Task<ZernioReply> SelectFacebookPageAsync(string a, string p, CancellationToken ct = default) => No();
     public Task<ZernioReply> ListWebhooksAsync(CancellationToken ct = default) => No();
     public Task<ZernioReply> CreateWebhookAsync(string n, string u, string s, IReadOnlyList<string> e, CancellationToken ct = default) => No();
     public Task<ZernioReply> UpdateWebhookAsync(string i, string u, string s, IReadOnlyList<string> e, CancellationToken ct = default) => No();
@@ -298,6 +307,17 @@ public sealed class HttpZernioClient : IZernioClient
 
     public Task<ZernioReply> DeleteAccountAsync(string accountId, CancellationToken ct = default) =>
         CallAsync(HttpMethod.Delete, $"/accounts/{E(accountId)}", null, ct);
+
+    public Task<ZernioReply> MoveAccountAsync(string accountId, string profileId, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Patch, $"/accounts/{E(accountId)}",
+            new Dictionary<string, object?> { ["profileId"] = profileId }, ct);
+
+    public Task<ZernioReply> FacebookPagesAsync(string accountId, bool refresh = false, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Get, $"/accounts/{E(accountId)}/facebook-page" + (refresh ? "?refresh=true" : ""), null, ct);
+
+    public Task<ZernioReply> SelectFacebookPageAsync(string accountId, string pageId, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Put, $"/accounts/{E(accountId)}/facebook-page",
+            new Dictionary<string, object?> { ["selectedPageId"] = pageId }, ct);
 
     public Task<ZernioReply> ListWebhooksAsync(CancellationToken ct = default) =>
         CallAsync(HttpMethod.Get, "/webhooks/settings", null, ct);

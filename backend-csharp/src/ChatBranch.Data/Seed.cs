@@ -376,6 +376,15 @@ public static class Seed
             + "\"name\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL");
         AddUniqueIndexIfMissing(db, "uniq_socialprofile_profile", "crm_socialprofile", "\"profile_id\"", "\"profile_id\" <> ''");
         AddIndexIfMissing(db, "ix_socialprofile_entity", "crm_socialprofile", "\"entity_id\"");
+        AddTableIfMissing(db, "crm_socialpage",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_socialpage\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"account_id\" INTEGER NOT NULL, \"zernio_account_id\" TEXT NOT NULL, \"page_id\" TEXT NOT NULL, "
+            + "\"name\" TEXT NOT NULL, \"username\" TEXT NOT NULL, \"category\" TEXT NOT NULL, "
+            + "\"avatar\" TEXT NOT NULL, \"entity_id\" INTEGER NULL, \"is_selected\" INTEGER NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_socialpage_account_page", "crm_socialpage",
+            "\"zernio_account_id\", \"page_id\"", "\"page_id\" <> ''");
+        AddIndexIfMissing(db, "ix_socialpage_account", "crm_socialpage", "\"account_id\"");
         AddTableIfMissing(db, "crm_socialthread",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_socialthread\" PRIMARY KEY AUTOINCREMENT, "
             + "\"thread_id\" INTEGER NOT NULL, \"kind\" TEXT NOT NULL, \"platform\" TEXT NOT NULL, "

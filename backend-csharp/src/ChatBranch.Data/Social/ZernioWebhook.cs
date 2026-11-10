@@ -93,7 +93,7 @@ public sealed class ZernioWebhook
         if (!known)
         {
             // a profile ChatBranch has not seen (the default one, typically): learn it from a sync
-            var (_, _, _, error) = await _accounts.SyncAsync(ct);
+            var (_, _, _, error) = await _accounts.SyncAsync(ct: ct);
             var mirrored = _accounts.Find(ZernioJson.Str(acct, "accountId"));
             return mirrored != null
                 ? new ZernioOutcome("ok", "account synced")
@@ -127,7 +127,7 @@ public sealed class ZernioWebhook
             var (known, entityId) = _accounts.EntityOfProfile(pid, ZernioJson.Str(p, "externalId"));
             if (known) return _accounts.Upsert(acct, entityId, pid);
         }
-        await _accounts.SyncAsync(ct);
+        await _accounts.SyncAsync(ct: ct);
         return _accounts.Find(id);
     }
 

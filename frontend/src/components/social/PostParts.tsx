@@ -5,7 +5,7 @@
 import { AlertCircle, CalendarClock, ExternalLink, Loader2, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
-import { accountHandle, platformId, platformLabel, type SocialAccount, type SocialPost } from '@/lib/social'
+import { platformId, platformLabel, targetAccountId, targetName, type SocialAccount, type SocialPost } from '@/lib/social'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 
 export const STATUS_META: Record<string, { lbl: MessageKey; cls: string; dot: string }> = {
@@ -53,7 +53,7 @@ export function PostCard({
     ...new Set(
       (post.platforms && post.platforms.length
         ? post.platforms
-        : (post.account_ids ?? []).map((id) => accounts.find((a) => a.id === id)?.platform ?? '')
+        : (post.account_ids ?? []).map((id) => accounts.find((a) => a.id === targetAccountId(id))?.platform ?? '')
       )
         .filter(Boolean)
         .map(platformId),
@@ -61,10 +61,7 @@ export function PostCard({
   ]
   const results = post.results ?? []
   const media = post.media ?? []
-  const accountName = (id?: string | null) => {
-    const a = id ? accounts.find((x) => x.id === id) : undefined
-    return a ? accountHandle(a) : null
-  }
+  const accountName = (id?: string | null, pageId?: string | null) => (id ? targetName(accounts, id, pageId) : null)
 
   return (
     <article className="flex flex-col gap-2 rounded-xl border border-line bg-card p-3.5">
@@ -110,7 +107,7 @@ export function PostCard({
           {results.map((r, i) => (
             <li key={`${r.account_id ?? i}`} className="flex flex-wrap items-center gap-1.5 text-[12px]">
               <ChannelLogo channel={platformId(r.platform) || 'social'} size={12} title="" />
-              <span className="font-semibold text-text-high">{accountName(r.account_id) ?? platformLabel(r.platform)}</span>
+              <span className="font-semibold text-text-high">{accountName(r.account_id, r.page_id) ?? platformLabel(r.platform)}</span>
               {r.status && <PostStatusChip status={r.status} />}
               {r.url && (
                 <a href={r.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-semibold text-brand-300 hover:underline">

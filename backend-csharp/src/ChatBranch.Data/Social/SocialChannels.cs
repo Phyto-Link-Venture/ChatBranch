@@ -154,6 +154,22 @@ public static class SocialChannels
 
     public static string KindOf(string? key) => ParseKey(key).Kind;
 
+    // ---- post targets ----------------------------------------------------------------
+
+    /// <summary>
+    /// A post target: <c>"&lt;accountId&gt;"</c>, or <c>"&lt;accountId&gt;:&lt;pageId&gt;"</c> for one
+    /// Facebook Page of a facebook account (Zernio account ids never contain ':').
+    /// </summary>
+    public static (string AccountId, string PageId) ParseTarget(string? entry)
+    {
+        var raw = (entry ?? "").Trim();
+        var i = raw.IndexOf(':');
+        return i < 0 ? (raw, "") : (raw[..i].Trim(), raw[(i + 1)..].Trim());
+    }
+
+    public static string Target(string accountId, string pageId) =>
+        string.IsNullOrEmpty(pageId) ? accountId : $"{accountId}:{pageId}";
+
     // ---- accounts ------------------------------------------------------------------
 
     public const string PlatformKey = "platform";
@@ -164,6 +180,8 @@ public static class SocialChannels
     public const string ProfileIdKey = "zernio_profile_id";
     /// <summary>"connected" | "disconnected" | "removed" (Zernio's view of the account).</summary>
     public const string StatusKey = "zernio_status";
+    /// <summary>When the account was last moved to another profile from ChatBranch (ISO, UTC).</summary>
+    public const string MovedAtKey = "zernio_moved_at";
 
     public static string Cfg(ChannelAccount a, string key) =>
         a.Config != null && a.Config.TryGetValue(key, out var v) && v != null ? v.ToString() ?? "" : "";

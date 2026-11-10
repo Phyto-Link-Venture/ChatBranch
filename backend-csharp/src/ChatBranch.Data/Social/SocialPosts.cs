@@ -60,6 +60,8 @@ public static class SocialPosts
                 results.Add(new Dictionary<string, object?>
                 {
                     ["account_id"] = ZernioJson.Id(ZernioJson.At(t, "accountId")),
+                    // a Facebook Page target (one account, several Pages)
+                    ["page_id"] = ZernioJson.Str(t, "platformSpecificData", "pageId") is { Length: > 0 } pg ? pg : null,
                     ["platform"] = platform,
                     ["status"] = ZernioJson.Str(t, "status"),
                     ["url"] = url,

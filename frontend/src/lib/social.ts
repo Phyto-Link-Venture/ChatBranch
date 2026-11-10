@@ -42,11 +42,37 @@ export interface SocialMeta {
   author?: SocialAuthor | null
 }
 
-/** GET /api/social/accounts row. */
+/** One Facebook Page of a `facebook` account (GET /api/social/accounts → `pages`). */
+export interface SocialPage {
+  /** The Facebook Page id. */
+  id: string
+  /** The post target for it: "<account id>:<page id>". */
+  target: string
+  name?: string | null
+  username?: string | null
+  category?: string | null
+  avatar?: string | null
+  /** The Page's own outlet binding; null = it follows the account's level. */
+  entity_id?: number | null
+  /** Where it publishes: its own outlet, else the account's (null = organization). */
+  effective_entity_id?: number | null
+  entity_slug?: string | null
+  entity_name?: string | null
+  /** Zernio's selected Page — the one whose comments and messages reach the inbox. */
+  selected?: boolean | null
+}
+
+/** GET /api/social/accounts row (also the answer of PATCH …/accounts/{id} and …/pages/{pageId}). */
 export interface SocialAccount {
   /** The Zernio account id. */
   id: string
   platform: string
+  /** The outlet it is bound to (null = organization level — every outlet may use it). */
+  entity_id?: number | null
+  entity_slug?: string | null
+  entity_name?: string | null
+  /** facebook only: the Pages it can post to (only those the current outlet view may use). */
+  pages?: SocialPage[] | null
   username?: string | null
   display_name?: string | null
   avatar?: string | null
@@ -67,6 +93,8 @@ export interface PostMedia {
 
 export interface PostResult {
   account_id?: string | null
+  /** A Facebook Page target's page id. */
+  page_id?: string | null
   platform?: string | null
   status?: string | null
   url?: string | null
@@ -158,6 +186,18 @@ export const platformLabel = (p: string | null | undefined): string => {
 /** "@username", or the display name when there is no handle. */
 export const accountHandle = (a: Pick<SocialAccount, 'username' | 'display_name'>): string =>
   a.username ? (a.username.startsWith('@') ? a.username : `@${a.username}`) : a.display_name || '—'
+
+/** The account part of a post target ("<account id>" or "<account id>:<page id>"). */
+export const targetAccountId = (target: string): string => target.split(':')[0]
+
+/** A post target's display name: the Facebook Page's name, else the account's handle. */
+export function targetName(accounts: SocialAccount[], target: string, pageId?: string | null): string | null {
+  const [acct, page = pageId ?? ''] = target.split(':')
+  const a = accounts.find((x) => x.id === acct)
+  if (!a) return null
+  const p = page ? a.pages?.find((x) => x.id === page) : undefined
+  return p?.name || accountHandle(a)
+}
 
 /* ---------------------------------------------------------------- calls */
 

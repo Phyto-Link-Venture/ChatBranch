@@ -31,7 +31,8 @@ public sealed class SocialSyncClock
 ///         registration: <c>app_keys.manage</c> (superadmin by default).</item>
 ///   <item><c>POST /api/zernio/webhook</c> — anonymous; the HMAC signature IS the auth (no secret ⇒ 503,
 ///         bad ⇒ 401), deduped on the event id.</item>
-///   <item><c>/api/social/*</c> — accounts (<c>social.view</c> / <c>social.manage</c>), posts
+///   <item><c>/api/social/*</c> — accounts (<c>social.view</c> / <c>social.manage</c>; PATCH binds one to an
+///         entity by moving it to that entity's Zernio profile), posts
 ///         (<c>social.view</c> / <c>social.publish</c>) and the comment actions (the thread's <c>chats.send</c>).</item>
 /// </list>
 /// Not configured ⇒ 409 <c>{code: "zernio_not_configured"}</c> on everything that needs Zernio.
@@ -247,14 +248,25 @@ public static class SocialEndpoints
             if (refresh is "1" or "true" || DateTime.UtcNow - clock.LastSync > TimeSpan.FromSeconds(60))
             {
                 clock.LastSync = DateTime.UtcNow;
-                try { await accounts.SyncAsync(); } catch { /* the mirror still answers */ }
+                try { await accounts.SyncAsync(refreshPages: refresh is "1" or "true"); }
+                catch { /* the mirror still answers */ }
             }
             var (filter, all) = await ListScope(db, sc, me, entity);
             var q = db.ChannelAccounts.AsNoTracking().Where(a => a.Channel == ChatBranch.Domain.Channels.Social);
             var rows = (await q.OrderBy(a => a.Name).ToListAsync())
                 .Where(a => SocialChannels.Cfg(a, SocialChannels.StatusKey) != "removed")
                 .Where(a => all || filter!.Contains(a.EntityId)).ToList();
-            return Results.Ok(new { accounts = rows.Select(AccountRow), configured = true });
+            // a facebook account's Pages: only those this view's outlet may publish to
+            var ids = rows.Select(a => a.Id).ToList();
+            var pages = (await db.SocialPages.AsNoTracking().Where(p => ids.Contains(p.AccountId)).ToListAsync())
+                .Where(p => all || filter!.Contains(p.EntityId ?? rows.First(a => a.Id == p.AccountId).EntityId))
+                .ToList();
+            var names = await EntityNames(db, rows.Select(a => a.EntityId).Concat(pages.Select(p => p.EntityId)));
+            return Results.Ok(new
+            {
+                accounts = rows.Select(a => AccountRow(a, names, pages.Where(p => p.AccountId == a.Id))),
+                configured = true,
+            });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("social.view", "channels.view");
 
         app.MapPost("/api/social/connect", async (Dictionary<string, JsonElement>? body, AppDbContext db,
@@ -285,12 +297,7 @@ public static class SocialEndpoints
             ClaimsPrincipal me, IZernioClient zernio) =>
         {
             if (!zernio.IsConfigured) return NotConfigured(zernio);
-            var row = await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Channel == ChatBranch.Domain.Channels.Social
-                                                                        && a.ExternalId == id)
-                      ?? (int.TryParse(id, out var pk)
-                          ? await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Id == pk
-                                                                              && a.Channel == ChatBranch.Domain.Channels.Social)
-                          : null);
+            var row = await FindAccount(db, id);
             if (row == null) return Results.Json(new { detail = "Social account not found." }, statusCode: 404);
             if (ShellScope.ObjectScopeError(db, sc, me, row.EntityId) is { } outside) return outside;
             var r = await zernio.DeleteAccountAsync(row.ExternalId);
@@ -299,16 +306,150 @@ public static class SocialEndpoints
             var label = $"social:{row.Name}";
             // its conversations stay (back in sandbox), like any deleted inbox
             await InboxSettings.DetachAccountAsync(db, row.Id);
+            db.SocialPages.RemoveRange(db.SocialPages.Where(p => p.AccountId == row.Id));
             db.ChannelAccounts.Remove(row);
             await db.SaveChangesAsync();
             AuditTrail.Write(db, "account.delete", label, "disconnected in Zernio", entityId: row.EntityId);
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("social.manage");
+
+        // Bind an account to an entity ({entity: slug | id}, or null / "" for the organization):
+        // Zernio moves it to that entity's profile, and its conversations and pending posts follow.
+        app.MapPatch("/api/social/accounts/{id}", async (string id, Dictionary<string, JsonElement>? body,
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, SocialAccounts accounts) =>
+        {
+            if (!zernio.IsConfigured) return NotConfigured(zernio);
+            if (body == null || !body.ContainsKey("entity"))
+                return Results.Json(new
+                {
+                    detail = "entity is required: an entity slug or id, or null / \"\" for the organization level.",
+                }, statusCode: 400);
+            var row = await FindAccount(db, id);
+            if (row == null) return Results.Json(new { detail = "Social account not found." }, statusCode: 404);
+            // a bound caller never sees another company's account: not found, not "forbidden"
+            if (row.EntityId is int cur && !Visible(db, sc, me, cur))
+                return Results.Json(new { detail = "Social account not found." }, statusCode: 404);
+            if (ShellScope.CompanyLevelError(db, sc, me, row.EntityId) is { } outside) return outside;
+            var (target, err) = await ActScope(db, sc, me, Str(body, "entity"));
+            if (err != null) return err;
+
+            var from = row.EntityId;
+            var (threads, posts, error, status) = await accounts.MoveAsync(row, target);
+            if (status != 0)
+                return Results.Json(new { detail = error, code = status == 409 ? NotConfiguredCode : "zernio_error" },
+                    statusCode: status);
+            var names = await EntityNames(db, new[] { from, target });
+            string Level(int? e) => e is int x && names.TryGetValue(x, out var n) ? n.Slug : "organization";
+            AuditTrail.Write(db, "account.entity", $"social:{row.Name}",
+                $"moved {Level(from)} → {Level(target)} (Zernio profile {SocialChannels.Cfg(row, SocialChannels.ProfileIdKey)}; " +
+                $"{threads} conversation(s), {posts} post(s) re-scoped)", entityId: target);
+            return Results.Ok(await FullRow(db, row));
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("social.manage");
+
+        // Bind one Facebook Page of a facebook account to an outlet ({entity}: slug | id; null / "" =
+        // it follows the account's level). The outlet must sit at or under the account's level.
+        app.MapPatch("/api/social/accounts/{id}/pages/{pageId}", async (string id, string pageId,
+            Dictionary<string, JsonElement>? body, AppDbContext db, ScopingService sc, ClaimsPrincipal me,
+            IZernioClient zernio, SocialAccounts accounts) =>
+        {
+            if (!zernio.IsConfigured) return NotConfigured(zernio);
+            if (body == null || !body.ContainsKey("entity"))
+                return Results.Json(new
+                {
+                    detail = "entity is required: an entity slug or id, or null / \"\" to follow the account's level.",
+                }, statusCode: 400);
+            var (row, page, missing) = await FindPage(db, sc, me, accounts, id, pageId);
+            if (missing != null) return missing;
+            var current = page!.EntityId ?? row!.EntityId;
+            if (ShellScope.CompanyLevelError(db, sc, me, current) is { } outside) return outside;
+            var (target, err) = await ActScope(db, sc, me, Str(body, "entity"));
+            if (err != null) return err;
+            if (target is int t && row!.EntityId is int acctLevel && !sc.EntityChain(t).Contains(acctLevel))
+                return Results.Json(new
+                {
+                    detail = "That outlet is not under the account's own outlet: assign the account to the " +
+                             "organization (or a common parent) first.",
+                }, statusCode: 400);
+            if (target == row!.EntityId) target = null; // the account's own level = follow it
+            var from = page.EntityId ?? row.EntityId;
+            var posts = await accounts.BindPageAsync(row, page, target);
+            var names = await EntityNames(db, new[] { from, target ?? row.EntityId });
+            string Level(int? e) => e is int x && names.TryGetValue(x, out var n) ? n.Slug : "organization";
+            AuditTrail.Write(db, "account.entity", $"social:{row.Name} / {page.Name}",
+                $"Facebook Page {page.PageId}: {Level(from)} → {Level(target ?? row.EntityId)} ({posts} post(s) re-scoped)",
+                entityId: target ?? row.EntityId);
+            return Results.Ok(await FullRow(db, row));
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("social.manage");
+
+        // Which Page receives the inbox's comments and messages (Zernio's selectedPageId).
+        app.MapPost("/api/social/accounts/{id}/pages/{pageId}/select", async (string id, string pageId,
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, SocialAccounts accounts) =>
+        {
+            if (!zernio.IsConfigured) return NotConfigured(zernio);
+            var (row, page, missing) = await FindPage(db, sc, me, accounts, id, pageId);
+            if (missing != null) return missing;
+            if (ShellScope.CompanyLevelError(db, sc, me, row!.EntityId) is { } outside) return outside;
+            var (error, status) = await accounts.SelectPageAsync(row, page!);
+            if (status != 0)
+                return Results.Json(new { detail = error, code = "zernio_error" }, statusCode: status);
+            AuditTrail.Write(db, "account.update", $"social:{row.Name}", $"inbox Page → {page!.Name} ({page.PageId})",
+                entityId: row.EntityId);
+            return Results.Ok(await FullRow(db, row));
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("social.manage");
+    }
+
+    /// <summary>A facebook account + one of its Pages, or the 404 (also for an account a bound caller cannot see).</summary>
+    private static async Task<(ChannelAccount? Account, SocialPage? Page, IResult? Error)> FindPage(AppDbContext db,
+        ScopingService sc, ClaimsPrincipal me, SocialAccounts accounts, string id, string pageId)
+    {
+        var row = await FindAccount(db, id);
+        if (row == null || (row.EntityId is int cur && !Visible(db, sc, me, cur)))
+            return (null, null, Results.Json(new { detail = "Social account not found." }, statusCode: 404));
+        var page = await db.SocialPages.FirstOrDefaultAsync(p => p.AccountId == row.Id && p.PageId == pageId);
+        if (page == null)
+        {
+            // not mirrored yet: read Zernio's list once
+            if (SocialChannels.Platform(row) == "facebook") await accounts.SyncPagesAsync(row);
+            page = await db.SocialPages.FirstOrDefaultAsync(p => p.AccountId == row.Id && p.PageId == pageId);
+        }
+        if (page == null)
+            return (row, null, Results.Json(new { detail = "That Facebook Page is not one of this account's Pages." },
+                statusCode: 404));
+        return (row, page, null);
+    }
+
+    /// <summary>One account's row with every one of its Pages (the PATCH / select answers).</summary>
+    private static async Task<object> FullRow(AppDbContext db, ChannelAccount row)
+    {
+        var pages = await db.SocialPages.AsNoTracking().Where(p => p.AccountId == row.Id).ToListAsync();
+        var names = await EntityNames(db, pages.Select(p => p.EntityId).Append(row.EntityId));
+        return AccountRow(row, names, pages);
+    }
+
+    /// <summary>A social account by its Zernio id, else by its ChannelAccount id.</summary>
+    private static async Task<ChannelAccount?> FindAccount(AppDbContext db, string id) =>
+        await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Channel == ChatBranch.Domain.Channels.Social
+                                                          && a.ExternalId == id)
+        ?? (int.TryParse(id, out var pk)
+            ? await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Id == pk
+                                                                && a.Channel == ChatBranch.Domain.Channels.Social)
+            : null);
+
+    private static async Task<Dictionary<int, (string Name, string Slug)>> EntityNames(AppDbContext db,
+        IEnumerable<int?> ids)
+    {
+        var want = ids.OfType<int>().Distinct().ToList();
+        if (want.Count == 0) return new();
+        return (await db.Entities.AsNoTracking().Where(e => want.Contains(e.Id))
+                .Select(e => new { e.Id, e.Name, e.Slug }).ToListAsync())
+            .ToDictionary(e => e.Id, e => (e.Name, e.Slug));
     }
 
     /// <summary>The accounts list row.</summary>
-    private static object AccountRow(ChannelAccount a)
+    private static object AccountRow(ChannelAccount a, IReadOnlyDictionary<int, (string Name, string Slug)> names,
+        IEnumerable<SocialPage>? pages = null)
     {
+        var level = a.EntityId is int eid && names.TryGetValue(eid, out var n) ? n : ((string Name, string Slug)?)null;
         var platform = SocialChannels.Platform(a);
         var (publish, comments, dm, reviews) = SocialChannels.Capabilities(platform);
         return new Dictionary<string, object?>
@@ -324,10 +465,36 @@ public static class SocialEndpoints
             ["active"] = SocialChannels.Cfg(a, SocialChannels.StatusKey) != "disconnected",
             ["health"] = a.HealthStatus,
             ["entity_id"] = a.EntityId,
+            ["entity_slug"] = level?.Slug,
+            ["entity_name"] = level?.Name,
             ["can_publish"] = publish,
             ["can_comments"] = comments,
             ["can_dm"] = dm,
             ["can_reviews"] = reviews,
+            // facebook: the Pages it publishes to (each a target "<id>:<page id>"), each with its outlet
+            ["pages"] = platform == "facebook"
+                ? (pages ?? Enumerable.Empty<SocialPage>()).OrderByDescending(p => p.IsSelected).ThenBy(p => p.Name)
+                    .Select(p =>
+                    {
+                        var eff = p.EntityId ?? a.EntityId;
+                        var pl = eff is int pe && names.TryGetValue(pe, out var pn) ? pn : ((string Name, string Slug)?)null;
+                        return new Dictionary<string, object?>
+                        {
+                            ["id"] = p.PageId,
+                            ["target"] = SocialChannels.Target(a.ExternalId, p.PageId),
+                            ["name"] = p.Name,
+                            ["username"] = p.Username,
+                            ["category"] = p.Category,
+                            ["avatar"] = p.Avatar.Length > 0 ? p.Avatar : null,
+                            // the Page's own binding (null = it follows the account) and where it publishes
+                            ["entity_id"] = p.EntityId,
+                            ["effective_entity_id"] = eff,
+                            ["entity_slug"] = pl?.Slug,
+                            ["entity_name"] = pl?.Name,
+                            ["selected"] = p.IsSelected,
+                        };
+                    }).ToList()
+                : null,
         };
     }
 
@@ -737,21 +904,38 @@ public static class SocialEndpoints
         }
         if (creating || Has("account_ids"))
         {
+            // "<account id>" or, for one Facebook Page of a facebook account, "<account id>:<page id>"
             var ids = StrList(body, "account_ids").Distinct().ToList();
+            var targets = ids.Select(i => (Entry: i, Parts: SocialChannels.ParseTarget(i))).ToList();
+            var acctIds = targets.Select(t => t.Parts.AccountId).Distinct().ToList();
             var accounts = db.ChannelAccounts.AsNoTracking()
-                .Where(a => a.Channel == ChatBranch.Domain.Channels.Social && ids.Contains(a.ExternalId)).ToList();
-            var unknown = ids.Where(i => accounts.All(a => a.ExternalId != i)).ToList();
+                .Where(a => a.Channel == ChatBranch.Domain.Channels.Social && acctIds.Contains(a.ExternalId)).ToList();
+            var unknown = targets.Where(t => accounts.All(a => a.ExternalId != t.Parts.AccountId)).Select(t => t.Entry).ToList();
             if (unknown.Count > 0)
                 return Results.Json(new { detail = $"Unknown social account(s): {string.Join(", ", unknown)}." }, statusCode: 400);
-            // an entity posts through its OWN profile's accounts only
-            if (accounts.Any(a => a.EntityId != post.EntityId))
+            ChannelAccount Acct(string i) => accounts.First(a => a.ExternalId == i);
+            var pageRows = db.SocialPages.AsNoTracking().Where(p => acctIds.Contains(p.ZernioAccountId)).ToList();
+            var levels = new List<int?>();
+            foreach (var (entry, (acct, pageId)) in targets)
+            {
+                if (pageId.Length == 0) { levels.Add(Acct(acct).EntityId); continue; }
+                if (SocialChannels.Platform(Acct(acct)) != "facebook")
+                    return Results.Json(new { detail = $"{entry}: only a Facebook account has Pages." }, statusCode: 400);
+                var page = pageRows.FirstOrDefault(p => p.ZernioAccountId == acct && p.PageId == pageId);
+                if (page == null)
+                    return Results.Json(new { detail = $"{entry}: that Facebook Page is not one of the account's Pages." },
+                        statusCode: 400);
+                levels.Add(page.EntityId ?? Acct(acct).EntityId);
+            }
+            // an entity posts through its OWN profile's accounts (or the Pages bound to it) only
+            if (levels.Any(l => l != post.EntityId))
                 return Results.Json(new { detail = "Every account must belong to the same entity as the post." }, statusCode: 400);
             var cannot = accounts.Where(a => !SocialChannels.PublishPlatforms.Contains(SocialChannels.Platform(a))).ToList();
             if (cannot.Count > 0)
                 return Results.Json(new { detail = $"These accounts cannot publish posts: {string.Join(", ", cannot.Select(a => a.Name))}." },
                     statusCode: 400);
             post.AccountIds = ids;
-            post.Platforms = ids.Select(i => SocialChannels.Platform(accounts.First(a => a.ExternalId == i))).ToList();
+            post.Platforms = targets.Select(t => SocialChannels.Platform(Acct(t.Parts.AccountId))).ToList();
         }
         if (creating || Has("timezone")) post.Timezone = (Str(body, "timezone") ?? "").Trim();
         if (post.Timezone.Length > 0 && Zone(post.Timezone) == null)
@@ -787,8 +971,10 @@ public static class SocialEndpoints
     /// <summary>Create (or update) the Zernio post and apply its answer.</summary>
     private static async Task PushAsync(AppDbContext db, IZernioClient zernio, SocialPost post, bool publishNow)
     {
+        var targets = post.AccountIds.Select(SocialChannels.ParseTarget).ToList();
+        var acctIds = targets.Select(t => t.AccountId).Distinct().ToList();
         var accounts = db.ChannelAccounts.AsNoTracking()
-            .Where(a => a.Channel == ChatBranch.Domain.Channels.Social && post.AccountIds.Contains(a.ExternalId)).ToList();
+            .Where(a => a.Channel == ChatBranch.Domain.Channels.Social && acctIds.Contains(a.ExternalId)).ToList();
         var body = new Dictionary<string, object?>
         {
             ["content"] = post.Content,
@@ -796,10 +982,17 @@ public static class SocialEndpoints
             {
                 ["url"] = m.GetValueOrDefault("url")?.ToString(), ["type"] = m.GetValueOrDefault("type")?.ToString(),
             }).ToList(),
-            ["platforms"] = post.AccountIds.Select(id => new Dictionary<string, object?>
+            // one entry per target; a Facebook Page repeats its account with platformSpecificData.pageId
+            ["platforms"] = targets.Select(t =>
             {
-                ["platform"] = SocialChannels.Platform(accounts.First(a => a.ExternalId == id)),
-                ["accountId"] = id,
+                var entry = new Dictionary<string, object?>
+                {
+                    ["platform"] = SocialChannels.Platform(accounts.First(a => a.ExternalId == t.AccountId)),
+                    ["accountId"] = t.AccountId,
+                };
+                if (t.PageId.Length > 0)
+                    entry["platformSpecificData"] = new Dictionary<string, object?> { ["pageId"] = t.PageId };
+                return entry;
             }).ToList(),
             ["metadata"] = new Dictionary<string, object?> { [SocialPosts.MetadataKey] = post.Id.ToString() },
         };

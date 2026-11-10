@@ -17,8 +17,9 @@ public static partial class ToolCatalog
 
         yield return T(g, "social_list_accounts", "List social accounts",
             "The social media accounts connected through Zernio (Instagram, Facebook, TikTok, YouTube, LinkedIn, X, " +
-            "Threads, Google Business…) for an entity: id (Zernio account id), platform, username, whether it is " +
-            "active, and what it can do (publish, comments, DMs, reviews).", "GET", "/api/social/accounts",
+            "Threads, Google Business…) for an entity: id (Zernio account id), platform, username, the outlet it is " +
+            "bound to, whether it is active, what it can do (publish, comments, DMs, reviews), and for Facebook the " +
+            "Pages it can post to (each with its outlet and post target).", "GET", "/api/social/accounts",
             C("social.view", "channels.view"),
             new[] { A.Entity(), A.Bool("refresh", "Reconcile with Zernio first.") },
             link: (_, _) => Page("Open channels", "/channels"));
@@ -33,6 +34,39 @@ public static partial class ToolCatalog
                                   "googlebusiness, bluesky, reddit, telegram, discord, slack, snapchat, whatsapp.", req: true),
                 A.Entity("The entity slug whose Zernio profile gets the account; omit for the organization."),
             }, outside: true);
+
+        yield return T(g, "social_assign_account", "Assign a social account to an outlet",
+            "Bind a connected social account to an entity (outlet), or back to the organization level: it moves to " +
+            "that entity's Zernio profile, and its existing social conversations and not-yet-published posts follow. " +
+            "Organization-level accounts are usable from every outlet; an outlet's own accounts from that outlet only.",
+            "PATCH", "/api/social/accounts/{id}", manage,
+            new[]
+            {
+                A.Str("id", "The Zernio account id (social_list_accounts).", req: true),
+                A.Any("entity", "The entity slug (or id) to bind it to; null or \"\" for the organization level.", req: true),
+            }, outside: true, idempotent: true);
+
+        yield return T(g, "social_assign_page", "Assign a Facebook Page to an outlet",
+            "One Facebook login often manages several Pages: bind one Page of a facebook account to an entity " +
+            "(outlet) so that outlet posts to it (target \"<account id>:<page id>\"), or null / \"\" to make it follow " +
+            "the account's level again. The outlet must sit at or under the account's own level.",
+            "PATCH", "/api/social/accounts/{id}/pages/{pageId}", manage,
+            new[]
+            {
+                A.Str("id", "The facebook account's Zernio id (social_list_accounts).", req: true),
+                A.Str("pageId", "The Facebook Page id (the account's pages[].id).", req: true),
+                A.Any("entity", "The entity slug (or id); null or \"\" = follow the account's level.", req: true),
+            }, idempotent: true);
+
+        yield return T(g, "social_select_page", "Choose the Facebook Page for the inbox",
+            "Switch which Page of a facebook account receives comments and messages in the inbox (Zernio's selected " +
+            "Page; also the Page a post without a page id goes to).",
+            "POST", "/api/social/accounts/{id}/pages/{pageId}/select", manage,
+            new[]
+            {
+                A.Str("id", "The facebook account's Zernio id (social_list_accounts).", req: true),
+                A.Str("pageId", "The Facebook Page id (the account's pages[].id).", req: true),
+            }, outside: true, idempotent: true);
 
         yield return T(g, "social_disconnect_account", "Disconnect a social account",
             "Disconnect a social account from Zernio and remove its inbox here (its conversations stay). The " +
@@ -80,7 +114,8 @@ public static partial class ToolCatalog
         var postFields = new[]
         {
             A.Str("content", "The post text."),
-            A.StrList("account_ids", "Zernio account ids to publish to (social_list_accounts)."),
+            A.StrList("account_ids", "Targets to publish to (social_list_accounts): a Zernio account id, or " +
+                                     "\"<account id>:<page id>\" for one Facebook Page (pages[].target)."),
             A.Arr("media", "[{url, type}] — public https URLs; type image | video | gif | document."),
             A.Str("scheduled_at", "ISO 8601 time to publish; omit (with publish_now) to publish immediately."),
             A.Str("timezone", "IANA time zone for a scheduled_at without an offset."),

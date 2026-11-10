@@ -9,16 +9,24 @@
  * → {url} (Zernio's hosted connect page; it sends the person back to
  * /channels?zernio=connected), DELETE /api/social/accounts/{id}.
  * Connecting and disconnecting need `social.manage`.
+ *
+ * Outlets: each card binds its account to an outlet (PATCH /api/social/accounts/{id}
+ * {entity}, null = organization level, which every outlet inherits); a Facebook
+ * account lists its Pages, each with its own outlet (PATCH …/pages/{pageId}
+ * {entity}, null = follow the account) and the Page that receives comments and
+ * messages (POST …/pages/{pageId}/select). Without `social.manage` the outlet
+ * shows as a chip.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { AlertCircle, CheckCircle, ExternalLink, Loader2, Plus, Share2, Unplug } from 'lucide-react'
+import { AlertCircle, Check, CheckCircle, ExternalLink, Inbox, Loader2, Plus, Share2, Store, Unplug } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { EntityPicker } from '@/components/ui/EntityPicker'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { Modal } from '@/components/ui/Modal'
 import { useAccess } from '@/lib/useAccess'
-import { useEntity, useEntityQuery } from '@/lib/EntityContext'
+import { useEntity, useEntityQuery, type Entity } from '@/lib/EntityContext'
 import {
   PLATFORMS,
   accountHandle,
@@ -29,6 +37,7 @@ import {
   socialApi,
   withQuery,
   type SocialAccount,
+  type SocialPage,
 } from '@/lib/social'
 import { useT, type MessageKey } from '@/i18n'
 
@@ -40,13 +49,61 @@ const CAPS: { key: keyof SocialAccount; lbl: MessageKey }[] = [
   { key: 'can_dm', lbl: 'social.accounts.capDm' },
 ]
 
+/** Saving state of one outlet control (an account's, or one of its Pages'). */
+type SaveState = { state: 'saving' | 'saved' | 'error'; error?: string }
+
+/** The entity with this slug and every entity under it. */
+function subtree(entities: Entity[], slug: string): Entity[] {
+  const keep = new Set([slug])
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const e of entities)
+      if (e.parent && keep.has(e.parent) && !keep.has(e.slug)) {
+        keep.add(e.slug)
+        grew = true
+      }
+  }
+  return entities.filter((e) => keep.has(e.slug))
+}
+
+function SaveNote({ s }: { s?: SaveState }) {
+  const t = useT()
+  if (!s) return null
+  if (s.state === 'saving')
+    return (
+      <span role="status" className="inline-flex items-center gap-1 text-[11px] text-text-muted">
+        <Loader2 size={11} className="animate-spin" aria-hidden /> {t('social.accounts.saving')}
+      </span>
+    )
+  if (s.state === 'saved')
+    return (
+      <span role="status" className="inline-flex items-center gap-1 text-[11px] font-semibold" style={{ color: 'var(--green-ink)' }}>
+        <Check size={11} aria-hidden /> {t('social.accounts.saved')}
+      </span>
+    )
+  return (
+    <span role="alert" className="text-[11px] font-semibold" style={{ color: 'var(--red-ink)' }}>
+      {s.error || t('social.accounts.saveFailed')}
+    </span>
+  )
+}
+
+/** A read-only outlet chip (people without social.manage). */
+function OutletChip({ name }: { name: string }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full border border-line-strong px-2 py-px text-[10.5px] font-semibold text-text-mid">
+      <Store size={10} aria-hidden /> {name}
+    </span>
+  )
+}
+
 export function SocialAccountsSection() {
   const t = useT()
   const tRef = useRef(t)
   tRef.current = t
   const { ready, can } = useAccess()
   const canManage = can('social.manage')
-  const { levelEntity, multipleEntities } = useEntity()
+  const { levelEntity, multipleEntities, entities, bound } = useEntity()
   const entityQ = useEntityQuery()
 
   const [accounts, setAccounts] = useState<SocialAccount[] | null>(null)
@@ -56,6 +113,50 @@ export function SocialAccountsSection() {
   const [busy, setBusy] = useState('')
   const [toRemove, setToRemove] = useState<SocialAccount | null>(null)
   const [removeError, setRemoveError] = useState<string | null>(null)
+  const [saves, setSaves] = useState<Record<string, SaveState>>({})
+
+  /** Run one outlet change: saving → saved / error, then refresh the list. */
+  const save = async (key: string, path: string, init: RequestInit) => {
+    setSaves((m) => ({ ...m, [key]: { state: 'saving' } }))
+    try {
+      await socialApi(path, init)
+      setSaves((m) => ({ ...m, [key]: { state: 'saved' } }))
+      await load()
+      window.setTimeout(
+        () =>
+          setSaves((m) => {
+            if (m[key]?.state !== 'saved') return m
+            const rest = { ...m }
+            delete rest[key]
+            return rest
+          }),
+        2500,
+      )
+    } catch (e) {
+      setSaves((m) => ({ ...m, [key]: { state: 'error', error: errMessage(e) } }))
+    }
+  }
+
+  const assignAccount = (a: SocialAccount, slug: string | null) =>
+    save(`acct-${a.id}`, `social/accounts/${encodeURIComponent(a.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ entity: slug }),
+    })
+
+  const assignPage = (a: SocialAccount, p: SocialPage, slug: string | null) =>
+    save(`page-${a.id}-${p.id}`, `social/accounts/${encodeURIComponent(a.id)}/pages/${encodeURIComponent(p.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ entity: slug }),
+    })
+
+  const selectPage = (a: SocialAccount, p: SocialPage) =>
+    save(`page-${a.id}-${p.id}`, `social/accounts/${encodeURIComponent(a.id)}/pages/${encodeURIComponent(p.id)}/select`, {
+      method: 'POST',
+    })
+
+  const orgName = t('social.accounts.orgLevel')
+  const outletName = (x: { entity_id?: number | null; entity_name?: string | null }) =>
+    x.entity_id == null ? orgName : (x.entity_name ?? entities.find((e) => e.id === x.entity_id)?.name ?? `#${x.entity_id}`)
 
   const load = useCallback(async () => {
     try {
@@ -205,6 +306,92 @@ export function SocialAccountsSection() {
                       </div>
                     </div>
                   </div>
+                  {/* outlet: which outlet the account belongs to (organization = every outlet) */}
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10.5px] font-bold uppercase tracking-wide text-text-faint">
+                      {t('social.accounts.outlet')}
+                    </span>
+                    {canManage && (!bound || a.entity_id != null) ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <EntityPicker
+                          value={a.entity_slug ?? (a.entity_id != null ? (entities.find((e) => e.id === a.entity_id)?.slug ?? null) : null)}
+                          onChange={(slug) => void assignAccount(a, slug)}
+                          allowGlobal={!bound}
+                          globalLabel={orgName}
+                          size="sm"
+                          className="min-w-0 flex-1"
+                          ariaLabel={t('social.accounts.outletFor', { name: accountHandle(a) })}
+                          disabled={saves[`acct-${a.id}`]?.state === 'saving'}
+                        />
+                        <SaveNote s={saves[`acct-${a.id}`]} />
+                      </div>
+                    ) : (
+                      <OutletChip name={outletName(a)} />
+                    )}
+                  </div>
+                  {/* a Facebook login's Pages: each one posts for its own outlet */}
+                  {platformId(a.platform) === 'facebook' && a.pages && a.pages.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[10.5px] font-bold uppercase tracking-wide text-text-faint">
+                        {t('social.accounts.pagesTitle', { count: a.pages.length })}
+                      </span>
+                      <ul className="flex flex-col gap-1.5">
+                        {a.pages.map((p) => {
+                          const key = `page-${a.id}-${p.id}`
+                          const accountSlug = a.entity_slug ?? null
+                          const choices = accountSlug ? subtree(entities, accountSlug) : entities
+                          const followLabel = t('social.accounts.pageFollows', { name: outletName(a) })
+                          return (
+                            <li key={p.id} className="flex flex-col gap-1 rounded-lg border border-line px-2.5 py-2">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="min-w-0 truncate text-[12.5px] font-semibold text-text-high">{p.name || p.id}</span>
+                                {p.username && <span className="truncate text-[11px] text-text-muted">@{p.username}</span>}
+                                {p.selected ? (
+                                  <span
+                                    className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-green/15 px-2 py-px text-[10px] font-bold"
+                                    style={{ color: 'var(--green-ink)' }}
+                                    title={t('social.accounts.pageInboxHint')}
+                                  >
+                                    <Inbox size={10} aria-hidden /> {t('social.accounts.pageInbox')}
+                                  </span>
+                                ) : (
+                                  canManage &&
+                                  (!bound || a.entity_id != null) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => void selectPage(a, p)}
+                                      disabled={saves[key]?.state === 'saving'}
+                                      title={t('social.accounts.pageInboxHint')}
+                                      className="ml-auto shrink-0 cursor-pointer text-[11px] font-semibold text-brand-300 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      {t('social.accounts.pageUseForInbox')}
+                                    </button>
+                                  )
+                                )}
+                              </div>
+                              {canManage && (!bound || p.effective_entity_id != null) ? (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <EntityPicker
+                                    value={p.entity_id != null ? (p.entity_slug ?? null) : null}
+                                    onChange={(slug) => void assignPage(a, p, slug === accountSlug ? null : slug)}
+                                    entities={choices}
+                                    globalLabel={followLabel}
+                                    size="sm"
+                                    className="min-w-0 flex-1"
+                                    ariaLabel={t('social.accounts.outletFor', { name: p.name || p.id })}
+                                    disabled={saves[key]?.state === 'saving'}
+                                  />
+                                  <SaveNote s={saves[key]} />
+                                </div>
+                              ) : (
+                                <OutletChip name={outletName({ entity_id: p.effective_entity_id, entity_name: p.entity_name })} />
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-1">
                     {CAPS.filter((c) => a[c.key]).map((c) => (
                       <span key={c.key} className="rounded-full border border-line-strong px-2 py-px text-[10.5px] font-semibold text-text-mid">

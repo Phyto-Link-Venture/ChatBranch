@@ -1074,6 +1074,14 @@ public static class VoiceMessagingEndpoints
             {
                 var newEntity = await InboxEndpoints.EntityId(db, body.Str("entity"));
                 if (ShellScope.CompanyLevelError(db, sc, me, newEntity) is { } outsideNew) return outsideNew;
+                // a Zernio account's level IS its Zernio profile: a local-only rebind would be
+                // undone by the next sync — PATCH /api/social/accounts/{id} moves it in Zernio too
+                if (MoreChannelAccounts.Social(account.Channel) && account.EntityId != newEntity)
+                    return Results.Json(new
+                    {
+                        detail = "A social account's outlet is set under Channels → Social accounts " +
+                                 "(PATCH /api/social/accounts/{id}), which moves it to that outlet's Zernio profile.",
+                    }, statusCode: 409);
                 var rebind = account.EntityId != newEntity;
                 account.EntityId = newEntity;
                 await db.SaveChangesAsync();

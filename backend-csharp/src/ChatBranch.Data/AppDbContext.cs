@@ -118,6 +118,7 @@ public class AppDbContext : DbContext
     public DbSet<AiTaskRun> AiTaskRuns => Set<AiTaskRun>();
     // social media through Zernio (Data/Social)
     public DbSet<SocialProfile> SocialProfiles => Set<SocialProfile>();
+    public DbSet<SocialPage> SocialPages => Set<SocialPage>();
     public DbSet<SocialThread> SocialThreads => Set<SocialThread>();
     public DbSet<SocialPost> SocialPosts => Set<SocialPost>();
     public DbSet<ZernioEvent> ZernioEvents => Set<ZernioEvent>();
@@ -448,6 +449,10 @@ public class AppDbContext : DbContext
         b.Entity<SocialProfile>().ToTable("crm_socialprofile");
         b.Entity<SocialProfile>().HasIndex(p => p.ProfileId).IsUnique().HasDatabaseName("uniq_socialprofile_profile");
         b.Entity<SocialProfile>().HasIndex(p => p.EntityId).HasDatabaseName("ix_socialprofile_entity");
+        b.Entity<SocialPage>().ToTable("crm_socialpage");
+        b.Entity<SocialPage>().HasIndex(p => new { p.ZernioAccountId, p.PageId }).IsUnique()
+            .HasDatabaseName("uniq_socialpage_account_page");
+        b.Entity<SocialPage>().HasIndex(p => p.AccountId).HasDatabaseName("ix_socialpage_account");
         b.Entity<SocialThread>().ToTable("crm_socialthread");
         b.Entity<SocialThread>().HasIndex(t => t.ThreadId).IsUnique().HasDatabaseName("uniq_socialthread_thread");
         b.Entity<SocialThread>().HasIndex(t => new { t.ZernioAccountId, t.RootCommentId })

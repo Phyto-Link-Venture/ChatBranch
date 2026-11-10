@@ -41,6 +41,8 @@ public sealed class FakeZernioClient : IZernioClient
         Profiles.Clear();
         Accounts.Clear();
         Override = null;
+        StaleMoves = false;
+        FacebookPages.Clear();
     }
 
     public List<Dictionary<string, object?>> Of(string call) =>
@@ -80,6 +82,42 @@ public sealed class FakeZernioClient : IZernioClient
 
     public Task<ZernioReply> DeleteAccountAsync(string accountId, CancellationToken ct = default) =>
         Do("DeleteAccount", new() { ["accountId"] = accountId }, () => ZernioReply.Of(new { message = "Account disconnected successfully" }));
+
+    /// <summary>Moves the listed account to the profile too (a later sync sees where it went), unless <see cref="StaleMoves"/>.</summary>
+    public Task<ZernioReply> MoveAccountAsync(string accountId, string profileId, CancellationToken ct = default) =>
+        Do("MoveAccount", new() { ["accountId"] = accountId, ["profileId"] = profileId }, () =>
+        {
+            if (!StaleMoves)
+                for (var i = 0; i < Accounts.Count; i++)
+                {
+                    var row = JsonSerializer.SerializeToElement(Accounts[i]);
+                    if (ZernioJson.Str(row, "_id") != accountId) continue;
+                    var copy = JsonSerializer.Deserialize<Dictionary<string, object?>>(row.GetRawText())!;
+                    copy["profileId"] = profileId;
+                    Accounts[i] = copy;
+                }
+            return ZernioReply.Of(new { message = "Account updated successfully", profileId });
+        });
+
+    /// <summary>Facebook Pages per account id: the list and the selected Page.</summary>
+    public ConcurrentDictionary<string, (List<object> Pages, string Selected)> FacebookPages { get; } = new();
+
+    public Task<ZernioReply> FacebookPagesAsync(string accountId, bool refresh = false, CancellationToken ct = default) =>
+        Do("FacebookPages", new() { ["accountId"] = accountId, ["refresh"] = refresh }, () =>
+            FacebookPages.TryGetValue(accountId, out var fp)
+                ? ZernioReply.Of(new { pages = fp.Pages, selectedPageId = fp.Selected, cached = !refresh })
+                : ZernioReply.Fail("Account not found, or not a facebook or metaads account", 404));
+
+    public Task<ZernioReply> SelectFacebookPageAsync(string accountId, string pageId, CancellationToken ct = default) =>
+        Do("SelectFacebookPage", new() { ["accountId"] = accountId, ["pageId"] = pageId }, () =>
+        {
+            if (!FacebookPages.TryGetValue(accountId, out var fp)) return ZernioReply.Fail("not found", 404);
+            FacebookPages[accountId] = (fp.Pages, pageId);
+            return ZernioReply.Of(new { message = "Facebook page updated successfully", selectedPage = new { id = pageId } });
+        });
+
+    /// <summary>Zernio answers the move but its listing still shows the old profile (eventual consistency).</summary>
+    public bool StaleMoves { get; set; }
 
     public Task<ZernioReply> ListWebhooksAsync(CancellationToken ct = default) =>
         Do("ListWebhooks", new(), () => ZernioReply.Of(new { webhooks = Array.Empty<object>() }));
@@ -153,6 +191,7 @@ public sealed class FakeZernioClient : IZernioClient
             ? list.Select(x => (object)new
             {
                 platform = x["platform"]?.ToString(), accountId = x["accountId"]?.ToString(), status,
+                platformSpecificData = x.GetValueOrDefault("platformSpecificData"),
                 platformPostUrl = status == "published" ? $"https://{x["platform"]}.example/p/1" : null,
             }).ToArray()
             : Array.Empty<object>();
@@ -543,6 +582,332 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         Assert.Single(_f.Zernio.Of("CreateProfile"));
         // an unknown platform is refused before Zernio
         Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync("/api/social/connect", new { platform = "myspace" })).StatusCode);
+    }
+
+    // ---- binding an account to an outlet (PATCH /api/social/accounts/{id}) ---------------
+
+    private (int Id, string Slug) NewEntity(string prefix = "Outlet")
+    {
+        var name = $"{prefix} {U()}";
+        return InDb(db =>
+        {
+            var tenant = db.Tenants.First(t => t.Slug == "demo");
+            var e = new Entity { Name = name, Slug = name.ToLowerInvariant().Replace(' ', '-'), TenantId = tenant.Id };
+            db.Entities.Add(e);
+            db.SaveChanges();
+            return (e.Id, e.Slug);
+        });
+    }
+
+    /// <summary>A Zernio account in the key's default profile, mirrored (organization level) by a sync.</summary>
+    private async Task<ChannelAccount> OrgAccount(HttpClient c, string platform = "instagram")
+    {
+        _f.Zernio.Profiles.Add(new { _id = "prof-default", name = "Default", isDefault = true, externalId = (string?)null });
+        var zid = "zacc-" + U();
+        _f.Zernio.Accounts.Add(new
+        {
+            _id = zid, platform, username = "kedai." + U(), displayName = "Kedai", isActive = true,
+            profileId = new { _id = "prof-default", name = "Default" },
+        });
+        var res = await c.GetAsync("/api/social/accounts?refresh=1");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var row = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid));
+        Assert.Null(row.EntityId);
+        return row;
+    }
+
+    private async Task<List<string>> Listed(HttpClient c, string entitySlug, bool refresh = false)
+    {
+        var res = await c.GetFromJsonAsync<JsonElement>(
+            $"/api/social/accounts?entity={entitySlug}{(refresh ? "&refresh=1" : "")}");
+        return res.GetProperty("accounts").EnumerateArray().Select(r => r.GetProperty("id").GetString()!).ToList();
+    }
+
+    private int SeedThread(string key, int accountId, int? entityId = null) => InDb(db =>
+    {
+        var t = new Thread
+        {
+            Channel = ChannelIds.Social, Key = key, Name = "someone", AccountId = accountId, EntityId = entityId,
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        };
+        db.Threads.Add(t);
+        db.SaveChanges();
+        return t.Id;
+    });
+
+    private int SeedPost(string status, int? entityId, params string[] accountIds) => InDb(db =>
+    {
+        var p = new SocialPost
+        {
+            EntityId = entityId, Content = "post " + U(), AccountIds = accountIds.ToList(),
+            Platforms = accountIds.Select(_ => "instagram").ToList(), Status = status,
+            ScheduledAt = DateTime.UtcNow.AddDays(1), CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        };
+        db.SocialPosts.Add(p);
+        db.SaveChanges();
+        return p.Id;
+    });
+
+    private static Task<HttpResponseMessage> Assign(HttpClient c, string zid, object? entity) =>
+        c.PatchAsJsonAsync($"/api/social/accounts/{zid}", new Dictionary<string, object?> { ["entity"] = entity });
+
+    [Fact]
+    public async Task Assigning_an_account_to_an_outlet_moves_it_to_that_profile_with_its_threads_and_pending_posts()
+    {
+        var c = await Admin();
+        var (e1, slug1) = NewEntity();
+        var (_, slug2) = NewEntity();
+        var acct = await OrgAccount(c);
+        var zid = acct.ExternalId;
+        // organization-level: every outlet inherits it
+        Assert.Contains(zid, await Listed(c, slug1));
+        Assert.Contains(zid, await Listed(c, slug2));
+
+        var comment = SeedThread($"comment:{zid}:c-{U()}", acct.Id);
+        var dm = SeedThread($"dm:{zid}:conv-{U()}", acct.Id);
+        var unrelated = SeedThread($"comment:zacc-other-{U()}:c-{U()}", acct.Id);
+        var other = Account("facebook"); // another organization-level account
+        var scheduled = SeedPost(SocialPosts.Scheduled, null, zid);
+        var draft = SeedPost(SocialPosts.Draft, null, zid);
+        var published = SeedPost(SocialPosts.Published, null, zid);
+        var mixed = SeedPost(SocialPosts.Scheduled, null, zid, other.ExternalId);
+        _f.Zernio.Calls.Clear();
+
+        var res = await Assign(c, zid, slug1);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var row = await res.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(zid, row.GetProperty("id").GetString());
+        Assert.Equal(e1, row.GetProperty("entity_id").GetInt32());
+        Assert.Equal(slug1, row.GetProperty("entity_slug").GetString());
+        Assert.Equal("instagram", row.GetProperty("platform").GetString());
+
+        // the outlet's profile is created with our externalId, and the account moved into it
+        var made = Assert.Single(_f.Zernio.Of("CreateProfile"));
+        Assert.Equal($"cb-entity-{e1}", made["externalId"]);
+        var profileId = InDb(db => db.SocialProfiles.Single(p => p.EntityId == e1).ProfileId);
+        var move = Assert.Single(_f.Zernio.Of("MoveAccount"));
+        Assert.Equal(zid, move["accountId"]);
+        Assert.Equal(profileId, move["profileId"]);
+
+        var mirrored = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid));
+        Assert.Equal(e1, mirrored.EntityId);
+        Assert.Equal(profileId, SocialChannels.Cfg(mirrored, SocialChannels.ProfileIdKey));
+
+        // its conversations and not-yet-published posts follow; the rest stay
+        Assert.Equal(e1, InDb(db => db.Threads.Single(t => t.Id == comment).EntityId));
+        Assert.Equal(e1, InDb(db => db.Threads.Single(t => t.Id == dm).EntityId));
+        Assert.Null(InDb(db => db.Threads.Single(t => t.Id == unrelated).EntityId));
+        Assert.Equal(e1, InDb(db => db.SocialPosts.Single(p => p.Id == scheduled).EntityId));
+        Assert.Equal(e1, InDb(db => db.SocialPosts.Single(p => p.Id == draft).EntityId));
+        Assert.Null(InDb(db => db.SocialPosts.Single(p => p.Id == published).EntityId));
+        Assert.Null(InDb(db => db.SocialPosts.Single(p => p.Id == mixed).EntityId));
+        Assert.True(InDb(db => db.AuditLogs.Any(l => l.Action == "account.entity" && l.Target.Contains(mirrored.Name))));
+
+        // the outlet sees it, its sibling no longer does — and a sync keeps the binding
+        Assert.Contains(zid, await Listed(c, slug1, refresh: true));
+        Assert.DoesNotContain(zid, await Listed(c, slug2));
+        Assert.Equal(e1, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid).EntityId));
+
+        // the same outlet again: no new profile, no Zernio move
+        Assert.Equal(HttpStatusCode.OK, (await Assign(c, zid, e1.ToString())).StatusCode);
+        Assert.Single(_f.Zernio.Of("CreateProfile"));
+        Assert.Single(_f.Zernio.Of("MoveAccount"));
+
+        // back to the organization level: the default profile, inherited by every outlet again
+        var back = await Assign(c, zid, null);
+        Assert.Equal(HttpStatusCode.OK, back.StatusCode);
+        Assert.Equal(JsonValueKind.Null, (await back.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("entity_id").ValueKind);
+        Assert.Equal("prof-default", _f.Zernio.Of("MoveAccount").Last()["profileId"]);
+        Assert.Null(InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid).EntityId));
+        Assert.Null(InDb(db => db.Threads.Single(t => t.Id == comment).EntityId));
+        Assert.Null(InDb(db => db.SocialPosts.Single(p => p.Id == scheduled).EntityId));
+        Assert.Contains(zid, await Listed(c, slug1, refresh: true));
+        Assert.Contains(zid, await Listed(c, slug2));
+        Assert.Null(InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid).EntityId));
+    }
+
+    [Fact]
+    public async Task A_sync_before_Zernio_reflects_the_move_keeps_the_new_binding()
+    {
+        var c = await Admin();
+        var (e1, slug1) = NewEntity();
+        var acct = await OrgAccount(c);
+        _f.Zernio.StaleMoves = true; // Zernio still lists the account under the default profile
+        Assert.Equal(HttpStatusCode.OK, (await Assign(c, acct.ExternalId, slug1)).StatusCode);
+        Assert.Contains(acct.ExternalId, await Listed(c, slug1, refresh: true));
+        var row = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == acct.ExternalId));
+        Assert.Equal(e1, row.EntityId);
+        Assert.NotEqual("prof-default", SocialChannels.Cfg(row, SocialChannels.ProfileIdKey));
+    }
+
+    [Fact]
+    public async Task Assigning_needs_social_manage_and_both_levels_in_scope()
+    {
+        var admin = await Admin();
+        var (e1, slug1) = NewEntity();
+        var (e2, slug2) = NewEntity();
+        var acct = await OrgAccount(admin);
+        var mine = Account("facebook", e1);
+        var theirs = Account("tiktok", e2);
+
+        // no social.manage
+        var agent = await SettingsTestKit.Client(_f, "agent", "agent123");
+        Assert.Equal(HttpStatusCode.Forbidden, (await Assign(agent, acct.ExternalId, slug1)).StatusCode);
+
+        // bad input
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PatchAsJsonAsync($"/api/social/accounts/{acct.ExternalId}", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await Assign(admin, acct.ExternalId, "no-such-outlet-" + U())).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await Assign(admin, "zacc-missing-" + U(), slug1)).StatusCode);
+
+        // a company admin bound to e1
+        var user = "co-admin-" + U();
+        var uid = SettingsTestKit.CreateUser(_f, user, "pass12345", Roles.Admin);
+        InDb(db =>
+        {
+            var profile = db.Profiles.Include(p => p.Entities).Single(p => p.UserId == uid);
+            profile.Entities.Add(db.Entities.Single(e => e.Id == e1));
+            db.SaveChanges();
+            return 0;
+        });
+        var co = await SettingsTestKit.Client(_f, user, "pass12345");
+        _f.Zernio.Calls.Clear();
+        // another company's account: not even found
+        Assert.Equal(HttpStatusCode.NotFound, (await Assign(co, theirs.ExternalId, slug1)).StatusCode);
+        // its own account, to an outlet outside its companies or to the organization level: refused
+        Assert.Equal(HttpStatusCode.Forbidden, (await Assign(co, mine.ExternalId, slug2)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Assign(co, mine.ExternalId, "")).StatusCode);
+        // an organization-level account is not theirs to take
+        Assert.Equal(HttpStatusCode.Forbidden, (await Assign(co, acct.ExternalId, slug1)).StatusCode);
+        Assert.Empty(_f.Zernio.Of("MoveAccount"));
+        Assert.Equal(e1, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Id == mine.Id).EntityId));
+
+        // the generic inbox PATCH cannot rebind a social account behind Zernio's back
+        var generic = await admin.PatchAsJsonAsync($"/api/messaging/accounts/{mine.Id}", new { entity = slug2 });
+        Assert.Equal(HttpStatusCode.Conflict, generic.StatusCode);
+    }
+
+    // ---- Facebook Pages: one login, several Pages, each bound to its outlet --------------
+
+    private static JsonElement Row(JsonElement list, string zid) =>
+        list.GetProperty("accounts").EnumerateArray().Single(r => r.GetProperty("id").GetString() == zid);
+
+    private static List<string> PageIds(JsonElement row) =>
+        row.GetProperty("pages").EnumerateArray().Select(p => p.GetProperty("id").GetString()!).ToList();
+
+    [Fact]
+    public async Task Facebook_pages_are_mirrored_bound_to_outlets_selected_and_targeted_per_page()
+    {
+        var c = await Admin();
+        var (e1, slug1) = NewEntity();
+        var (_, slug2) = NewEntity();
+        _f.Zernio.Profiles.Add(new { _id = "prof-default", name = "Default", isDefault = true, externalId = (string?)null });
+        var fb = "zfb-" + U();
+        _f.Zernio.Accounts.Add(new
+        {
+            _id = fb, platform = "facebook", username = "kopi.group", displayName = "Kopi Group", isActive = true,
+            profileId = new { _id = "prof-default", name = "Default" },
+        });
+        _f.Zernio.FacebookPages[fb] = (new List<object>
+        {
+            new { id = "P1", name = "Kopi KL", username = "kopikl", category = "Cafe", fan_count = 10 },
+            new { id = "P2", name = "Kopi Penang", username = "kopipg", category = "Cafe", fan_count = 20 },
+            new { id = "P3", name = "Kopi Group", username = "kopigroup", category = "Brand", fan_count = 30 },
+        }, "P1");
+
+        // the sync mirrors the Pages (refresh=1 re-reads Meta through Zernio)
+        var all = await c.GetFromJsonAsync<JsonElement>("/api/social/accounts?refresh=1");
+        var row = Row(all, fb);
+        Assert.Equal(new[] { "P1", "P2", "P3" }.ToHashSet(), PageIds(row).ToHashSet());
+        var p1 = row.GetProperty("pages").EnumerateArray().Single(p => p.GetProperty("id").GetString() == "P1");
+        Assert.True(p1.GetProperty("selected").GetBoolean());
+        Assert.Equal($"{fb}:P1", p1.GetProperty("target").GetString());
+        Assert.Equal(true, _f.Zernio.Of("FacebookPages").Last()["refresh"]);
+
+        // bind P1 → outlet 1, P2 → outlet 2; P3 stays with the account (organization)
+        var bind = await c.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P1", new { entity = slug1 });
+        Assert.Equal(HttpStatusCode.OK, bind.StatusCode);
+        var bound = (await bind.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("pages").EnumerateArray()
+            .Single(p => p.GetProperty("id").GetString() == "P1");
+        Assert.Equal(e1, bound.GetProperty("entity_id").GetInt32());
+        Assert.Equal(slug1, bound.GetProperty("entity_slug").GetString());
+        Assert.Equal(HttpStatusCode.OK,
+            (await c.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P2", new { entity = slug2 })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await c.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P9", new { entity = slug2 })).StatusCode);
+
+        // an outlet sees its own Pages and the organization's, never a sibling's
+        Assert.Equal(new[] { "P1", "P3" }.ToHashSet(),
+            PageIds(Row(await c.GetFromJsonAsync<JsonElement>($"/api/social/accounts?entity={slug1}"), fb)).ToHashSet());
+        Assert.Equal(new[] { "P2", "P3" }.ToHashSet(),
+            PageIds(Row(await c.GetFromJsonAsync<JsonElement>($"/api/social/accounts?entity={slug2}"), fb)).ToHashSet());
+
+        // posts: an outlet posts to ITS Page — the account repeated with platformSpecificData.pageId
+        var post = await c.PostAsJsonAsync($"/api/social/posts?entity={slug1}",
+            new { content = "KL opening!", account_ids = new[] { $"{fb}:P1" }, publish_now = true });
+        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+        var created = _f.Zernio.Of("CreatePost").Last();
+        var platforms = JsonSerializer.SerializeToElement(created["platforms"]);
+        var only = Assert.Single(platforms.EnumerateArray());
+        Assert.Equal(fb, only.GetProperty("accountId").GetString());
+        Assert.Equal("P1", only.GetProperty("platformSpecificData").GetProperty("pageId").GetString());
+        var result = (await post.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("post").GetProperty("results")[0];
+        Assert.Equal("P1", result.GetProperty("page_id").GetString());
+
+        // a sibling's Page, an unknown Page, or a Page of a non-facebook account: refused
+        Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync($"/api/social/posts?entity={slug1}",
+            new { content = "x", account_ids = new[] { $"{fb}:P2" }, publish_now = true })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync("/api/social/posts",
+            new { content = "x", account_ids = new[] { $"{fb}:P404" }, publish_now = true })).StatusCode);
+        var ig = Account("instagram");
+        Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync("/api/social/posts",
+            new { content = "x", account_ids = new[] { $"{ig.ExternalId}:P1" }, publish_now = true })).StatusCode);
+
+        // the organization posts to the account's selected Page AND its own Page P3 in one post
+        var org = await c.PostAsJsonAsync("/api/social/posts",
+            new { content = "Group news", account_ids = new[] { fb, $"{fb}:P3" }, publish_now = true });
+        Assert.Equal(HttpStatusCode.OK, org.StatusCode);
+        var orgPlatforms = JsonSerializer.SerializeToElement(_f.Zernio.Of("CreatePost").Last()["platforms"]).EnumerateArray().ToList();
+        Assert.Equal(2, orgPlatforms.Count);
+        Assert.All(orgPlatforms, p => Assert.Equal(fb, p.GetProperty("accountId").GetString()));
+        Assert.False(orgPlatforms[0].TryGetProperty("platformSpecificData", out _));
+
+        // which Page receives comments / messages
+        var sel = await c.PostAsync($"/api/social/accounts/{fb}/pages/P2/select", null);
+        Assert.Equal(HttpStatusCode.OK, sel.StatusCode);
+        Assert.Equal("P2", _f.Zernio.Of("SelectFacebookPage").Single()["pageId"]);
+        var selPages = (await sel.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("pages").EnumerateArray().ToList();
+        Assert.True(selPages.Single(p => p.GetProperty("id").GetString() == "P2").GetProperty("selected").GetBoolean());
+        Assert.False(selPages.Single(p => p.GetProperty("id").GetString() == "P1").GetProperty("selected").GetBoolean());
+
+        // unbinding a Page brings its pending posts back with it
+        var pending = SeedPost(SocialPosts.Scheduled, e1, $"{fb}:P1");
+        Assert.Equal(HttpStatusCode.OK,
+            (await c.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P1", new { entity = (string?)null })).StatusCode);
+        Assert.Null(InDb(db => db.SocialPosts.Single(p => p.Id == pending).EntityId));
+
+        // permissions: no social.manage; a company admin of outlet 1 cannot touch outlet 2's Page
+        var agent = await SettingsTestKit.Client(_f, "agent", "agent123");
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await agent.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P2", new { entity = slug1 })).StatusCode);
+        var user = "co-fb-" + U();
+        var uid = SettingsTestKit.CreateUser(_f, user, "pass12345", Roles.Admin);
+        InDb(db =>
+        {
+            db.Profiles.Include(p => p.Entities).Single(p => p.UserId == uid).Entities.Add(db.Entities.Single(e => e.Id == e1));
+            db.SaveChanges();
+            return 0;
+        });
+        var co = await SettingsTestKit.Client(_f, user, "pass12345");
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await co.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P2", new { entity = slug1 })).StatusCode);
+
+        // the account moves to outlet 1: outlet 2's Page binding no longer fits under it and is cleared,
+        // and a Page cannot be bound outside the account's outlet
+        Assert.Equal(HttpStatusCode.OK, (await Assign(c, fb, slug1)).StatusCode);
+        Assert.Null(InDb(db => db.SocialPages.Single(p => p.ZernioAccountId == fb && p.PageId == "P2").EntityId));
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await c.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P2", new { entity = slug2 })).StatusCode);
     }
 
     // ---- posts -----------------------------------------------------------------------

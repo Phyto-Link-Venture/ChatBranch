@@ -168,6 +168,14 @@ public sealed class SocialAccounts
         if (avatar.Length > 0) cfg[SocialChannels.AvatarKey] = avatar;
         var url = ZernioJson.Str(acct, "profileUrl");
         if (url.Length > 0) cfg[SocialChannels.ProfileUrlKey] = url;
+        // Just moved here (PATCH /api/social/accounts/{id}): Zernio may still report the
+        // OLD profile for a moment — the local binding wins within the grace window.
+        if (!isNew && RecentlyMoved(row) && profileId.Length > 0
+            && profileId != SocialChannels.Cfg(row, SocialChannels.ProfileIdKey))
+        {
+            profileId = SocialChannels.Cfg(row, SocialChannels.ProfileIdKey);
+            entityId = row.EntityId;
+        }
         if (profileId.Length > 0) cfg[SocialChannels.ProfileIdKey] = profileId;
         cfg[SocialChannels.StatusKey] = active ? "connected" : "disconnected";
         row.Config = cfg;
@@ -192,6 +200,218 @@ public sealed class SocialAccounts
         return row;
     }
 
+    /// <summary>How long a move's local binding outranks a Zernio listing that still shows the old profile.</summary>
+    public static readonly TimeSpan MoveGrace = TimeSpan.FromMinutes(10);
+
+    private static bool RecentlyMoved(ChannelAccount row) =>
+        DateTime.TryParse(SocialChannels.Cfg(row, SocialChannels.MovedAtKey), System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
+            out var at)
+        && DateTime.UtcNow - at < MoveGrace;
+
+    /// <summary>
+    /// Bind a social account to an entity (null = the organization): the entity's Zernio
+    /// profile is ensured (created on demand), Zernio moves the account there, and the
+    /// mirror follows — the account's EntityId and profile id, its existing social
+    /// conversations, and its not-yet-published posts (when every account of the post
+    /// now sits at the target). Status is the HTTP status for a failure (0 = ok).
+    /// </summary>
+    public async Task<(int Threads, int Posts, string Error, int Status)> MoveAsync(ChannelAccount row, int? target,
+        CancellationToken ct = default)
+    {
+        if (!_zernio.IsConfigured) return (0, 0, _zernio.NotConfiguredReason, 409);
+        var (profileId, err) = await EnsureProfileAsync(target, create: true, ct);
+        if (profileId.Length == 0)
+            return (0, 0, err.Length > 0 ? err : "Zernio has no profile for that level", 502);
+        if (profileId != SocialChannels.Cfg(row, SocialChannels.ProfileIdKey))
+        {
+            var r = await _zernio.MoveAccountAsync(row.ExternalId, profileId, ct);
+            if (!r.Ok) return (0, 0, r.Error, r.Status is 404 ? 404 : 502);
+        }
+
+        row.EntityId = target;
+        row.Config = new Dictionary<string, object?>(row.Config ?? new())
+        {
+            [SocialChannels.ProfileIdKey] = profileId,
+            [SocialChannels.MovedAtKey] = DateTime.UtcNow.ToString("o"),
+        };
+        await _db.SaveChangesAsync(ct);
+        // a Page bound to an outlet that is no longer under the account's level follows the account again
+        if (target is int t)
+        {
+            var sc = new ScopingService(_db);
+            foreach (var page in _db.SocialPages.Where(p => p.AccountId == row.Id && p.EntityId != null).ToList())
+                if (!sc.EntityChain(page.EntityId).Contains(t))
+                {
+                    page.EntityId = null;
+                    page.UpdatedAt = DateTime.UtcNow;
+                }
+        }
+        var threads = RescopeThreads(row, target);
+        var posts = RescopePosts(row, target);
+        await _db.SaveChangesAsync(ct);
+        return (threads, posts, "", 0);
+    }
+
+    /// <summary>The account's social conversations (keyed kind:&lt;account&gt;:…) follow it to <paramref name="target"/>.</summary>
+    private int RescopeThreads(ChannelAccount row, int? target)
+    {
+        var sc = new ScopingService(_db);
+        var company = sc.CompanyOf(target);
+        var prefixes = SocialChannels.Kinds.Select(k => $"{k}:{row.ExternalId}:").ToList();
+        var rows = _db.Threads.Where(t => t.Channel == ChatBranch.Domain.Channels.Social
+                                          && (t.Key.StartsWith(prefixes[0]) || t.Key.StartsWith(prefixes[1])
+                                              || t.Key.StartsWith(prefixes[2])))
+            .ToList()
+            .Where(t => SocialChannels.ParseKey(t.Key).AccountId == row.ExternalId)
+            .ToList();
+        var moved = 0;
+        foreach (var t in rows)
+        {
+            var changed = t.EntityId != target;
+            t.EntityId = target;
+            // the company slot follows, unless (channel, key) is already taken there
+            if (t.CompanyEntityId != company)
+            {
+                var free = company is int c
+                    ? sc.CompanySlotFree(t, c)
+                    : !_db.Threads.Any(x => x.Id != t.Id && x.Channel == t.Channel && x.Key == t.Key
+                                            && x.CompanyEntityId == null);
+                if (free)
+                {
+                    t.CompanyEntityId = company;
+                    changed = true;
+                }
+            }
+            if (!changed) continue;
+            t.UpdatedAt = DateTime.UtcNow;
+            moved++;
+        }
+        return moved;
+    }
+
+    /// <summary>
+    /// Not-yet-published posts (draft, scheduled, failed) that go to this account follow
+    /// it — when every one of their targets now sits at <paramref name="target"/> (a post
+    /// publishes through one entity's accounts only; a Page bound to its own outlet keeps it).
+    /// </summary>
+    private int RescopePosts(ChannelAccount row, int? target)
+    {
+        var pending = new[] { SocialPosts.Draft, SocialPosts.Scheduled, SocialPosts.Failed };
+        var posts = _db.SocialPosts.Where(p => pending.Contains(p.Status) && p.EntityId != target).ToList()
+            .Where(p => p.AccountIds.Any(e => SocialChannels.ParseTarget(e).AccountId == row.ExternalId)).ToList();
+        var moved = 0;
+        foreach (var p in posts)
+        {
+            if (!p.AccountIds.All(e => TargetEntity(e) is (true, var at) && at == target)) continue;
+            p.EntityId = target;
+            p.UpdatedAt = DateTime.UtcNow;
+            moved++;
+        }
+        return moved;
+    }
+
+    // ---- Facebook Pages --------------------------------------------------------------
+
+    /// <summary>The level a post target publishes at: a Page's own outlet, else its account's; (found, entity).</summary>
+    public (bool Found, int? EntityId) TargetEntity(string entry)
+    {
+        var (acct, pageId) = SocialChannels.ParseTarget(entry);
+        var row = _db.ChannelAccounts.Local.FirstOrDefault(a => a.Channel == ChatBranch.Domain.Channels.Social
+                                                                && a.ExternalId == acct)
+                  ?? _db.ChannelAccounts.AsNoTracking().FirstOrDefault(a => a.Channel == ChatBranch.Domain.Channels.Social
+                                                                            && a.ExternalId == acct);
+        if (row == null) return (false, null);
+        if (pageId.Length == 0) return (true, row.EntityId);
+        var page = _db.SocialPages.Local.FirstOrDefault(p => p.ZernioAccountId == acct && p.PageId == pageId)
+                   ?? _db.SocialPages.AsNoTracking().FirstOrDefault(p => p.ZernioAccountId == acct && p.PageId == pageId);
+        return page == null ? (false, null) : (true, page.EntityId ?? row.EntityId);
+    }
+
+    /// <summary>
+    /// Mirror a facebook account's Pages (Zernio's cached list; <paramref name="refresh"/>
+    /// re-reads Meta, which Zernio rate-limits to once a minute). Pages Zernio stops listing
+    /// go — only when it lists some, so an empty Meta answer never wipes the bindings.
+    /// </summary>
+    public async Task<(int Pages, string Error)> SyncPagesAsync(ChannelAccount row, bool refresh = false,
+        CancellationToken ct = default)
+    {
+        var r = await _zernio.FacebookPagesAsync(row.ExternalId, refresh, ct);
+        if (!r.Ok) return (0, r.Error);
+        var selected = ZernioJson.Str(r.Json, "selectedPageId");
+        var listed = ZernioJson.Arr(r.Json, "pages").Where(p => ZernioJson.Str(p, "id").Length > 0).ToList();
+        var existing = _db.SocialPages.Where(p => p.ZernioAccountId == row.ExternalId).ToList();
+        foreach (var p in listed)
+        {
+            var id = ZernioJson.Str(p, "id");
+            var page = existing.FirstOrDefault(x => x.PageId == id);
+            if (page == null)
+            {
+                page = new SocialPage
+                {
+                    AccountId = row.Id, ZernioAccountId = row.ExternalId, PageId = id, CreatedAt = DateTime.UtcNow,
+                };
+                _db.SocialPages.Add(page);
+                existing.Add(page);
+            }
+            page.AccountId = row.Id;
+            page.Name = ZernioJson.Str(p, "name");
+            page.Username = ZernioJson.Str(p, "username");
+            page.Category = ZernioJson.Str(p, "category");
+            var pic = ZernioJson.Str(p, "picture", "data", "url");
+            if (pic.Length == 0) pic = ZernioJson.Str(p, "picture");
+            if (pic.Length > 0) page.Avatar = pic;
+            page.IsSelected = id == selected;
+            page.UpdatedAt = DateTime.UtcNow;
+        }
+        if (listed.Count > 0)
+        {
+            var keep = listed.Select(p => ZernioJson.Str(p, "id")).ToHashSet();
+            foreach (var gone in existing.Where(x => !keep.Contains(x.PageId))) _db.SocialPages.Remove(gone);
+        }
+        await _db.SaveChangesAsync(ct);
+        return (listed.Count, "");
+    }
+
+    /// <summary>Zernio's selected Page = the one whose comments and messages reach the inbox.</summary>
+    public async Task<(string Error, int Status)> SelectPageAsync(ChannelAccount row, SocialPage page,
+        CancellationToken ct = default)
+    {
+        if (!_zernio.IsConfigured) return (_zernio.NotConfiguredReason, 409);
+        var r = await _zernio.SelectFacebookPageAsync(row.ExternalId, page.PageId, ct);
+        if (!r.Ok) return (r.Error, r.Status is 400 or 404 or 409 ? r.Status : 502);
+        foreach (var p in _db.SocialPages.Where(p => p.ZernioAccountId == row.ExternalId).ToList())
+            p.IsSelected = p.Id == page.Id;
+        page.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return ("", 0);
+    }
+
+    /// <summary>
+    /// Bind a Page to an outlet (null = it follows the account), and its not-yet-published
+    /// single-target posts follow. Returns the number of posts re-scoped.
+    /// </summary>
+    public async Task<int> BindPageAsync(ChannelAccount row, SocialPage page, int? entityId, CancellationToken ct = default)
+    {
+        page.EntityId = entityId;
+        page.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        var level = entityId ?? row.EntityId;
+        var target = SocialChannels.Target(row.ExternalId, page.PageId);
+        var pending = new[] { SocialPosts.Draft, SocialPosts.Scheduled, SocialPosts.Failed };
+        var moved = 0;
+        foreach (var p in _db.SocialPosts.Where(p => pending.Contains(p.Status) && p.EntityId != level).ToList()
+                     .Where(p => p.AccountIds.Contains(target)))
+        {
+            if (!p.AccountIds.All(e => TargetEntity(e) is (true, var at) && at == level)) continue;
+            p.EntityId = level;
+            p.UpdatedAt = DateTime.UtcNow;
+            moved++;
+        }
+        await _db.SaveChangesAsync(ct);
+        return moved;
+    }
+
     /// <summary>Zernio says an account stopped working (or was removed): the inbox stays, marked down.</summary>
     public ChannelAccount? MarkDisconnected(string zernioAccountId, string reason, bool removed)
     {
@@ -212,7 +432,8 @@ public sealed class SocialAccounts
     /// lands on its entity). Accounts in profiles ChatBranch does not own are left alone;
     /// a mirrored account Zernio no longer lists is marked removed (its conversations stay).
     /// </summary>
-    public async Task<(int Added, int Updated, int Removed, string Error)> SyncAsync(CancellationToken ct = default)
+    public async Task<(int Added, int Updated, int Removed, string Error)> SyncAsync(bool refreshPages = false,
+        CancellationToken ct = default)
     {
         if (!_zernio.IsConfigured) return (0, 0, 0, _zernio.NotConfiguredReason);
         var profiles = await _zernio.ListProfilesAsync(null, ct);
@@ -239,8 +460,10 @@ public sealed class SocialAccounts
             var id = ZernioJson.Str(a, "_id");
             seen.Add(id);
             var isNew = Find(id) == null;
-            Upsert(a, eid, pid);
+            var row = Upsert(a, eid, pid);
             if (isNew) added++; else updated++;
+            if (SocialChannels.Platform(row) == "facebook")
+                try { await SyncPagesAsync(row, refreshPages, ct); } catch { /* the Pages list catches up next time */ }
         }
         var mirrored = await _db.ChannelAccounts
             .Where(x => x.Channel == ChatBranch.Domain.Channels.Social).ToListAsync(ct);

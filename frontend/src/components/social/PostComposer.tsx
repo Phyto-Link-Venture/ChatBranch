@@ -20,6 +20,7 @@ import { MultiSelect, Select, type SelectOption } from '@/components/ui/Select'
 import { Segmented } from '@/components/chats/Segmented'
 import {
   accountHandle,
+  targetAccountId,
   errMessage,
   isNotSetUp,
   platformDef,
@@ -98,21 +99,33 @@ export function PostComposer({
   const options: SelectOption[] = useMemo(
     () =>
       publishable
-        .map((a) => ({
-          value: a.id,
-          label: accountHandle(a),
-          hint: a.display_name && a.username ? a.display_name : undefined,
-          group: platformLabel(a.platform),
-        }))
+        .flatMap((a) =>
+          // a Facebook login with Pages: one target per Page this outlet may post to
+          platformId(a.platform) === 'facebook' && a.pages?.length
+            ? a.pages.map((pg) => ({
+                value: pg.target,
+                label: t('social.composer.pageOption', { name: pg.name || pg.id }),
+                hint: pg.username ? `@${pg.username}` : undefined,
+                group: platformLabel(a.platform),
+              }))
+            : [
+                {
+                  value: a.id,
+                  label: accountHandle(a),
+                  hint: a.display_name && a.username ? a.display_name : undefined,
+                  group: platformLabel(a.platform),
+                },
+              ],
+        )
         .sort((x, y) => (x.group ?? '').localeCompare(y.group ?? '') || x.label.localeCompare(y.label)),
-    [publishable],
+    [publishable, t],
   )
 
   /** The networks the chosen accounts are on — each gets a counter. */
   const platforms = useMemo(() => {
     const ids = new Set<string>()
     for (const id of draft.accountIds) {
-      const a = accounts.find((x) => x.id === id)
+      const a = accounts.find((x) => x.id === targetAccountId(id))
       if (a) ids.add(platformId(a.platform))
     }
     return [...ids]

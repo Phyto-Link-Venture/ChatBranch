@@ -25,6 +25,31 @@ public class SocialProfile
 }
 
 /// <summary>
+/// One Facebook Page a <c>facebook</c> account can publish to (<c>crm_socialpage</c>),
+/// mirrored from Zernio's <c>GET /v1/accounts/{id}/facebook-page</c>. One Facebook login
+/// often manages several Pages: each can be bound to its own outlet
+/// (<see cref="EntityId"/>; null = it follows the account's level), and a post targets
+/// it as <c>"&lt;accountId&gt;:&lt;pageId&gt;"</c>. <see cref="IsSelected"/> = Zernio's
+/// <c>selectedPageId</c>, the Page whose comments and messages reach the inbox.
+/// </summary>
+public class SocialPage
+{
+    public int Id { get; set; }
+    /// <summary>The <see cref="ChannelAccount"/> (channel social) it belongs to.</summary>
+    public int AccountId { get; set; }
+    public string ZernioAccountId { get; set; } = "";
+    public string PageId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Username { get; set; } = "";
+    public string Category { get; set; } = "";
+    public string Avatar { get; set; } = "";
+    public int? EntityId { get; set; }
+    public bool IsSelected { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>
 /// What a social conversation is about, beside its <see cref="Thread"/>
 /// (<c>crm_socialthread</c>, one row per thread): the kind (comment / review / dm),
 /// the platform, the post a comment sits under, a review's rating, whether the

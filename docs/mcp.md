@@ -612,12 +612,15 @@ conversation route.
 | `voice_get_pronunciation` | Read the pronunciation list | read | signed in |
 | `voice_set_pronunciation` | Set the pronunciation list | write | `pronunciation.manage` |
 
-#### social (12)
+#### social (15)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
 | `social_list_accounts` | List social accounts | read | `social.view` or `channels.view` |
 | `social_connect_url` | Get a social account connect link | write · open-world | `social.manage` |
+| `social_assign_account` | Assign a social account to an outlet | write · open-world | `social.manage` |
+| `social_assign_page` | Assign a Facebook Page to an outlet | write | `social.manage` |
+| `social_select_page` | Choose the Facebook Page for the inbox | write · open-world | `social.manage` |
 | `social_disconnect_account` | Disconnect a social account | write · **destructive** · open-world | `social.manage` |
 | `social_hide_comment` | Hide or unhide a social comment | write · open-world | `chats.send` |
 | `social_private_reply` | Reply privately to a commenter | write · open-world | `chats.send` |
