@@ -58,13 +58,16 @@ public class OutboundSender
     private readonly TelegramChannel? _telegram;
     /// <summary>LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo (<see cref="MoreChannels"/>).</summary>
     private readonly MoreChannelSender? _more;
+    /// <summary>Messenger / Instagram connected through Zernio (<see cref="ChatBranch.Data.Social.ZernioNative"/>).</summary>
+    private readonly ChatBranch.Data.Social.ZernioNativeTransport? _zernio;
 
     public OutboundSender(AppDbContext db, ThreadStore threads, IWhatsAppCloudClient whatsapp,
         ChatBranch.Data.Sidecars.IBaileysGateway baileys, IMetaMessagingClient? meta = null,
         MediaStore? media = null, EmailChannel? email = null, TelegramChannel? telegram = null,
-        MoreChannelSender? more = null)
+        MoreChannelSender? more = null, ChatBranch.Data.Social.ZernioNativeTransport? zernio = null)
     {
         _more = more;
+        _zernio = zernio;
         _db = db;
         _threads = threads;
         _whatsapp = whatsapp;
@@ -88,7 +91,17 @@ public class OutboundSender
 
     private bool SocialLive(Thread thread, ChannelAccount? account) =>
         IsSocial(thread) && account != null && account.Channel == thread.Channel
-        && _meta != null && _meta.IsConfigured(account);
+        && ((_meta != null && _meta.IsConfigured(account)) || ZernioSocial(account));
+
+    /// <summary>A Messenger / Instagram inbox connected through Zernio, live.</summary>
+    private bool ZernioSocial(ChannelAccount? account) =>
+        account != null && ChatBranch.Data.Social.ZernioNative.Is(account) && _zernio != null && _zernio.Live(account);
+
+    /// <summary>A Messenger / Instagram text: the Send API, or Zernio's conversation for a Zernio inbox.</summary>
+    private SendOutcome SocialText(ChannelAccount account, Thread thread, string text, string? tag) =>
+        ZernioSocial(account)
+            ? _zernio!.SendAsync(account, thread.Key, text, tag).GetAwaiter().GetResult().ToOutcome()
+            : _meta!.SendTextAsync(account, thread.Key, text, tag).GetAwaiter().GetResult();
 
     /// <summary>LINE, Viber, SMS…: whether the channel's transport can carry an uploaded file.</summary>
     public bool ChannelCarriesFiles(string channel) => _more?.SupportsMedia(channel) ?? false;
@@ -168,7 +181,7 @@ public class OutboundSender
 
         if (SocialLive(thread, account))
             return SocialSend(thread, account!, source, text, humanAgent: false,
-                tag => _meta!.SendTextAsync(account!, thread.Key, text, tag).GetAwaiter().GetResult());
+                tag => SocialText(account!, thread, text, tag));
 
         // sandbox (no configured account)
         return LinkReply(_threads.AppendMessage(thread, MessageDirection.Out, source, text,
@@ -534,14 +547,15 @@ public class OutboundSender
             var bytes = File.ReadAllBytes(full);
             var withCaption = !string.IsNullOrWhiteSpace(caption);
             msg = SocialSend(thread, account!, source, withCaption ? $"[{mediaType}]" : text, humanAgent,
-                tag => _meta!.SendFileAsync(account!, thread.Key, mediaType, bytes, mime, name, tag)
+                tag => ZernioSocial(account) ? ZernioFile(account!, thread, bytes, mime, name, mediaType, tag)
+                    : _meta!.SendFileAsync(account!, thread.Key, mediaType, bytes, mime, name, tag)
                     .GetAwaiter().GetResult());
             if (withCaption && msg.Status == "sent")
             {
                 AttachMedia(msg, mediaType, relPath, mime, name, full);
                 var said = caption!.Trim();
                 return SocialSend(thread, account!, source, said, humanAgent,
-                    tag => _meta!.SendTextAsync(account!, thread.Key, said, tag).GetAwaiter().GetResult());
+                    tag => SocialText(account!, thread, said, tag));
             }
         }
         else
@@ -614,7 +628,8 @@ public class OutboundSender
                 if (!SocialLive(thread, account)) return (Sandbox(), "");
                 var bytes = File.ReadAllBytes(full);
                 var m = SocialSend(thread, account!, source, text, humanAgent: false,
-                    tag => _meta!.SendFileAsync(account!, thread.Key, "audio", bytes, mime, name, tag)
+                    tag => ZernioSocial(account) ? ZernioFile(account!, thread, bytes, mime, name, "audio", tag)
+                        : _meta!.SendFileAsync(account!, thread.Key, "audio", bytes, mime, name, tag)
                         .GetAwaiter().GetResult());
                 return Kept(m);
             }
@@ -699,7 +714,11 @@ public class OutboundSender
         var text = $"[{mediaType}] {url}";
         if (SocialLive(thread, account))
             return SocialSend(thread, account!, source, text, humanAgent,
-                tag => _meta!.SendAttachmentAsync(account!, thread.Key, mediaType, url, tag).GetAwaiter().GetResult());
+                tag => ZernioSocial(account)
+                    ? _zernio!.SendAsync(account!, thread.Key, "", tag, attachmentUrl: url,
+                        attachmentType: ChatBranch.Data.Social.ZernioNativeTransport.AttachmentType(mediaType))
+                        .GetAwaiter().GetResult().ToOutcome()
+                    : _meta!.SendAttachmentAsync(account!, thread.Key, mediaType, url, tag).GetAwaiter().GetResult());
         return _threads.AppendMessage(thread, MessageDirection.Out, source, text, status: "sandbox", accountId: acctId);
     }
 
@@ -716,7 +735,7 @@ public class OutboundSender
         var account = Account(accountId ?? thread.AccountId);
         if (!SocialLive(thread, account)) return Send(thread, text, source, accountId);
         return SocialSend(thread, account!, source, text, humanAgent,
-            tag => _meta!.SendTextAsync(account!, thread.Key, text, tag).GetAwaiter().GetResult());
+            tag => SocialText(account!, thread, text, tag));
     }
 
     /// <summary>
@@ -763,6 +782,17 @@ public class OutboundSender
                 $"{outcome.Detail} — {SocialWindow.HumanAgentTag} replies need Meta's Human Agent permission for this app",
                 $"{code}: {outcome.Detail}");
         return Record(thread, account, source, text, outcome);
+    }
+
+    /// <summary>A stored file on a Zernio Messenger / Instagram inbox: Zernio's upload, then an attachment by URL.</summary>
+    private SendOutcome ZernioFile(ChannelAccount account, Thread thread, byte[] bytes, string mime, string name,
+        string mediaType, string? tag)
+    {
+        var (url, err) = _zernio!.UploadAsync(bytes, mime, name).GetAwaiter().GetResult();
+        if (url.Length == 0) return new SendOutcome(false, "", err);
+        return _zernio.SendAsync(account, thread.Key, "", tag, attachmentUrl: url,
+            attachmentType: ChatBranch.Data.Social.ZernioNativeTransport.AttachmentType(mediaType))
+            .GetAwaiter().GetResult().ToOutcome();
     }
 
     /// <summary>A refused social send: a failed system row with the reason (health untouched).</summary>

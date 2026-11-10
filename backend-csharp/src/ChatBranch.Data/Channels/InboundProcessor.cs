@@ -206,6 +206,9 @@ public class InboundProcessor
         var msg = _threads.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
             text, status: "received", externalId: externalId, accountId: accountId, providerTs: providerTs,
             sender: sender);
+        // background AI tasks that opted into social conversations (Enqueue filters: the social channel
+        // named, or a comment tool given) — e.g. hiding spam comments
+        Ai.Tasks.AiTaskService.Enqueue(_db, _scoping, thread, msg);
 
         try { AutoAssignTeam(thread); } catch { }
         try

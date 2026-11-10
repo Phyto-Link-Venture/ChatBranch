@@ -385,6 +385,15 @@ public static class Seed
         AddUniqueIndexIfMissing(db, "uniq_socialpage_account_page", "crm_socialpage",
             "\"zernio_account_id\", \"page_id\"", "\"page_id\" <> ''");
         AddIndexIfMissing(db, "ix_socialpage_account", "crm_socialpage", "\"account_id\"");
+        // Zernio as a connection method on native channels: thread key → Zernio conversation id
+        AddTableIfMissing(db, "crm_zernioconversation",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_zernioconversation\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"account_id\" INTEGER NOT NULL, \"zernio_account_id\" TEXT NOT NULL, \"channel\" TEXT NOT NULL, "
+            + "\"key\" TEXT NOT NULL, \"conversation_id\" TEXT NOT NULL, \"participant_id\" TEXT NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_zernioconversation_account_key", "crm_zernioconversation",
+            "\"account_id\", \"key\"", "\"key\" <> ''");
+        AddIndexIfMissing(db, "ix_zernioconversation_conv", "crm_zernioconversation", "\"conversation_id\"");
         AddTableIfMissing(db, "crm_socialthread",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_socialthread\" PRIMARY KEY AUTOINCREMENT, "
             + "\"thread_id\" INTEGER NOT NULL, \"kind\" TEXT NOT NULL, \"platform\" TEXT NOT NULL, "

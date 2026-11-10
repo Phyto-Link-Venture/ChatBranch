@@ -13,7 +13,7 @@ export const readySkills = {
     templatesIntro: 'Starting points for how the AI should behave. Add one and edit the words to fit your business.',
     builtinNote: 'Always on: the AI also has a calculator (exact sums, tax and discounts) and date tools.',
     codeLimit: 'Code skills run in a sandbox with no internet and no files — to make a PDF, QR code, payment link or sheet row, use these ready-made apps.',
-    needsConnection: 'Needs {provider} at Integrations',
+    needsConnection: 'Needs {provider} at Apps',
     connected: '{provider} connected',
   },
   apps: {
@@ -145,7 +145,7 @@ export const readySkills = {
     sheetColumns: 'Columns the AI fills in',
     sheetColumnsHint: 'Time, the customer’s name, phone and email are added in front automatically.',
     sheetLabel: 'What this log is called',
-    connectAt: 'Connect {provider} at Integrations first — until then the AI says it can’t do this.',
+    connectAt: 'Connect {provider} at Apps first — until then the AI says it can’t do this.',
     problems: {
       currency: 'The currency must be a 3-letter code such as MYR.',
       taxRate: 'The tax rate must be between 0 and 100.',

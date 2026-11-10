@@ -219,8 +219,8 @@ export function SocialPostsPage() {
               <Share2 size={16} aria-hidden /> {t('social.zernio.notSetUpTitle')}
             </span>
             <p className="text-[12.5px] leading-relaxed text-text-muted">{t('social.zernio.notSetUpBody')}</p>
-            {can('integrations.view') && (
-              <Link href="/integrations" className="text-[12.5px] font-semibold text-brand-300 hover:underline">
+            {can('app_keys.manage') && (
+              <Link href="/settings/appkeys#managed-connections" className="text-[12.5px] font-semibold text-brand-300 hover:underline">
                 {t('social.zernio.openIntegrations')}
               </Link>
             )}

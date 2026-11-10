@@ -86,12 +86,14 @@ export const aiTasks = {
     toolsHint: 'Nothing outside this list is ever offered to the AI. There is no tool that messages the customer.',
     groups: {
       chatbranch: 'In ChatBranch',
-      apps: 'Connected apps',
+      apps: 'Apps',
       webhook: 'Your own system',
       mcp: 'External MCP servers',
     },
     notConnected: 'Not connected',
-    connectHint: 'Connect it on the Integrations page first.',
+    connectHint: 'Connect it on the Apps page first.',
+    socialMedia: 'Social media',
+    connectSocialHint: 'Connect a social account on the Channels page first.',
     readOnlyTool: 'read only',
     noMcp: 'No external MCP servers are ready. Add and test one at Developers → MCP servers to offer its tools here.',
     settings: {

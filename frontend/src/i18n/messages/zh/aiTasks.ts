@@ -86,12 +86,14 @@ export const aiTasks: Dict<typeof source> = {
     toolsHint: '不在此列表中的工具绝不会提供给 AI。没有任何工具可以给客户发消息。',
     groups: {
       chatbranch: 'ChatBranch 内',
-      apps: '已连接的应用',
+      apps: '应用',
       webhook: '您自己的系统',
       mcp: '外部 MCP 服务器',
     },
     notConnected: '未连接',
-    connectHint: '请先在“集成”页面连接。',
+    connectHint: '请先在“应用”页面连接。',
+    socialMedia: '社交媒体',
+    connectSocialHint: '请先在“渠道”页面连接社交账号。',
     readOnlyTool: '只读',
     noMcp: '没有可用的外部 MCP 服务器。请在“开发者 → MCP 服务器”中添加并测试，才能在此提供其工具。',
     settings: {

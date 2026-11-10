@@ -41,12 +41,14 @@ public static class AiTaskEndpoints
     public static readonly string[] ConfigKeys =
     {
         "spreadsheet_id", "sheet_range", "sheet_columns", "drive_folder_id", "calendar_id", "webhook_url", "webhook_secret",
+        // social media: explicit opt-ins to act publicly (off unless "true")
+        AiTaskTools.AllowPublish, AiTaskTools.AllowReply,
     };
 
     public static void MapAiTaskEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/ai/tasks", async (string? entity, AppDbContext db, ScopingService sc, ClaimsPrincipal me,
-            IntegrationResolver resolver) =>
+            IntegrationResolver resolver, ChatBranch.Data.Social.IZernioClient zernio) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
             var rows = await ShellScope.ScopeLibrary(db.AiTasks.AsNoTracking(), db, sc, me, entityId)
@@ -61,7 +63,7 @@ public static class AiTaskEndpoints
             return Results.Ok(new
             {
                 tasks = rows.Select(t => Payload(t, scopes, recent.Where(r => r.TaskId == t.Id).Take(5).ToList())),
-                catalog = Catalog(sc, resolver, entityId),
+                catalog = Catalog(sc, resolver, entityId, zernio.IsConfigured),
                 can_manage = canManage,
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability(MonitorCap, ManageCap);
@@ -208,9 +210,10 @@ public static class AiTaskEndpoints
 
     // ---- catalog ------------------------------------------------------------------------
 
-    private static object Catalog(ScopingService sc, IntegrationResolver resolver, int? entityId)
+    private static object Catalog(ScopingService sc, IntegrationResolver resolver, int? entityId, bool socialReady)
     {
-        bool Connected(string provider) => provider.Length == 0 || resolver.Active(provider, entityId, null) != null;
+        bool Connected(string provider) => provider.Length == 0
+            || (provider == AiTaskTools.SocialProvider ? socialReady : resolver.Active(provider, entityId, null) != null);
         var servers = McpServerRegistry.Load(sc);
         return new
         {
@@ -218,6 +221,11 @@ public static class AiTaskEndpoints
             {
                 id = d.Id, group = d.Group, label = d.Label, description = d.Description, provider = d.Provider,
                 connected = Connected(d.Provider), write = d.Write,
+                // the connected app's name (the editor's heading) and the tool's own opt-in settings
+                app = AiTaskTools.AppOf(d) is { Length: > 0 } app ? app : null,
+                settings = AiTaskTools.SettingsOf(d.Id).Select(x => new { key = x.Key, type = x.Type, @default = x.Default, label = x.Label }),
+                // only meaningful on a social comment conversation
+                comment_only = d.Id is AiTaskTools.SocialHide or AiTaskTools.SocialReply,
             }),
             mcp = AiTaskTools.Mcp(sc).Select(e => new
             {
@@ -304,6 +312,8 @@ public static class AiTaskEndpoints
                     var v = p.Value.ValueKind == JsonValueKind.String ? (p.Value.GetString() ?? "").Trim()
                         : p.Value.ValueKind == JsonValueKind.Null ? "" : p.Value.ToString();
                     if (v.Length > 1000) return Bad($"{p.Name} is too long.");
+                    if (p.Name is AiTaskTools.AllowPublish or AiTaskTools.AllowReply)
+                        v = v.Equals("true", StringComparison.OrdinalIgnoreCase) || v == "1" ? "true" : "";
                     // a masked secret coming back unchanged keeps the stored one
                     if (p.Name == "webhook_secret" && v.Contains('•')) continue;
                     if (v.Length == 0) next.Remove(p.Name);

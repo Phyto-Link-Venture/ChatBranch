@@ -354,7 +354,7 @@ export const guide = {
       steps: {
         s1: {
           title: 'Social posts',
-          body: 'Posts go out through Zernio to the social accounts connected on Channels → Social accounts.',
+          body: 'Posts go out to the social accounts connected on the Channels page.',
         },
         s2: {
           title: 'Post to',
@@ -746,11 +746,11 @@ export const guide = {
         },
         s2: {
           title: 'Add inbox',
-          body: 'Click Add inbox to connect a new one. A step-by-step panel walks you through it: choose the app → connect it → choose who answers → test.',
+          body: 'Click Add inbox to connect a new one. A step-by-step panel walks you through it: pick the channel → pick how to connect it (when there is a choice) → set it up.',
         },
         s3: {
           title: 'Connected',
-          body: 'Each card is one inbox, with a coloured dot for its health — green is working, amber or red needs attention.',
+          body: 'Every inbox and social account is one card: how it is connected, its outlet, a coloured dot for its health (green is working, amber or red needs attention) and what it can do.',
         },
         s4: {
           title: 'Show one kind',
@@ -762,21 +762,21 @@ export const guide = {
         },
         s6: {
           title: 'Add a channel',
-          body: 'Every app you can connect, grouped by type. Click one to start. TikTok and Douyin need approval from the platform first.',
+          body: 'One tile per channel, grouped by type — messaging apps, social networks, SMS/email/voice, China, website chat and marketplaces. Click one to start; TikTok and Douyin need approval from the platform first.',
         },
         s7: {
           title: 'Advanced',
           body: 'The Meta webhook address and the default mail settings. You rarely need this — your developer may ask for it once.',
         },
         s8: {
-          title: 'Social accounts',
-          body: 'Instagram, Facebook, TikTok, LinkedIn, Google Business and more, connected through Zernio. Their comments, reviews and messages arrive in Chats; posts are written on the Social posts page.',
+          title: 'Method and outlet',
+          body: 'Each card shows how it is connected (Cloud API, YCloud, QR, Managed connection…) and which outlet it belongs to. For social accounts you can change the outlet right here; a Facebook login lists its Pages, each with its own outlet.',
         },
       },
     },
     integrations: {
-      title: 'Integrations',
-      intro: 'Connect Google, Shopify, Stripe and other apps.',
+      title: 'Apps',
+      intro: 'Business tools: Google, Shopify, Stripe, MCP servers and more. Customer-facing accounts are on Channels.',
       steps: {
         s1: {
           title: 'Shared connections',
@@ -797,10 +797,6 @@ export const guide = {
         s5: {
           title: 'Connected accounts',
           body: 'Every connection made so far, who uses it and its status, with buttons to manage it.',
-        },
-        s6: {
-          title: 'Zernio (social media)',
-          body: 'The one key that links ChatBranch to Zernio, its webhook and which entity owns which Zernio profile. A super admin sets it once.',
         },
       },
     },

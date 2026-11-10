@@ -612,12 +612,15 @@ conversation route.
 | `voice_get_pronunciation` | Read the pronunciation list | read | signed in |
 | `voice_set_pronunciation` | Set the pronunciation list | write | `pronunciation.manage` |
 
-#### social (15)
+#### social (18)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
 | `social_list_accounts` | List social accounts | read | `social.view` or `channels.view` |
-| `social_connect_url` | Get a social account connect link | write · open-world | `social.manage` |
+| `social_connect_url` | Start connecting an account | write · open-world | `social.manage` or `channels.manage` |
+| `social_telegram_status` | Check a Telegram connection code | read | `social.manage` or `channels.manage` |
+| `social_connect_telegram_chat` | Connect a Telegram group or channel by id | write · open-world | `social.manage` or `channels.manage` |
+| `social_connect_sms` | Turn on SMS for a number | write · open-world | `social.manage` or `channels.manage` |
 | `social_assign_account` | Assign a social account to an outlet | write · open-world | `social.manage` |
 | `social_assign_page` | Assign a Facebook Page to an outlet | write | `social.manage` |
 | `social_select_page` | Choose the Facebook Page for the inbox | write · open-world | `social.manage` |
@@ -667,6 +670,7 @@ conversation route.
 | `GET /api/zernio/status` | credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI |
 | `POST /api/zernio/test` | tests the deployment's Zernio API key (Settings → Integrations) — a credential check a person runs after saving the key |
 | `POST /api/zernio/webhook/register` | credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets (it generates and stores the Zernio webhook signing secret) |
+| `POST /api/social/connect/whatsapp` | credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets (a business's own Meta System User token for a managed WhatsApp connection — typed by a person, never by an assistant) |
 | `POST /api/social/media` | binary upload (multipart) of a post's photo or video — social_create_post takes public https media URLs instead |
 | `POST /api/media/library` | binary upload (multipart): a person drops a file in from the dashboard or their phone. An AI caller asks for an upload link with media_create_upload and PUTs to it, then sends by file_id |
 | `GET /api/media/library/{fileId}/file` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file — media_list returns each file's id, name and type |

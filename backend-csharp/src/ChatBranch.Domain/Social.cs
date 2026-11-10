@@ -138,3 +138,28 @@ public class ZernioEvent
     public string Event { get; set; } = "";
     public DateTime ReceivedAt { get; set; }
 }
+
+/// <summary>
+/// The Zernio conversation behind a NATIVE-channel thread carried by a Zernio account
+/// (<c>crm_zernioconversation</c>): a WhatsApp / Messenger / Instagram / Telegram / SMS
+/// conversation connected "via Zernio" keeps ChatBranch's native thread key (the phone
+/// digits, the PSID, the chat id), while a reply addresses Zernio's conversation id.
+/// One row per (inbox, thread key), learnt from <c>message.received</c> and from a send
+/// that opened the conversation.
+/// </summary>
+public class ZernioConversation
+{
+    public int Id { get; set; }
+    /// <summary>The native <see cref="ChannelAccount"/> (provider zernio) that carries it.</summary>
+    public int AccountId { get; set; }
+    public string ZernioAccountId { get; set; } = "";
+    public string Channel { get; set; } = "";
+    /// <summary>The native thread key (WhatsApp / SMS digits, PSID / IGSID, Telegram chat id).</summary>
+    public string Key { get; set; } = "";
+    /// <summary>Zernio's conversation id (what POST /v1/inbox/conversations/{id}/messages addresses).</summary>
+    public string ConversationId { get; set; } = "";
+    /// <summary>The platform's participant id (WhatsApp phone / BSUID, PSID, Telegram user id).</summary>
+    public string ParticipantId { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}

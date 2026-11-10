@@ -36,7 +36,7 @@ export const readySkills: Overlay<Messages['readySkills']> = {
     numberingHint: 'Each type counts up on its own. If a reply never goes out, its number is voided — so no secret gaps in between.',
     cjkMissing: 'This server cannot print Chinese characters (no CJK font installed) — so the AI is told to write documents in English or Malay.',
     sheetColumnsHint: 'Time, the customer’s name, phone and email go in front automatically — no need to add them.',
-    connectAt: 'Connect {provider} at Integrations first — until then the AI will say it cannot do this.',
+    connectAt: 'Connect {provider} at Apps first — until then the AI will say it cannot do this.',
     problems: {
       currency: 'The currency must be a 3-letter code, like MYR.',
       taxRate: 'Tax rate must be between 0 and 100 ah.',

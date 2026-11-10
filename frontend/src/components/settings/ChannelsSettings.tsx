@@ -1,29 +1,35 @@
 'use client'
 
 /**
- * /channels — the Inboxes page (Chatwoot's model). Every number, mailbox,
- * bot, page, website widget and the SIP trunk is an INBOX:
+ * /channels — the Inboxes page (Chatwoot's model), the ONE place every
+ * connection is managed. Every number, mailbox, bot, page, website widget, the
+ * SIP trunk, every Zernio-connected social account and every marketplace shop:
  *
- *  - Connected: one card per inbox across every channel — health, owning
- *    entity and team, WhatsApp role — with Settings / Test / Pair / Delete.
- *  - Add a channel: a block per channel; picking one opens the step-by-step
- *    setup drawer (components/channels/InboxSetupDrawer).
+ *  - Connected: one list across every channel — channel logo, method badge
+ *    ("Cloud API", "YCloud", "QR", "via Zernio"…), outlet, health and
+ *    capabilities. Inboxes keep Settings / Test / Pair / Delete; Zernio social
+ *    accounts keep their outlet picker and Facebook Page rows
+ *    (components/channels/SocialAccountCard); shops come from the seller service.
+ *  - Add a channel: one tile per CHANNEL; picking one opens the "Add inbox"
+ *    stepper (components/channels/InboxSetupDrawer: channel → method → setup).
  *  - Advanced (collapsed): the shared Meta webhook and default mail settings.
  *
  * Everything reads and writes the existing account endpoints (see
- * components/channels/inboxes.ts). Editing needs `channels.manage`.
+ * components/channels/inboxes.ts). Inboxes need `channels.manage` to change,
+ * Zernio accounts `social.manage`.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Loader2, Plug, Plus, QrCode, Settings2, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CheckCircle, Loader2, Plug, Plus, QrCode, Settings2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { RoleChip } from '@/components/ui/Badges'
 import { hasCap } from '@/lib/auth'
-import { useEntityQuery } from '@/lib/EntityContext'
+import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { fetchChannelHealth, HEALTH_META, type ChannelHealthPayload, type HealthStatus } from '@/lib/channelHealth'
+import { platformId } from '@/lib/social'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 import {
   ApprovalChip,
@@ -33,11 +39,14 @@ import {
   type Step,
 } from '@/components/channels/InboxSetupDrawer'
 import { ChannelsAdvanced } from '@/components/channels/ChannelsAdvanced'
-import { SocialAccountsSection } from '@/components/channels/SocialAccountsSection'
+import { SocialAccountCard, SocialDisconnectModal, useSocialAccounts } from '@/components/channels/SocialAccountCard'
+import { ChannelTileGrid } from '@/components/channels/ChannelPicker'
+import { CapChip, HealthDot, MethodBadge, OutletChip, cardBtn } from '@/components/channels/parts'
+import { loadCommerceStatus, type CommerceStatus } from '@/components/channels/MarketplacePanel'
+import { methodBadge, type ChannelDef } from '@/components/channels/catalog'
 import {
   FILTERS,
-  KINDS,
-  KIND_GROUPS,
+  asFilter,
   deleteInbox,
   errText,
   filterLabel,
@@ -53,6 +62,11 @@ import {
   type TestResult,
 } from '@/components/channels/inboxes'
 
+type Shop = NonNullable<CommerceStatus['inboxes']>[number]
+
+const HEALTH_IDS = new Set<string>(Object.keys(HEALTH_META))
+const asHealth = (h?: string | null): HealthStatus | null => (h && HEALTH_IDS.has(h) ? (h as HealthStatus) : null)
+
 function healthOf(inbox: Inbox, health: ChannelHealthPayload | null): { status: HealthStatus; detail: string } | null {
   if (!health) return null
   if (inbox.kind === 'voice')
@@ -61,17 +75,14 @@ function healthOf(inbox: Inbox, health: ChannelHealthPayload | null): { status: 
   return row ? { status: row.health, detail: row.detail } : null
 }
 
-function HealthDot({ status, detail }: { status: HealthStatus; detail?: string }) {
-  const t = useT()
-  const m = HEALTH_META[status] ?? HEALTH_META.unknown
-  return (
-    <span className="inline-flex items-center gap-1.5" title={detail || t(m.key)}>
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: m.dot }} aria-hidden />
-      <span style={{ color: m.ink }} className="font-semibold">
-        {t(m.key)}
-      </span>
-    </span>
-  )
+/** What an inbox can do, as chips. */
+function inboxCaps(inbox: Inbox): MessageKey[] {
+  if (inbox.kind === 'voice') return ['channels.caps.calls']
+  const caps: MessageKey[] = ['channels.caps.messages']
+  if (inbox.wa?.official || inbox.wa?.template_registry) caps.push('channels.caps.templates')
+  if (inbox.kind === 'wa_qr') caps.push('channels.caps.calls')
+  if (inbox.wa?.recalls_supported || inbox.msg?.recalls_supported) caps.push('channels.caps.recalls')
+  return caps
 }
 
 function InboxCard({
@@ -101,8 +112,8 @@ function InboxCard({
   const meta = kindMeta(inbox.kind)
   const name = inboxName(inbox, t)
   const editable = canManage && !inbox.envManaged && (inbox.kind !== 'voice' || canKeys)
-  const btn =
-    'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-line-strong bg-card px-3 text-[12.5px] font-semibold text-text-high transition-colors hover:bg-fill-hover disabled:cursor-not-allowed disabled:opacity-50'
+  const btn = cardBtn
+  const badge = methodBadge(inbox)
   return (
     <article className="flex min-w-0 flex-col gap-3 rounded-xl border border-line bg-card p-4">
       <div className="flex items-start gap-3">
@@ -110,6 +121,7 @@ function InboxCard({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span className="truncate text-[14px] font-bold text-text-heading">{name}</span>
+            {badge && <MethodBadge label={badge} zernio={inbox.viaZernio} />}
             {inbox.role && <RoleChip role={inbox.role} />}
             {meta.badge && <KindBadge badge={meta.badge} />}
             {meta.approval && <ApprovalChip compact />}
@@ -120,7 +132,8 @@ function InboxCard({
             )}
           </div>
           <div className="truncate text-[12px] text-text-muted">
-            {t(meta.channelLabel)} · {txt(inbox.address, t)}
+            {/* a managed WhatsApp number isn't on Meta's Cloud API from the operator's side — just "WhatsApp" */}
+            {inbox.viaZernio && meta.filter === 'whatsapp' ? 'WhatsApp' : t(meta.channelLabel)} · {txt(inbox.address, t)}
           </div>
         </div>
       </div>
@@ -130,7 +143,9 @@ function InboxCard({
         {inbox.kind !== 'voice' && (
           <>
             <span aria-hidden>·</span>
-            <span className="truncate">{inbox.entityName || t('channels.card.allEntities')}</span>
+            <span data-tour="channels-card-outlet" className="min-w-0">
+              <OutletChip name={inbox.entityName || t('channels.card.allEntities')} />
+            </span>
             {teamName && (
               <>
                 <span aria-hidden>·</span>
@@ -145,6 +160,12 @@ function InboxCard({
             )}
           </>
         )}
+      </div>
+
+      <div className="flex flex-wrap gap-1" aria-label={t('channels.card.capabilities')}>
+        {inboxCaps(inbox).map((c) => (
+          <CapChip key={c} label={t(c)} />
+        ))}
       </div>
 
       {test && (
@@ -202,17 +223,55 @@ function InboxCard({
   )
 }
 
+/** A marketplace shop (the seller service holds its grant — nothing to edit here). */
+function ShopCard({ shop, health, outlet }: { shop: Shop; health: { status: HealthStatus; detail: string } | null; outlet: string }) {
+  const t = useT()
+  return (
+    <article className="flex min-w-0 flex-col gap-3 rounded-xl border border-line bg-card p-4">
+      <div className="flex items-start gap-3">
+        <ChannelLogo channel={shop.channel} variant="tile" size={36} title="" />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="truncate text-[14px] font-bold text-text-heading">{shop.name || shop.shop || String(shop.id)}</span>
+            <MethodBadge label="channels.methods.badges.seller" />
+            <KindBadge badge="Beta" />
+          </div>
+          <div className="truncate text-[12px] text-text-muted">{shop.shop}</div>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-text-muted">
+        {health ? <HealthDot status={health.status} detail={health.detail} /> : <span>{t('channels.card.notMonitored')}</span>}
+        <span aria-hidden>·</span>
+        <OutletChip name={outlet} />
+      </div>
+      <div className="flex flex-wrap gap-1" aria-label={t('channels.card.capabilities')}>
+        <CapChip label={t(shop.channel === 'shopify' ? 'channels.caps.noChat' : 'channels.caps.buyerChat')} />
+      </div>
+    </article>
+  )
+}
+
 const DELETE_NOTE: Partial<Record<InboxKind, MessageKey>> = {
   voice: 'channels.page.deleteVoice',
   website: 'channels.page.deleteWebsite',
   wa_qr: 'channels.page.deleteQr',
 }
 
+/** One card in the Connected list. */
+type Row =
+  | { type: 'inbox'; key: string; filter: ChannelFilter | null; inbox: Inbox }
+  | { type: 'social'; key: string; filter: ChannelFilter | null; account: NonNullable<ReturnType<typeof useSocialAccounts>['accounts']>[number] }
+  | { type: 'shop'; key: string; filter: ChannelFilter | null; shop: Shop }
+
 export function ChannelsSettings() {
   const t = useT()
+  const tRef = useRef(t)
+  tRef.current = t
   const f = useFormat()
+  const { entities } = useEntity()
   const [snap, setSnap] = useState<InboxesSnapshot | null>(null)
   const [health, setHealth] = useState<ChannelHealthPayload | null>(null)
+  const [shops, setShops] = useState<Shop[]>([])
   const [filter, setFilter] = useState<ChannelFilter>('all')
   const [drawer, setDrawer] = useState<(DrawerTarget & { id: number }) | null>(null)
   const [tests, setTests] = useState<Record<string, TestResult | 'running'>>({})
@@ -220,46 +279,90 @@ export function ChannelsSettings() {
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [pageMsg, setPageMsg] = useState<string | null>(null)
+  const [pageError, setPageError] = useState<string | null>(null)
   // capabilities read after mount (localStorage — see CLAUDE.md hydration rule)
   const [canManage, setCanManage] = useState(false)
   const [canKeys, setCanKeys] = useState(false)
+  const [canSocial, setCanSocial] = useState(false)
   useEffect(() => {
     setCanManage(hasCap('channels.manage'))
     // the SIP trunk and the default mail settings are provider credentials (app_keys.manage)
     setCanKeys(hasCap('app_keys.manage'))
+    // Zernio connections (social networks and "via Zernio" methods)
+    setCanSocial(hasCap('social.manage'))
   }, [])
+
+  const social = useSocialAccounts()
+  const reloadSocial = social.load
 
   const entityQ = useEntityQuery()
   const reload = useCallback(async () => {
-    const [s, h] = await Promise.allSettled([loadInboxes(entityQ), fetchChannelHealth(entityQ)])
+    const [s, h, c] = await Promise.allSettled([loadInboxes(entityQ), fetchChannelHealth(entityQ), loadCommerceStatus()])
     if (s.status === 'fulfilled') setSnap(s.value)
     setHealth(h.status === 'fulfilled' ? h.value : null)
+    // no seller service (or an older backend) simply means no shops
+    setShops(c.status === 'fulfilled' ? (c.value.inboxes ?? []) : [])
   }, [entityQ])
 
   useEffect(() => {
     reload()
   }, [reload])
 
+  // Zernio's connect page sends the person back with ?zernio=connected (or an error)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const q = new URLSearchParams(window.location.search)
+    const z = q.get('zernio')
+    if (!z) return
+    if (z === 'connected') setPageMsg(tRef.current('social.accounts.connectedNotice'))
+    else setPageError(tRef.current('social.accounts.connectFailed', { reason: q.get('error') || z }))
+    q.delete('zernio')
+    q.delete('error')
+    const rest = q.toString()
+    window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`)
+  }, [])
+
   const inboxes = useMemo(() => snap?.inboxes ?? [], [snap])
-  const counts = useMemo(() => {
-    const c: Partial<Record<ChannelFilter, number>> = { all: inboxes.length }
-    for (const i of inboxes) {
-      const k = kindMeta(i.kind).filter
-      c[k] = (c[k] ?? 0) + 1
+  const rows = useMemo<Row[]>(() => {
+    const out: Row[] = inboxes.map((inbox) => ({ type: 'inbox', key: inbox.key, filter: kindMeta(inbox.kind).filter, inbox }))
+    for (const a of social.accounts ?? []) {
+      const pid = platformId(a.platform)
+      // our Facebook filter is Messenger's for DMs; a Facebook account is its Page's posts / comments
+      out.push({ type: 'social', key: `social:${a.id}`, filter: asFilter(pid), account: a })
     }
+    for (const shop of shops) out.push({ type: 'shop', key: `shop:${shop.id}`, filter: asFilter(shop.channel), shop })
+    return out
+  }, [inboxes, social.accounts, shops])
+
+  const counts = useMemo(() => {
+    const c: Partial<Record<ChannelFilter, number>> = { all: rows.length }
+    for (const r of rows) if (r.filter) c[r.filter] = (c[r.filter] ?? 0) + 1
     return c
-  }, [inboxes])
-  const visible = filter === 'all' ? inboxes : inboxes.filter((i) => kindMeta(i.kind).filter === filter)
+  }, [rows])
+  const visible = filter === 'all' ? rows : rows.filter((r) => r.filter === filter)
   const voiceInbox = inboxes.find((i) => i.kind === 'voice') ?? null
   const teamName = (id: number | null) => (id == null ? undefined : snap?.teams.find((tm) => tm.id === id)?.name)
   const activeFilter = FILTERS.find((x) => x.id === filter)
+  const canAdd = canManage || canSocial
+  const loaded = !!snap && social.accounts !== null
 
-  const open = (kind: InboxKind | null, inbox: Inbox | null, step: Step) =>
-    setDrawer({ kind, inbox, step, id: Date.now() })
+  const open = (kind: InboxKind | null, inbox: Inbox | null, step: Step, channel: string | null = null) =>
+    setDrawer({ kind, inbox, step, channel, id: Date.now() })
 
-  const openBlock = (kind: InboxKind) => {
-    if (kind === 'voice' && voiceInbox) open('voice', voiceInbox, 2)
-    else open(kind, null, 2)
+  /** A catalog tile: the stepper opens on that channel (its methods, or its only method's setup). */
+  const openChannel = (id: string) => {
+    if (id === 'voice' && voiceInbox) open('voice', voiceInbox, 2)
+    else open(null, null, 1, id)
+  }
+
+  /** Why this person can't add this channel (null = they can). */
+  const channelBlocked = (c: ChannelDef): string | null => {
+    const reasons = c.methods.map((m) => {
+      if (m.zernio) return canSocial ? null : t('channels.drawer.needsSocial')
+      if (m.kind === 'voice' && !canKeys && !voiceInbox) return t('channels.page.superOnly')
+      return canManage ? null : t('channels.page.addNeedsPermission')
+    })
+    return reasons.every((r) => r) ? reasons[0] : null
   }
 
   const runTest = async (inbox: Inbox) => {
@@ -284,6 +387,15 @@ export function ChannelsSettings() {
     }
   }
 
+  const shopOutlet = (s: Shop) =>
+    s.entity_id == null ? t('channels.card.allEntities') : (entities.find((e) => e.id === s.entity_id)?.name ?? `#${s.entity_id}`)
+  const shopHealth = (s: Shop) => {
+    const row = health?.accounts.find((a) => String(a.id) === String(s.id))
+    if (row) return { status: row.health, detail: row.detail }
+    const st = asHealth(s.health)
+    return st ? { status: st, detail: '' } : null
+  }
+
   const chip = (active: boolean) =>
     `inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-semibold transition-colors ${
       active
@@ -298,7 +410,7 @@ export function ChannelsSettings() {
         title={t('channels.page.title')}
         subtitle={t('channels.page.subtitle')}
         actions={
-          canManage ? (
+          canAdd ? (
             <Button data-tour="channels-add" onClick={() => open(null, null, 1)}>
               <Plus size={14} aria-hidden /> {t('channels.page.addInbox')}
             </Button>
@@ -308,8 +420,17 @@ export function ChannelsSettings() {
 
       <div className="flex flex-col gap-9 pb-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
         {pageMsg && (
-          <div role="status" className="text-[12.5px] font-semibold" style={{ color: 'var(--green-ink)' }}>
-            {pageMsg}
+          <div role="status" className="flex items-center gap-1.5 text-[12.5px] font-semibold" style={{ color: 'var(--green-ink)' }}>
+            <CheckCircle size={13} aria-hidden /> {pageMsg}
+          </div>
+        )}
+        {pageError && !drawer && (
+          <div
+            role="alert"
+            className="rounded-lg border border-red/35 bg-red/10 px-3 py-2 text-[12.5px] font-semibold"
+            style={{ color: 'var(--red-ink)' }}
+          >
+            {pageError}
           </div>
         )}
         {snap && snap.failed.length > 0 && (
@@ -317,21 +438,26 @@ export function ChannelsSettings() {
             {t('channels.page.loadFailed', { sources: f.list(snap.failed.map((k) => t(k))) })}
           </div>
         )}
+        {social.error && (
+          <div className="rounded-lg border border-amber/40 bg-amber/10 px-3 py-2 text-[12.5px]" style={{ color: 'var(--amber-ink)' }}>
+            {t('channels.page.socialFailed', { reason: social.error })}
+          </div>
+        )}
 
-        {/* ── Connected ─────────────────────────────────────────────────── */}
-        <section data-tour="channels-connected" className="flex flex-col gap-3" aria-labelledby="connected-h">
+        {/* ── Connected: every inbox, Zernio account and shop ──────────────── */}
+        <section data-tour="channels-connected" className="flex scroll-mt-4 flex-col gap-3" aria-labelledby="connected-h">
+          {/* old links point at /channels#social-accounts — they land here now */}
+          <span id="social-accounts" className="sr-only" aria-hidden />
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h2 id="connected-h" className="display text-[22px] leading-tight text-text-heading">
               {t('channels.page.connected')}
             </h2>
-            {snap && (
-              <span className="text-[12.5px] text-text-muted">
-                {t('channels.page.inboxCount', { count: inboxes.length })}
-              </span>
+            {loaded && (
+              <span className="text-[12.5px] text-text-muted">{t('channels.page.inboxCount', { count: rows.length })}</span>
             )}
           </div>
 
-          {inboxes.length > 0 && (
+          {rows.length > 0 && (
             <div data-tour="channels-filter" className="flex flex-wrap gap-1.5" role="group" aria-label={t('channels.page.filterByChannel')}>
               {FILTERS.filter((x) => x.id === 'all' || counts[x.id]).map((x) => (
                 <button
@@ -353,111 +479,77 @@ export function ChannelsSettings() {
             <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
               <Loader2 size={14} className="animate-spin" aria-hidden /> {t('channels.page.loading')}
             </div>
-          ) : inboxes.length === 0 ? (
+          ) : rows.length === 0 ? (
             <div className="flex flex-col items-start gap-2 rounded-xl border border-dashed border-line-strong px-5 py-7">
               <span className="display text-[19px] text-text-heading">{t('channels.page.emptyTitle')}</span>
               <p className="max-w-[560px] text-[12.5px] leading-relaxed text-text-muted">{t('channels.page.emptyBody')}</p>
+              {canAdd && (
+                <Button className="mt-1" onClick={() => open(null, null, 1)}>
+                  <Plus size={14} aria-hidden /> {t('channels.page.addInbox')}
+                </Button>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 min-[1360px]:grid-cols-3">
-              {visible.map((inbox) => (
-                <InboxCard
-                  key={inbox.key}
-                  inbox={inbox}
-                  health={healthOf(inbox, health)}
-                  teamName={teamName(inbox.teamId)}
-                  canManage={canManage}
-                  canKeys={canKeys}
-                  test={tests[inbox.key]}
-                  onSettings={() => open(inbox.kind, inbox, inbox.kind === 'voice' ? 2 : 3)}
-                  onTest={() => runTest(inbox)}
-                  onPair={() => open(inbox.kind, inbox, 4)}
-                  onDelete={() => {
-                    setDeleteError(null)
-                    setPageMsg(null)
-                    setToDelete(inbox)
-                  }}
-                />
-              ))}
+              {visible.map((r) =>
+                r.type === 'inbox' ? (
+                  <InboxCard
+                    key={r.key}
+                    inbox={r.inbox}
+                    health={healthOf(r.inbox, health)}
+                    teamName={teamName(r.inbox.teamId)}
+                    canManage={canManage}
+                    canKeys={canKeys}
+                    test={tests[r.inbox.key]}
+                    onSettings={() => open(r.inbox.kind, r.inbox, r.inbox.kind === 'voice' ? 2 : 3)}
+                    onTest={() => runTest(r.inbox)}
+                    onPair={() => open(r.inbox.kind, r.inbox, 4)}
+                    onDelete={() => {
+                      setDeleteError(null)
+                      setPageMsg(null)
+                      setToDelete(r.inbox)
+                    }}
+                  />
+                ) : r.type === 'social' ? (
+                  <SocialAccountCard key={r.key} a={r.account} s={social} />
+                ) : (
+                  <ShopCard key={r.key} shop={r.shop} health={shopHealth(r.shop)} outlet={shopOutlet(r.shop)} />
+                ),
+              )}
               {visible.length === 0 && (
                 <div className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-[12.5px] text-text-muted">
                   {t('channels.page.noneOfKind', { channel: activeFilter ? filterLabel(activeFilter, t) : filter })}
                 </div>
               )}
-              {canManage && filter === 'all' && (
+              {canAdd && filter === 'all' && (
                 <button
                   type="button"
-                  onClick={() => document.getElementById('add-channel-h')?.scrollIntoView({ behavior: 'smooth' })}
-                  className="flex min-h-[120px] cursor-pointer items-center justify-center rounded-xl border border-dashed border-line-strong px-4 text-center text-[12.5px] text-text-muted transition-colors hover:bg-fill-subtle hover:text-text-high"
+                  onClick={() => open(null, null, 1)}
+                  className="flex min-h-[120px] cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-strong px-4 text-center text-[12.5px] text-text-muted transition-colors hover:bg-fill-subtle hover:text-text-high"
                 >
-                  {t('channels.page.pickBlock')}
+                  <Plus size={14} aria-hidden /> {t('channels.page.addAnother')}
                 </button>
               )}
             </div>
           )}
         </section>
 
-        {/* ── Social accounts (via Zernio) ─────────────────────────────── */}
-        <SocialAccountsSection />
-
-        {/* ── Add a channel ─────────────────────────────────────────────── */}
+        {/* ── Add a channel: one tile per channel → the stepper ─────────────── */}
         <section data-tour="channels-catalog" className="flex flex-col gap-3" aria-labelledby="add-channel-h">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h2 id="add-channel-h" className="display text-[22px] leading-tight text-text-heading">
               {t('channels.page.addChannel')}
             </h2>
             <span className="text-[12.5px] text-text-muted">
-              {canManage ? t('channels.page.addHint') : t('channels.page.addNeedsPermission')}
+              {canAdd ? t('channels.page.addHint') : t('channels.page.addNeedsPermission')}
             </span>
           </div>
-          {KIND_GROUPS.map((g) => (
-            <div key={g.id} className="flex flex-col gap-2" role="group" aria-labelledby={`add-group-${g.id}`}>
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <h3 id={`add-group-${g.id}`} className="eyebrow">
-                  {t(g.label)}
-                </h3>
-                <span className="text-[11.5px] text-text-faint">{t(g.hint)}</span>
-              </div>
-              <div className="grid grid-cols-1 gap-3.5 min-[460px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {KINDS.filter((k) => k.group === g.id).map((k) => {
-                  const selected = !!drawer && drawer.kind === k.kind && !drawer.inbox
-                  const voiceLocked = k.kind === 'voice' && !canKeys && !voiceInbox
-                  const disabled = !canManage || voiceLocked
-                  return (
-                    <button
-                      key={k.kind}
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => openBlock(k.kind)}
-                      className={`group flex min-w-0 flex-col gap-2 rounded-xl border bg-card p-4 text-left transition-colors enabled:cursor-pointer enabled:hover:border-text-primary disabled:cursor-not-allowed disabled:opacity-60 ${
-                        selected ? 'border-text-primary shadow-[0_0_0_1px_var(--text-primary)]' : 'border-line'
-                      }`}
-                    >
-                      <span className="flex items-start justify-between gap-2">
-                        <ChannelLogo channel={k.logo} variant="tile" size={38} title="" />
-                        <span className="flex flex-wrap justify-end gap-1">
-                          {k.badge && <KindBadge badge={k.badge} />}
-                          {k.approval && <ApprovalChip />}
-                        </span>
-                      </span>
-                      <span className="mt-1 text-[14px] font-bold text-text-heading">{t(k.label)}</span>
-                      <span className="text-[12px] leading-snug text-text-mid">{t(k.blurb)}</span>
-                      {k.kind === 'wa_qr' && (
-                        <span className="text-[11.5px] leading-snug" style={{ color: 'var(--amber-ink)' }}>
-                          {t('channels.page.qrWarning')}
-                        </span>
-                      )}
-                      {k.kind === 'voice' && (voiceInbox || voiceLocked) && (
-                        <span className="text-[11.5px] text-text-muted">
-                          {voiceInbox ? t('channels.page.voiceConnected') : t('channels.page.superOnly')}
-                        </span>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
+          <ChannelTileGrid
+            onPick={openChannel}
+            selected={drawer && !drawer.inbox ? drawer.channel : null}
+            disabled={channelBlocked}
+            groupIdPrefix="add-group"
+          />
         </section>
 
         {canManage && <ChannelsAdvanced verifyToken={snap?.verifyToken ?? ''} canKeys={canKeys} />}
@@ -474,9 +566,12 @@ export function ChannelsSettings() {
           onClose={() => setDrawer(null)}
           onChanged={() => {
             reload().catch(() => {})
+            void reloadSocial()
           }}
         />
       )}
+
+      <SocialDisconnectModal s={social} onDone={(name) => setPageMsg(t('social.accounts.disconnected', { name }))} />
 
       <Modal
         open={!!toDelete}

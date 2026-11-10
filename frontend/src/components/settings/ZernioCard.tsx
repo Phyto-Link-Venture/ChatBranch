@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Integrations → "Zernio (social media)": the ONE deployment-wide Zernio API key
+ * Settings → App & provider keys → "Zernio (social media)": the ONE deployment-wide Zernio API key
  * (super admin; saved through the global settings endpoint like the other app
  * keys and masked on read), the webhook Zernio calls us on, and which entity
  * owns which Zernio profile. Social accounts themselves are connected per entity
@@ -114,7 +114,7 @@ export function ZernioCard() {
   const profiles = status?.profiles ?? []
 
   return (
-    <section data-tour="integrations-zernio" aria-labelledby="zernio-h" className="flex flex-col gap-3">
+    <section data-tour="appkeys-zernio" aria-labelledby="zernio-h" className="flex flex-col gap-3">
       <div>
         <div className="flex items-center gap-2">
           <Share2 size={15} className="text-brand-300" aria-hidden />

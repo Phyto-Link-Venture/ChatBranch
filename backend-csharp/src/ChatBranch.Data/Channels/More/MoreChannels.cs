@@ -104,6 +104,7 @@ public static class MoreChannels
         // sidecar can act for (CommerceChannels.Configured)
         if (CommerceChannels.Handles(a.Channel)) return CommerceChannels.Configured(a);
         if (IsSocial(a.Channel)) return ChatBranch.Data.Social.SocialChannels.Configured(a);
+        if (ChatBranch.Data.Social.ZernioNative.Is(a)) return ChatBranch.Data.Social.ZernioNative.Configured(a);
         var token = !string.IsNullOrWhiteSpace(a.AccessToken);
         return a.Channel switch
         {

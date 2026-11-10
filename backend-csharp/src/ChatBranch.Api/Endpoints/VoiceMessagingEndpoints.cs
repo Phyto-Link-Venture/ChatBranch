@@ -843,6 +843,9 @@ public static class VoiceMessagingEndpoints
         {
             ["id"] = a.Id.ToString(),
             ["channel"] = a.Channel,
+            // who carries it: the channel's own API ("cloud", "twilio"…) or a managed connection ("zernio")
+            ["provider"] = a.Provider,
+            ["health_status"] = a.HealthStatus,
             ["name"] = a.Name,
             ["external_id"] = a.ExternalId,
             ["owner"] = a.Owner,
@@ -862,6 +865,12 @@ public static class VoiceMessagingEndpoints
             ["recalls_supported"] = ChatBranch.Data.Channels.MessageRecalls.Supports(a),
         };
         var cfg = a.Config ?? new Dictionary<string, object?>();
+        if (ChatBranch.Data.Social.ZernioNative.Is(a))
+        {
+            // a native channel through a managed connection: the grant lives there, nothing to mask
+            SocialEndpoints.AddNativePayload(outv, a);
+            return outv;
+        }
         if (a.Channel == "email")
         {
             outv["config"] = new Dictionary<string, object?>
@@ -1076,11 +1085,12 @@ public static class VoiceMessagingEndpoints
                 if (ShellScope.CompanyLevelError(db, sc, me, newEntity) is { } outsideNew) return outsideNew;
                 // a Zernio account's level IS its Zernio profile: a local-only rebind would be
                 // undone by the next sync — PATCH /api/social/accounts/{id} moves it in Zernio too
-                if (MoreChannelAccounts.Social(account.Channel) && account.EntityId != newEntity)
+                if ((MoreChannelAccounts.Social(account.Channel) || ChatBranch.Data.Social.ZernioNative.Is(account))
+                    && account.EntityId != newEntity)
                     return Results.Json(new
                     {
                         detail = "A social account's outlet is set under Channels → Social accounts " +
-                                 "(PATCH /api/social/accounts/{id}), which moves it to that outlet's Zernio profile.",
+                                 "(PATCH /api/social/accounts/{id}), which moves its managed connection to that outlet.",
                     }, statusCode: 409);
                 var rebind = account.EntityId != newEntity;
                 account.EntityId = newEntity;
@@ -1101,12 +1111,24 @@ public static class VoiceMessagingEndpoints
             // A marketplace shop's inbox settings (team, AI default, kept recalls)
             // are edited like any other inbox — applied above — but its grant
             // belongs to the seller service, so there is nothing else to change.
-            if (MoreChannelAccounts.Commerce(account.Channel) || MoreChannelAccounts.Social(account.Channel))
+            // a managed connection (social row or native inbox): its NAME is editable here too
+            var renamed = (MoreChannelAccounts.Social(account.Channel) || ChatBranch.Data.Social.ZernioNative.Is(account))
+                          && body.Has("name") && ChatBranch.Data.Social.ZernioNative.Rename(account, body.Str("name"));
+            if (renamed) inboxTouched = true;
+            if (MoreChannelAccounts.Commerce(account.Channel) || MoreChannelAccounts.Social(account.Channel)
+                || ChatBranch.Data.Social.ZernioNative.Is(account))
             {
+                // credentials are the managed connection's: refuse them rather than ignore them
+                if (ChatBranch.Data.Social.ZernioNative.Is(account)
+                    && new[] { "access_token", "app_secret", "external_id", "config" }.Any(k => body.Has(k)
+                        && !(body.Str(k) ?? "").Contains("••") && (body.Str(k) ?? "").Trim().Length > 0))
+                    return Results.Json(new { detail = ChatBranch.Data.Social.ZernioNative.NotEditable }, statusCode: 400);
                 if (!inboxTouched)
                     return Results.Json(new
                     {
-                        detail = MoreChannelAccounts.Social(account.Channel)
+                        detail = ChatBranch.Data.Social.ZernioNative.Is(account)
+                            ? ChatBranch.Data.Social.ZernioNative.NotEditable
+                            : MoreChannelAccounts.Social(account.Channel)
                             ? ChatBranch.Data.Social.SocialChannels.NotEditable
                             : ChatBranch.Data.Channels.CommerceChannels.NotEditable(account.Channel),
                     }, statusCode: 400);
@@ -1239,6 +1261,13 @@ public static class VoiceMessagingEndpoints
                 return Results.Json(new { detail = "Account not found." }, statusCode: 404);
             if (ShellScope.CompanyLevelError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me, account.EntityId) is { } outside)
                 return outside;
+            if (ChatBranch.Data.Social.ZernioNative.Is(account) || MoreChannelAccounts.Social(account.Channel))
+                return Results.Json(new
+                {
+                    detail = "This inbox is a managed connection: disconnect it with DELETE /api/social/accounts/{id} " +
+                             "(Channels → the inbox → Disconnect), or the next sync brings it back.",
+                    zernio_account_id = account.ExternalId,
+                }, statusCode: 409);
             var label = $"{account.Channel}:{account.Name}";
             // conversations stay (back in sandbox) — unlink them first
             await ChatBranch.Data.Channels.InboxSettings.DetachAccountAsync(db, account.Id);

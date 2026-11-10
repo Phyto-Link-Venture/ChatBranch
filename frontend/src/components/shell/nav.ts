@@ -110,7 +110,6 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'shell.groups.channels',
     items: [
       { href: '/channels', lbl: 'shell.nav.channels', Icon: Radio, cap: 'channels.view', keywords: 'whatsapp telegram email accounts numbers widget' },
-      { href: '/integrations', lbl: 'shell.nav.integrations', Icon: Plug, cap: 'integrations.view', keywords: 'google calendar stripe shopify' },
     ],
   },
   {
@@ -121,6 +120,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/entities', lbl: 'shell.nav.entities', Icon: Building2, cap: 'entities.view', keywords: 'branches outlets' },
       { href: '/bindings', lbl: 'shell.nav.bindings', Icon: Link2, cap: 'users.view', keywords: 'access' },
       { href: '/permissions', lbl: 'shell.nav.permissions', Icon: ShieldCheck, cap: 'rbac.manage', keywords: 'rbac capabilities matrix' },
+      // Apps = business tools (Calendar, Sheets, Shopify, Stripe, MCP…); customer-facing accounts live on /channels
+      { href: '/integrations', lbl: 'shell.nav.integrations', Icon: Plug, cap: 'integrations.view', keywords: 'apps integrations google calendar sheets drive stripe shopify zoom' },
       { href: '/developers', lbl: 'shell.nav.developers', Icon: Code2, cap: 'api_keys.manage', keywords: 'developers tokens mcp' },
     ],
   },

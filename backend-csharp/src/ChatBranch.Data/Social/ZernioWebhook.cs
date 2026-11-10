@@ -28,7 +28,7 @@ public sealed class ZernioWebhook
     {
         "account.connected", "account.disconnected",
         "comment.received", "review.new", "review.updated",
-        "message.received", "message.sent", "message.failed",
+        "message.received", "message.sent", "message.failed", "message.delivered", "message.read",
         "post.scheduled", "post.published", "post.partial", "post.failed", "post.cancelled",
         "post.platform.published", "post.platform.failed", "post.platform.deleted",
     };
@@ -37,9 +37,13 @@ public sealed class ZernioWebhook
     private readonly ThreadStore _threads;
     private readonly InboundProcessor _inbound;
     private readonly SocialAccounts _accounts;
+    /// <summary>Inbound attachments of native-channel conversations, fetched off the ack.</summary>
+    private readonly MediaFetcher? _fetcher;
 
-    public ZernioWebhook(AppDbContext db, ThreadStore threads, InboundProcessor inbound, SocialAccounts accounts)
+    public ZernioWebhook(AppDbContext db, ThreadStore threads, InboundProcessor inbound, SocialAccounts accounts,
+        MediaFetcher? fetcher = null)
     {
+        _fetcher = fetcher;
         _db = db;
         _threads = threads;
         _inbound = inbound;
@@ -73,6 +77,8 @@ public sealed class ZernioWebhook
             case "message.received": return await MessageReceivedAsync(body, ct);
             case "message.sent": return await MessageSentAsync(body, ct);
             case "message.failed": return MessageFailed(body);
+            case "message.delivered": return MessageStatus(body, "delivered");
+            case "message.read": return MessageStatus(body, "read");
             default:
                 if (eventName.StartsWith("post.", StringComparison.Ordinal))
                     return SocialPosts.ApplyWebhook(_db, eventName, body);
@@ -94,7 +100,7 @@ public sealed class ZernioWebhook
         {
             // a profile ChatBranch has not seen (the default one, typically): learn it from a sync
             var (_, _, _, error) = await _accounts.SyncAsync(ct: ct);
-            var mirrored = _accounts.Find(ZernioJson.Str(acct, "accountId"));
+            var mirrored = _accounts.FindAny(ZernioJson.Str(acct, "accountId"));
             return mirrored != null
                 ? new ZernioOutcome("ok", "account synced")
                 : new ZernioOutcome("ignored", error.Length > 0 ? error : "the account's profile is not ChatBranch's");
@@ -117,7 +123,7 @@ public sealed class ZernioWebhook
         var acct = ZernioJson.At(body, "account");
         var id = ZernioJson.Str(acct, "accountId");
         if (id.Length == 0) id = ZernioJson.Str(acct, "id");
-        var row = _accounts.Find(id);
+        var row = _accounts.FindAny(id);
         if (row != null) return row;
         var profileId = ZernioJson.Str(acct, "profileId");
         foreach (var p in ZernioJson.Arr(body, "profiles"))
@@ -128,7 +134,28 @@ public sealed class ZernioWebhook
             if (known) return _accounts.Upsert(acct, entityId, pid);
         }
         await _accounts.SyncAsync(ct: ct);
-        return _accounts.Find(id);
+        return _accounts.FindAny(id);
+    }
+
+    /// <summary>
+    /// A social conversation of a facebook account sits at the account's INBOX level: its
+    /// selected Page's outlet when that Page is bound (<see cref="SocialAccounts.InboxEntity"/>).
+    /// </summary>
+    private void PlaceAtInbox(int threadId, ChannelAccount account)
+    {
+        try
+        {
+            var level = _accounts.InboxEntity(account);
+            if (level == account.EntityId) return;
+            var t = _db.Threads.Find(threadId);
+            if (t == null || t.EntityId == level) return;
+            var sc = new ScopingService(_db);
+            if (t.CompanyEntityId != null && sc.CompanyOf(level) != t.CompanyEntityId) return;
+            t.EntityId = level;
+            t.UpdatedAt = DateTime.UtcNow;
+            _db.SaveChanges();
+        }
+        catch { /* placement never fails a webhook */ }
     }
 
     // ---- comments ----------------------------------------------------------------
@@ -210,6 +237,7 @@ public sealed class ZernioWebhook
 
         var msg = _inbound.ProcessInbound(ChatBranch.Domain.Channels.Social, key, text, authorName, account.Id,
             commentId, at, sender: new InboundSender(ZernioJson.Str(author, "id"), authorName));
+        PlaceAtInbox(msg.ThreadId, account);
         Heal(account);
         return new ZernioOutcome("ok", "comment stored", msg.ThreadId, msg.Id);
     }
@@ -281,6 +309,14 @@ public sealed class ZernioWebhook
         if (ZernioJson.Str(m, "direction") == "outgoing") return await MessageSentAsync(body, ct);
         var platform = FirstNonEmpty(ZernioJson.Str(m, "platform"), SocialChannels.Platform(account));
 
+        // a native-capable platform (WhatsApp, Messenger, Instagram, Telegram, SMS) whose Zernio
+        // account IS an inbox here: the NATIVE channel with its native key, like any connection
+        if (ZernioNative.ChannelFor(platform) != null)
+        {
+            var nativeRow = ZernioNative.Is(account) ? account : _accounts.EnsureNative(account);
+            if (nativeRow != null) return await NativeInboundAsync(nativeRow, body, ct);
+        }
+
         // a platform with a native ChatBranch inbox in this entity already carries its DMs
         if (SocialChannels.NativeChannel(platform) is { } native
             && await _db.ChannelAccounts.AnyAsync(a => a.Channel == native && a.EntityId == account.EntityId, ct))
@@ -318,8 +354,84 @@ public sealed class ZernioWebhook
             FirstNonEmpty(ZernioJson.Str(m, "platformMessageId"), ZernioJson.Str(m, "id")),
             Time(ZernioJson.Str(m, "sentAt")),
             sender: new InboundSender(ZernioJson.Str(sender, "id"), name, ZernioJson.Str(sender, "phoneNumber")));
+        PlaceAtInbox(msg.ThreadId, account);
         Heal(account);
         return new ZernioOutcome("ok", "dm stored", msg.ThreadId, msg.Id);
+    }
+
+    /// <summary>
+    /// A DM on a native channel carried by a Zernio account: the native thread key (phone digits,
+    /// PSID, chat id), Zernio's conversation id remembered for replies, the message through the
+    /// SAME inbound pipeline as a native connection (contact link by phone, windows, STOP, flows,
+    /// automations, the AI; a group goes the group-chat way), attachments fetched off the ack.
+    /// </summary>
+    private async Task<ZernioOutcome> NativeInboundAsync(ChannelAccount row, JsonElement body, CancellationToken ct)
+    {
+        var m = ZernioJson.At(body, "message");
+        var conv = ZernioJson.At(body, "conversation");
+        var key = ZernioNative.Key(row.Channel, m, conv);
+        if (key.Length == 0) return new ZernioOutcome("ignored", "the message names no sender");
+        var pmid = FirstNonEmpty(ZernioJson.Str(m, "platformMessageId"), ZernioJson.Str(m, "id"));
+        // a redelivery Zernio gave a new event id: the message is already here
+        if (pmid.Length > 0 && await _db.Messages.AnyAsync(x => x.ExternalId == pmid && x.Direction == MessageDirection.In
+                                                                && x.Thread!.Channel == row.Channel, ct))
+            return new ZernioOutcome("duplicate", "message already stored");
+
+        var conversationId = FirstNonEmpty(ZernioJson.Str(m, "conversationId"), ZernioJson.Str(conv, "id"));
+        var sender = ZernioJson.At(m, "sender");
+        ZernioNative.Remember(_db, row, key, conversationId,
+            FirstNonEmpty(ZernioJson.Str(sender, "id"), ZernioJson.Str(conv, "participantId")));
+
+        var group = GroupChats.IsGroup(row.Channel, key);
+        var who = FirstNonEmpty(ZernioJson.Str(sender, "name"), ZernioJson.Str(sender, "username"),
+            ZernioJson.Str(sender, "whatsappUsername"), ZernioJson.Str(sender, "phoneNumber"));
+        var name = group
+            ? FirstNonEmpty(ZernioJson.Str(conv, "participantName"), GroupChats.DefaultName(row.Channel))
+            : FirstNonEmpty(who, ZernioJson.Str(conv, "participantName"), key);
+
+        var text = ZernioJson.Str(m, "text");
+        var atts = ZernioJson.Arr(m, "attachments").ToList();
+        string Kind(JsonElement a) => ZernioJson.Str(a, "type") switch
+        {
+            "image" or "sticker" => "image",
+            "video" => "video",
+            "audio" => "audio",
+            _ => "document",
+        };
+        if (text.Length == 0 && atts.Count > 0) text = $"[{Kind(atts[0])}]";
+        // further attachments stay readable as links (their CDN links may expire)
+        foreach (var extra in atts.Skip(1))
+            text += $"\n[{Kind(extra)}]" + (ZernioJson.Str(extra, "url") is { Length: > 0 } u ? " " + u : "");
+        if (text.Length == 0) text = "[message]";
+
+        var meta = ZernioJson.At(body, "metadata");
+        var quoted = FirstNonEmpty(ZernioJson.Str(meta, "quotedMessage", "platformMessageId"),
+            ZernioJson.Str(meta, "quotedMessageId"));
+        var at = Time(ZernioJson.Str(m, "sentAt"));
+        Message msg;
+        if (ZernioJson.Bool(meta, "standby"))
+        {
+            // another app answers this conversation (Meta's handover): shown, never answered by us
+            var t = _threads.GetOrCreateThread(row.Channel, key, name, row.Id);
+            msg = _threads.AppendMessage(t, MessageDirection.In, MessageSource.Customer, text, status: "received",
+                externalId: pmid, accountId: row.Id, providerTs: at, replyToExternalId: quoted);
+        }
+        else
+        {
+            var author = group
+                ? new InboundSender(FirstNonEmpty(ZernioJson.Str(sender, "id"), "unknown"), FirstNonEmpty(who, "Someone"),
+                    WhatsAppProviders.Digits(ZernioJson.Str(sender, "phoneNumber")))
+                : null;
+            var username = SocialChannels.Cfg(row, SocialChannels.UsernameKey).TrimStart('@');
+            var addressed = group && (quoted.Length > 0
+                                      || (username.Length > 0 && text.Contains("@" + username, StringComparison.OrdinalIgnoreCase))
+                                      || text.StartsWith('/'));
+            msg = _inbound.ProcessInbound(row.Channel, key, text, name, row.Id, pmid, at, quoted, author, addressed);
+        }
+        if (atts.Count > 0 && _fetcher != null && ZernioJson.Str(atts[0], "url") is { Length: > 0 } url)
+            _fetcher.FetchZernio(msg.Id, url, Kind(atts[0]));
+        Heal(row);
+        return new ZernioOutcome("ok", $"{row.Channel} message stored", msg.ThreadId, msg.Id);
     }
 
     /// <summary>message.sent: confirms our send, or records a reply written in the platform's own app.</summary>
@@ -339,9 +451,23 @@ public sealed class ZernioWebhook
         }
         // a send through Zernio's API that is not ours (another app on the same key) is not ours to show
         if (ZernioJson.Str(m, "sentVia") is "api" or "bulk-api") return new ZernioOutcome("ignored", "another API sender");
-        var account = _accounts.Find(FirstNonEmpty(ZernioJson.Str(body, "account", "accountId"),
-            ZernioJson.Str(body, "account", "id")));
+        var zid = FirstNonEmpty(ZernioJson.Str(body, "account", "accountId"), ZernioJson.Str(body, "account", "id"));
         var conversationId = ZernioJson.Str(m, "conversationId");
+        // a reply written in the platform's own app on a NATIVE inbox: the person's outbound message
+        if (_accounts.FindNative(zid) is { } nativeRow && conversationId.Length > 0)
+        {
+            var map = await _db.ZernioConversations.AsNoTracking()
+                .FirstOrDefaultAsync(c => c.AccountId == nativeRow.Id && c.ConversationId == conversationId, ct);
+            var nt = map == null ? null : await _db.Threads.FirstOrDefaultAsync(t => t.Channel == nativeRow.Channel
+                                                                                    && t.Key == map.Key
+                                                                                    && t.AccountId == nativeRow.Id, ct);
+            if (nt == null) return new ZernioOutcome("ignored", "no such conversation here");
+            var own = _threads.AppendMessage(nt, MessageDirection.Out, MessageSource.ExternalClient,
+                ZernioJson.Str(m, "text"), status: "sent", externalId: pmid, accountId: nativeRow.Id,
+                providerTs: Time(ZernioJson.Str(m, "sentAt")));
+            return new ZernioOutcome("ok", "reply from the platform app recorded", nt.Id, own.Id);
+        }
+        var account = _accounts.Find(zid);
         if (account == null || conversationId.Length == 0) return new ZernioOutcome("ignored", "unknown conversation");
         var key = SocialChannels.ThreadKey(SocialChannels.Dm, account.ExternalId, conversationId);
         var thread = await _db.Threads.FirstOrDefaultAsync(t => t.Channel == ChatBranch.Domain.Channels.Social
@@ -360,6 +486,15 @@ public sealed class ZernioWebhook
         if (ours == null) return new ZernioOutcome("ignored", "not a message sent from here");
         var err = ZernioJson.At(body, "error");
         var detail = FirstNonEmpty(ZernioJson.Str(err, "message"), ZernioJson.Str(err, "title"), "delivery failed");
+        // WhatsApp via Zernio: Meta's codes mean what they mean natively (131047 closes the window)
+        if (_db.Threads.AsNoTracking().Where(t => t.Id == ours.ThreadId).Select(t => t.Channel).FirstOrDefault()
+            == ChatBranch.Domain.Channels.WhatsApp)
+        {
+            int? metaCode = int.TryParse(ZernioJson.Str(err, "code"), out var mc) ? mc : null;
+            MetaWebhook.ApplyStatus(_db, new CloudStatus("", pmid, "failed", "", Time(ZernioJson.Str(body, "statusAt")),
+                metaCode, detail));
+            return new ZernioOutcome("ok", "send marked failed", ours.ThreadId, ours.Id);
+        }
         ours.Status = "failed";
         ours.Error = Clip(FirstNonEmpty(ZernioJson.Str(err, "code") is { Length: > 0 } code ? $"{code}: {detail}" : "",
             detail), 300);
@@ -369,11 +504,44 @@ public sealed class ZernioWebhook
         return new ZernioOutcome("ok", "send marked failed", ours.ThreadId, ours.Id);
     }
 
+    private static int Rank(string status) => status switch
+    {
+        "sending" or "queued" => 0,
+        "sent" => 1,
+        "delivered" => 2,
+        "read" => 3,
+        "failed" => 4,
+        _ => 0,
+    };
+
+    /// <summary>message.delivered / message.read for a message sent from here: forward-only.</summary>
+    private ZernioOutcome MessageStatus(JsonElement body, string status)
+    {
+        var pmid = ZernioJson.Str(body, "message", "platformMessageId");
+        var ours = pmid.Length == 0 ? null : OutboundAsync(pmid, default).GetAwaiter().GetResult();
+        if (ours == null) return new ZernioOutcome("ignored", "not a message sent from here");
+        var channel = _db.Threads.AsNoTracking().Where(t => t.Id == ours.ThreadId).Select(t => t.Channel).FirstOrDefault();
+        if (channel == ChatBranch.Domain.Channels.WhatsApp)
+        {
+            MetaWebhook.ApplyStatus(_db, new CloudStatus("", pmid, status, "", Time(ZernioJson.Str(body, "statusAt")), null, ""));
+            return new ZernioOutcome("ok", $"marked {status}", ours.ThreadId, ours.Id);
+        }
+        if (Rank(ours.Status) >= Rank(status) && ours.Status is not ("sending" or "queued"))
+            return new ZernioOutcome("ok", "status unchanged", ours.ThreadId, ours.Id);
+        ours.Status = status;
+        var thread = _db.Threads.Find(ours.ThreadId);
+        if (thread != null) thread.UpdatedAt = DateTime.UtcNow;
+        _db.SaveChanges();
+        return new ZernioOutcome("ok", $"marked {status}", ours.ThreadId, ours.Id);
+    }
+
     // ---- helpers ---------------------------------------------------------------------
 
+    /// <summary>Our outbound message with that platform id: on a social thread or a Zernio-carried native inbox.</summary>
     private Task<Message?> OutboundAsync(string externalId, CancellationToken ct) =>
         _db.Messages.Where(x => x.ExternalId == externalId && x.Direction == MessageDirection.Out
-                                && x.Thread!.Channel == ChatBranch.Domain.Channels.Social)
+                                && (x.Thread!.Channel == ChatBranch.Domain.Channels.Social
+                                    || x.Account!.Provider == Providers.Zernio))
             .OrderByDescending(x => x.Id).FirstOrDefaultAsync(ct);
 
     private Task<bool> KnownOutboundAsync(string externalId, CancellationToken ct) =>
@@ -409,7 +577,7 @@ public sealed class ZernioWebhook
         try
         {
             if (account.HealthStatus != Health.Healthy)
-                AccountHealth.SetStatus(_db, account, Health.Healthy, "inbound event from Zernio", actor: "webhook");
+                AccountHealth.SetStatus(_db, account, Health.Healthy, "inbound event (managed connection)", actor: "webhook");
             account.LastInboundAt = DateTime.UtcNow;
             _db.SaveChanges();
         }

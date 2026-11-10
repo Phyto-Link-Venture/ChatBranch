@@ -84,17 +84,28 @@ export const WA_PROVIDER: Record<WaKind, WaProvider> = {
   wa_twilio: 'twilio',
 }
 
-/** Filter buckets on the Connected section (every WhatsApp kind shares one). */
-export type ChannelFilter =
-  | 'all'
-  | 'whatsapp'
-  | 'email'
-  | 'telegram'
-  | 'messenger'
-  | 'instagram'
-  | 'website'
-  | 'voice'
-  | MoreKind
+/** Filter buckets an inbox kind falls in (every WhatsApp kind shares one). */
+export type KindFilter = 'whatsapp' | 'email' | 'telegram' | 'messenger' | 'instagram' | 'website' | 'voice' | MoreKind
+
+/** Social networks connected through Zernio (lib/social.ts platform ids). */
+export type SocialFilter =
+  | 'facebook'
+  | 'youtube'
+  | 'linkedin'
+  | 'twitter'
+  | 'threads'
+  | 'pinterest'
+  | 'googlebusiness'
+  | 'bluesky'
+  | 'reddit'
+  | 'discord'
+  | 'snapchat'
+
+/** Marketplace shops (the seller service). */
+export type ShopFilter = 'shopee' | 'lazada' | 'tiktok_shop' | 'shopify'
+
+/** Filter buckets on the Connected section: inboxes, Zernio social accounts and shops. */
+export type ChannelFilter = 'all' | KindFilter | SocialFilter | ShopFilter
 
 /** How the "Add a channel" blocks are grouped. */
 export type KindGroup = 'messaging' | 'social' | 'sms_voice' | 'china'
@@ -117,7 +128,7 @@ export interface KindMeta {
   blurb: MessageKey
   /** …what cards call it ("WhatsApp Cloud API", "Email (SMTP)"…)… */
   channelLabel: MessageKey
-  filter: Exclude<ChannelFilter, 'all'>
+  filter: KindFilter
   badge?: 'Beta' | 'Demo'
   /** …and step 2's title — what "connect" means for this channel. */
   connectTitle: MessageKey
@@ -189,7 +200,26 @@ export const FILTERS: FilterDef[] = [
   { id: 'tiktok', brand: 'TikTok', logo: 'tiktok' },
   { id: 'wechat', brand: 'WeChat', logo: 'wechat' },
   { id: 'douyin', brand: 'Douyin', logo: 'douyin' },
+  { id: 'facebook', brand: 'Facebook', logo: 'facebook' },
+  { id: 'youtube', brand: 'YouTube', logo: 'youtube' },
+  { id: 'linkedin', brand: 'LinkedIn', logo: 'linkedin' },
+  { id: 'twitter', brand: 'X', logo: 'x' },
+  { id: 'threads', brand: 'Threads', logo: 'threads' },
+  { id: 'pinterest', brand: 'Pinterest', logo: 'pinterest' },
+  { id: 'googlebusiness', brand: 'Google Business', logo: 'googlebusiness' },
+  { id: 'bluesky', brand: 'Bluesky', logo: 'bluesky' },
+  { id: 'reddit', brand: 'Reddit', logo: 'reddit' },
+  { id: 'discord', brand: 'Discord', logo: 'discord' },
+  { id: 'snapchat', brand: 'Snapchat', logo: 'snapchat' },
+  { id: 'shopee', brand: 'Shopee', logo: 'shopee' },
+  { id: 'lazada', brand: 'Lazada', logo: 'lazada' },
+  { id: 'tiktok_shop', brand: 'TikTok Shop', logo: 'tiktok_shop' },
+  { id: 'shopify', brand: 'Shopify', logo: 'shopify' },
 ]
+
+const FILTER_IDS = new Set<string>(FILTERS.map((f) => f.id))
+/** A filter bucket for any channel / platform id; unknown ones fall under "all" only. */
+export const asFilter = (id: string): ChannelFilter | null => (FILTER_IDS.has(id) && id !== 'all' ? (id as ChannelFilter) : null)
 
 export const filterLabel = (f: FilterDef, t: TFunction): string => (f.label ? t(f.label) : f.brand ?? f.id)
 
@@ -219,8 +249,9 @@ export const EMPTY_DELIVERY: AccountDelivery = {
 
 export type AiDefault = '' | 'on' | 'off'
 
-/** cloud = Meta's Cloud API · baileys = QR-paired (unofficial) · ycloud / twilio = official BSPs. */
-export type WaProvider = 'cloud' | 'baileys' | 'ycloud' | 'twilio'
+/** cloud = Meta's Cloud API · baileys = QR-paired (unofficial) · ycloud / twilio = official BSPs ·
+ *  zernio = connected through Zernio (the provider "zernio" on the native channel). */
+export type WaProvider = 'cloud' | 'baileys' | 'ycloud' | 'twilio' | 'zernio'
 
 /** A YCloud / Twilio account's own settings (secrets come back masked). */
 export interface WaBspSettings {
@@ -238,6 +269,14 @@ export interface WaBspSettings {
 export interface WaAccount {
   id: string
   provider: WaProvider
+  /** The backend's human label for the provider ("via Zernio"…), when it sends one. */
+  provider_label?: string
+  /** The number in display form, when the provider reports it (Zernio). */
+  display_phone_number?: string
+  /** provider "zernio": the Zernio account behind this inbox. */
+  zernio_account_id?: string
+  /** provider "zernio": the managed account's own address / handle. */
+  managed?: { address?: string; username?: string; display_name?: string } | null
   /** YCloud / Twilio: this account's own signed webhook path. */
   webhook_path?: string | null
   bsp?: WaBspSettings | null
@@ -274,7 +313,16 @@ export interface WaAccount {
 
 export interface MessagingAccount {
   id: string
-  channel: 'email' | 'facebook' | 'instagram' | 'telegram' | MoreKind
+  /** `whatsapp` only arrives here for a number connected through Zernio. */
+  channel: 'email' | 'facebook' | 'instagram' | 'telegram' | 'whatsapp' | MoreKind
+  /** How it is connected: absent / "" = the channel's own API, "zernio" = through Zernio. */
+  provider?: string
+  provider_label?: string
+  /** provider "zernio": the Zernio account behind this inbox. */
+  zernio_account_id?: string
+  /** provider "zernio": the account's own address / handle (never the internal id). */
+  address?: string
+  username?: string
   name: string
   external_id?: string
   owner?: string
@@ -383,6 +431,8 @@ export interface Inbox {
   envManaged?: boolean
   /** Health-monitor key: the account id the health payload reports. */
   healthId?: string
+  /** Connected through Zernio (provider "zernio") — credentials live in Zernio, not here. */
+  viaZernio?: boolean
   wa?: WaAccount
   msg?: MessagingAccount
   widget?: Widget
@@ -393,6 +443,8 @@ export interface Inbox {
 export const inboxName = (inbox: Inbox, t: TFunction): string => (inbox.nameKey ? t(inbox.nameKey) : inbox.name)
 
 const SOCIAL_KIND: Record<string, InboxKind> = {
+  // a WhatsApp number on the messaging list is one connected through Zernio
+  whatsapp: 'wa_cloud',
   facebook: 'messenger',
   instagram: 'instagram',
   telegram: 'telegram',
@@ -446,10 +498,17 @@ const WA_KIND_OF: Record<WaProvider, WaKind> = {
   baileys: 'wa_qr',
   ycloud: 'wa_ycloud',
   twilio: 'wa_twilio',
+  // an official, template-capable number — its card says "via Zernio"
+  zernio: 'wa_cloud',
 }
+
+const isZernio = (provider?: string, label?: string) =>
+  (provider ?? '').toLowerCase() === 'zernio' || /zernio/i.test(label ?? '')
 
 function waAddress(a: WaAccount): string | Msg {
   switch (a.provider) {
+    case 'zernio':
+      return a.display_phone_number || a.managed?.address || a.managed?.username || a.bsp?.phone_number || msg('channels.address.viaZernio')
     case 'baileys':
       return msg(a.configured ? 'channels.address.qrPaired' : 'channels.address.notPaired')
     case 'ycloud':
@@ -483,13 +542,20 @@ export function fromWa(a: WaAccount): Inbox {
     configured: a.configured,
     envManaged: a.env_managed,
     healthId: a.env_managed ? undefined : a.id,
+    viaZernio: isZernio(a.provider, a.provider_label),
     wa: a,
   }
 }
 
 export function fromMessaging(a: MessagingAccount): Inbox {
   const kind = SOCIAL_KIND[a.channel] ?? 'telegram'
-  const address: string | Msg = isMoreKind(kind)
+  const viaZernio = isZernio(a.provider, a.provider_label)
+  const managedHandle = a.address || (a.username ? (a.username.startsWith('@') || a.username.startsWith('+') ? a.username : `@${a.username}`) : '')
+  const address: string | Msg = viaZernio
+    ? managedHandle || msg('channels.address.viaZernio')
+    : a.channel === 'whatsapp'
+    ? a.external_id || msg('channels.address.viaZernio')
+    : isMoreKind(kind)
     ? moreAddress(a)
     : kind === 'email'
       ? a.config?.from_email || a.external_id || msg('channels.address.fromNotSet')
@@ -515,6 +581,7 @@ export function fromMessaging(a: MessagingAccount): Inbox {
     reviewMode: a.ai_review_mode ?? '',
     configured: !!a.configured,
     healthId: a.id,
+    viaZernio,
     msg: a,
   }
 }
@@ -598,7 +665,7 @@ export interface TestResult {
 /** Run the channel's own test endpoint and phrase the answer for a human. */
 export async function testInbox(inbox: Inbox, t: TFunction): Promise<TestResult> {
   try {
-    if (isWaKind(inbox.kind)) {
+    if (isWaKind(inbox.kind) && !inbox.msg) {
       const r = await api<{ ok: boolean; display_phone_number: string; verified_name: string; quality_rating: string }>(
         `whatsapp/accounts/${inbox.id}/test`,
         { method: 'POST' },
@@ -695,7 +762,7 @@ export async function loadInboxes(entityQ = ''): Promise<InboxesSnapshot> {
 
 /** Remove an inbox through its own endpoint. */
 export async function deleteInbox(inbox: Inbox): Promise<void> {
-  if (isWaKind(inbox.kind)) {
+  if (isWaKind(inbox.kind) && !inbox.msg) {
     // best-effort unpair first — the account row goes regardless
     if (inbox.kind === 'wa_qr')
       await api(`whatsapp/accounts/${inbox.id}/baileys/logout`, { method: 'POST' }).catch(() => {})

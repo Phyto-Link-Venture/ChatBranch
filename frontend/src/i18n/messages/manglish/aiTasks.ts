@@ -27,7 +27,7 @@ export const aiTasks: Overlay<Messages['aiTasks']> = {
     channelsHint: 'Leave empty and it reads every channel.',
     keywordsHint: 'Any one of these words (capital or small letters also can). Leave empty for every message.',
     toolsHint: 'The AI only gets the tools in this list, nothing else. And there’s no tool that messages the customer.',
-    connectHint: 'Connect it on the Integrations page first lah.',
+    connectHint: 'Connect it on the Apps page first lah.',
     noMcp: 'No external MCP servers ready yet. Add and test one at Developers → MCP servers, then its tools can show up here.',
     settings: {
       spreadsheetHint: 'Take it from the sheet’s URL: docs.google.com/spreadsheets/d/<ID>/…',

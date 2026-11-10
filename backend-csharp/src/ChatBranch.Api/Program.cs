@@ -193,7 +193,8 @@ builder.Services.AddScoped(sp => new ChatBranch.Data.Ai.Tasks.AiTaskService(
     sp.GetRequiredService<ChatBranch.Data.AppDbContext>(), sp.GetRequiredService<ChatBranch.Data.ScopingService>(),
     sp.GetRequiredService<ChatBranch.Data.Ai.ILlmClient>(),
     sp.GetRequiredService<ChatBranch.Data.Integrations.IntegrationActions>(),
-    sp.GetRequiredService<IHttpClientFactory>(), sp.GetRequiredService<ChatBranch.Data.Channels.MediaStore>()));
+    sp.GetRequiredService<IHttpClientFactory>(), sp.GetRequiredService<ChatBranch.Data.Channels.MediaStore>(),
+    sp.GetService<ChatBranch.Data.Social.IZernioClient>()));
 builder.Services.AddHostedService<ChatBranch.Api.Workers.AiTaskWorker>();
 // Contacts: identity registry + WhatsApp lookups (IdentityCheckWorker), invite
 // links, unknown-customer "who are you?", contact-book import (+ Google Contacts)

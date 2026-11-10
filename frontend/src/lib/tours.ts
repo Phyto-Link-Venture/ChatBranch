@@ -249,7 +249,7 @@ export const TOURS: TourDef[] = [
       'channels-card-actions',
       'channels-catalog',
       'channels-advanced',
-      'channels-social',
+      'channels-card-outlet',
     ),
   },
   {
@@ -257,7 +257,7 @@ export const TOURS: TourDef[] = [
     href: '/integrations',
     group: 'setup',
     match: exact('/integrations'),
-    steps: steps('page-header', 'integrations-reach', 'integrations-providers', 'integrations-connect', 'integrations-accounts', 'integrations-zernio'),
+    steps: steps('page-header', 'integrations-reach', 'integrations-providers', 'integrations-connect', 'integrations-accounts'),
   },
   {
     id: 'account',

@@ -49,7 +49,7 @@ public sealed class SocialAccounts
             var all = ZernioJson.Arr(list.Json, "profiles").ToList();
             var dflt = all.FirstOrDefault(p => ZernioJson.Bool(p, "isDefault"));
             if (dflt.ValueKind != JsonValueKind.Object) dflt = all.FirstOrDefault();
-            if (dflt.ValueKind != JsonValueKind.Object) return ("", "the Zernio account has no profile yet");
+            if (dflt.ValueKind != JsonValueKind.Object) return ("", "the managed connection has no profile yet");
             return (Remember(null, dflt), "");
         }
 
@@ -73,7 +73,7 @@ public sealed class SocialAccounts
             {
                 var profile = made.At("profile");
                 if (ZernioJson.Str(profile, "_id").Length > 0) return (Remember(eid, profile), "");
-                return ("", "Zernio created the profile but returned no id");
+                return ("", "the managed connection created the profile but returned no id");
             }
             if (made.Status != 409) return ("", made.Error);
             // a 409 on our OWN externalId means it exists after all
@@ -82,7 +82,7 @@ public sealed class SocialAccounts
                 .FirstOrDefault(p => ZernioJson.Str(p, "externalId") == externalId);
             if (mine.ValueKind == JsonValueKind.Object) return (Remember(eid, mine), "");
         }
-        return ("", "Zernio refused to create a profile for this entity (name taken)");
+        return ("", "the managed connection refused to create a profile for this entity (name taken)");
     }
 
     private string Remember(int? entityId, JsonElement profile)
@@ -135,8 +135,267 @@ public sealed class SocialAccounts
             : _db.ChannelAccounts.FirstOrDefault(a => a.Channel == ChatBranch.Domain.Channels.Social
                                                       && a.ExternalId == zernioAccountId);
 
-    /// <summary>Create or refresh the mirror of one Zernio account (a /v1/accounts row or a webhook's account).</summary>
-    public ChannelAccount Upsert(JsonElement acct, int? entityId, string profileId)
+    /// <summary>The native-channel inbox (provider zernio) of a Zernio account, or null.</summary>
+    public ChannelAccount? FindNative(string zernioAccountId) =>
+        zernioAccountId.Length == 0
+            ? null
+            : _db.ChannelAccounts.FirstOrDefault(a => a.Provider == Providers.Zernio
+                                                      && a.Channel != ChatBranch.Domain.Channels.Social
+                                                      && a.ExternalId == zernioAccountId);
+
+    /// <summary>The social row, else the native row (WhatsApp / SMS have only the latter).</summary>
+    public ChannelAccount? FindAny(string zernioAccountId) => Find(zernioAccountId) ?? FindNative(zernioAccountId);
+
+    /// <summary>Every row of one Zernio account (its social row and its native inbox).</summary>
+    public List<ChannelAccount> RowsOf(string zernioAccountId) =>
+        zernioAccountId.Length == 0
+            ? new()
+            : _db.ChannelAccounts.Where(a => a.Provider == Providers.Zernio && a.ExternalId == zernioAccountId).ToList();
+
+    // ---- connect intent ("inbox" | "social") ----------------------------------------
+
+    private static string IntentKey(string profileId, string platform) => $"zernio_intent:{profileId}:{platform}";
+
+    /// <summary>Remember what the next account of this platform in this profile is FOR (POST /api/social/connect).</summary>
+    public void SetIntent(string profileId, string platform, string purpose)
+    {
+        if (profileId.Length == 0 || purpose is not ("inbox" or "social")) return;
+        try { new ScopingService(_db).SetSetting(IntentKey(profileId, platform), purpose); } catch { }
+    }
+
+    private string TakeIntent(string profileId, string platform)
+    {
+        if (profileId.Length == 0) return "";
+        try
+        {
+            var sc = new ScopingService(_db);
+            var v = sc.SettingValue(IntentKey(profileId, platform));
+            if (v.Length > 0) sc.SetSetting(IntentKey(profileId, platform), "");
+            return v;
+        }
+        catch { return ""; }
+    }
+
+    /// <summary>
+    /// Does a NEW Zernio account of a native-capable platform get its native inbox? An explicit
+    /// "inbox" connect does, "social" does not; WhatsApp and SMS are messaging-only (always);
+    /// Messenger / Instagram / Telegram do unless the level already has a non-Zernio inbox of
+    /// that channel (its DMs keep arriving there — no double inbox).
+    /// </summary>
+    private bool WantsNative(string platform, string channel, int? entityId, string intent)
+    {
+        if (intent == "social") return false;
+        if (intent == "inbox" || !ZernioNative.HasSocialRow(platform)) return true;
+        return !_db.ChannelAccounts.Any(a => a.Channel == channel && a.EntityId == entityId && a.Provider != Providers.Zernio);
+    }
+
+    /// <summary>
+    /// Create or refresh the mirror of one Zernio account (a /v1/accounts row or a webhook's
+    /// account): its social row (comments / posts) and, for a native-capable platform, its
+    /// native inbox. Returns the social row, else the native one (WhatsApp / SMS).
+    /// </summary>
+    public ChannelAccount Upsert(JsonElement acct, int? entityId, string profileId, string? intent = null)
+    {
+        var zid = ZernioJson.Str(acct, "_id");
+        if (zid.Length == 0) zid = ZernioJson.Str(acct, "accountId");
+        if (zid.Length == 0) zid = ZernioJson.Str(acct, "id");
+        var plat = ZernioJson.Str(acct, "platform").ToLowerInvariant();
+        var channel = ZernioNative.ChannelFor(plat);
+        var brandNew = RowsOf(zid).Count == 0;
+        ChannelAccount? social = null;
+        if (channel == null || ZernioNative.HasSocialRow(plat)) social = UpsertSocial(acct, entityId, profileId);
+        if (channel == null) return social!;
+        var native = FindNative(zid);
+        if (native == null)
+        {
+            var why = intent ?? (brandNew ? TakeIntent(profileId, plat) : "");
+            if (!WantsNative(plat, channel, social?.EntityId ?? entityId, why)) return social!;
+        }
+        native = UpsertNative(acct, native, channel, social, entityId, profileId);
+        return social ?? native;
+    }
+
+    /// <summary>The native inbox of a social row that has none yet (a DM arrived): created when the level wants one.</summary>
+    public ChannelAccount? EnsureNative(ChannelAccount social)
+    {
+        if (social.Channel != ChatBranch.Domain.Channels.Social) return ZernioNative.Is(social) ? social : null;
+        var existing = FindNative(social.ExternalId);
+        if (existing != null) return existing;
+        var platform = SocialChannels.Platform(social);
+        var channel = ZernioNative.ChannelFor(platform);
+        if (channel == null || !WantsNative(platform, channel, social.EntityId, "")) return null;
+        var acct = JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+        {
+            ["_id"] = social.ExternalId,
+            ["platform"] = platform,
+            ["username"] = SocialChannels.Cfg(social, SocialChannels.UsernameKey),
+            ["displayName"] = SocialChannels.Cfg(social, SocialChannels.DisplayNameKey),
+            ["profilePicture"] = SocialChannels.Cfg(social, SocialChannels.AvatarKey),
+            ["isActive"] = SocialChannels.Cfg(social, SocialChannels.StatusKey) != "disconnected",
+        });
+        return UpsertNative(acct, null, channel, social, social.EntityId, SocialChannels.Cfg(social, SocialChannels.ProfileIdKey));
+    }
+
+    private ChannelAccount UpsertNative(JsonElement acct, ChannelAccount? row, string channel, ChannelAccount? social,
+        int? entityId, string profileId)
+    {
+        var zid = social?.ExternalId ?? "";
+        if (zid.Length == 0) zid = ZernioJson.Str(acct, "_id");
+        if (zid.Length == 0) zid = ZernioJson.Str(acct, "accountId");
+        if (zid.Length == 0) zid = ZernioJson.Str(acct, "id");
+        var platform = ZernioJson.Str(acct, "platform").ToLowerInvariant();
+        if (platform.Length == 0) platform = ZernioNative.PlatformFor(channel);
+        var username = ZernioJson.Str(acct, "username");
+        var display = ZernioJson.Str(acct, "displayName");
+        var hasActive = ZernioJson.At(acct, "isActive").ValueKind is JsonValueKind.True or JsonValueKind.False;
+        var active = !hasActive || ZernioJson.Bool(acct, "isActive");
+        if (ZernioJson.Bool(acct, "needsReconnection")) active = false;
+
+        var isNew = row == null;
+        row ??= new ChannelAccount
+        {
+            Channel = channel,
+            Provider = Providers.Zernio,
+            ExternalId = zid,
+            CreatedAt = DateTime.UtcNow,
+            HealthStatus = Health.Unknown,
+            Config = new Dictionary<string, object?>(),
+        };
+        var cfg = new Dictionary<string, object?>(row.Config ?? new())
+        {
+            [ZernioNative.AccountIdKey] = zid,
+            [SocialChannels.PlatformKey] = platform,
+        };
+        if (username.Length > 0) cfg[SocialChannels.UsernameKey] = username;
+        if (display.Length > 0) cfg[SocialChannels.DisplayNameKey] = display;
+        var avatar = ZernioJson.Str(acct, "profilePicture");
+        if (avatar.Length > 0) cfg[SocialChannels.AvatarKey] = avatar;
+        if (social != null) cfg[ZernioNative.SocialAccountKey] = social.Id.ToString();
+        var phone = FirstNonEmpty(ZernioJson.Str(acct, "phoneNumber"), ZernioJson.Str(acct, "metadata", "phoneNumber"),
+            ZernioJson.Str(acct, "metadata", "displayPhoneNumber"));
+        var address = channel switch
+        {
+            ChatBranch.Domain.Channels.WhatsApp or ChatBranch.Domain.Channels.Sms =>
+                FirstNonEmpty(phone, username.Any(char.IsDigit) ? username : ""),
+            ChatBranch.Domain.Channels.Facebook => FirstNonEmpty(SelectedPage(social)?.Name ?? "", display, username),
+            _ => username.Length > 0 ? "@" + username.TrimStart('@') : display,
+        };
+        if (address.Length > 0) cfg[ZernioNative.AddressKey] = address;
+
+        // the level: a social twin decides it (and a facebook account's SELECTED Page, when bound);
+        // a native-only account (WhatsApp, SMS) keeps a fresh local move against a stale listing
+        int? level = entityId;
+        if (social != null)
+        {
+            level = InboxEntity(social);
+            profileId = SocialChannels.Cfg(social, SocialChannels.ProfileIdKey);
+        }
+        else if (!isNew && RecentlyMoved(row) && profileId.Length > 0
+                 && profileId != SocialChannels.Cfg(row, SocialChannels.ProfileIdKey))
+        {
+            profileId = SocialChannels.Cfg(row, SocialChannels.ProfileIdKey);
+            level = row.EntityId;
+        }
+        if (profileId.Length > 0) cfg[SocialChannels.ProfileIdKey] = profileId;
+        cfg[SocialChannels.StatusKey] = active ? "connected" : "disconnected";
+        row.Config = cfg;
+        if (SocialChannels.Cfg(row, ZernioNative.CustomNameKey).Length == 0)
+            row.Name = NativeName(channel, username, display, address);
+        var rebound = !isNew && row.EntityId != level;
+        row.EntityId = level;
+        if (isNew)
+        {
+            row.HealthStatus = active ? Health.Healthy : Health.Disconnected;
+            _db.ChannelAccounts.Add(row);
+            AuditTrail.Add(_db, "account.create", $"{channel}:{row.Name}", "managed connection",
+                source: AuditSources.Webhook, entityId: level);
+        }
+        else
+        {
+            var want = active ? Health.Healthy : Health.Disconnected;
+            if (row.HealthStatus != want)
+                AccountHealth.SetStatus(_db, row, want, active ? "connected" : "the managed connection needs reconnecting",
+                    actor: "zernio");
+        }
+        _db.SaveChanges();
+        if (rebound) Rebound(row);
+        return row;
+    }
+
+    private static string NativeName(string channel, string username, string display, string address)
+    {
+        var label = channel switch
+        {
+            ChatBranch.Domain.Channels.WhatsApp => "WhatsApp",
+            ChatBranch.Domain.Channels.Facebook => "Messenger",
+            ChatBranch.Domain.Channels.Instagram => "Instagram",
+            ChatBranch.Domain.Channels.Telegram => "Telegram",
+            ChatBranch.Domain.Channels.Sms => "SMS",
+            _ => channel,
+        };
+        var who = channel is ChatBranch.Domain.Channels.Instagram or ChatBranch.Domain.Channels.Telegram && username.Length > 0
+            ? "@" + username.TrimStart('@')
+            : FirstNonEmpty(channel == ChatBranch.Domain.Channels.Facebook ? address : "", display, address, username, "account");
+        var full = $"{who} ({label})";
+        return full.Length > 120 ? full[..120] : full;
+    }
+
+    private static string FirstNonEmpty(params string[] v) => v.FirstOrDefault(x => x.Length > 0) ?? "";
+
+    private SocialPage? SelectedPage(ChannelAccount? social) =>
+        social == null || SocialChannels.Platform(social) != "facebook"
+            ? null
+            : _db.SocialPages.Local.FirstOrDefault(p => p.AccountId == social.Id && p.IsSelected)
+              ?? _db.SocialPages.AsNoTracking().FirstOrDefault(p => p.AccountId == social.Id && p.IsSelected);
+
+    /// <summary>
+    /// Where the account's INBOX conversations belong: a facebook account's SELECTED Page's
+    /// outlet when that Page is bound (its comments and messages are that Page's), else the
+    /// account's own level.
+    /// </summary>
+    public int? InboxEntity(ChannelAccount social) => SelectedPage(social)?.EntityId ?? social.EntityId;
+
+    /// <summary>A row's level changed: its existing conversations follow (within one company).</summary>
+    private void Rebound(ChannelAccount row)
+    {
+        try
+        {
+            ChatBranch.Data.Stores.ThreadCompanies.AfterAccountRebound(_db, new ScopingService(_db), row.Id);
+            _db.SaveChanges();
+        }
+        catch { /* the rebind itself stands */ }
+    }
+
+    /// <summary>
+    /// After a move / Page binding / Page selection: the native inbox's level follows the social
+    /// row (and the selected Page), and the account's social conversations sit at its inbox level.
+    /// </summary>
+    public void FollowInboxLevel(ChannelAccount social)
+    {
+        var level = InboxEntity(social);
+        var native = FindNative(social.ExternalId);
+        if (native != null)
+        {
+            var cfg = new Dictionary<string, object?>(native.Config ?? new())
+            {
+                [SocialChannels.ProfileIdKey] = SocialChannels.Cfg(social, SocialChannels.ProfileIdKey),
+            };
+            if (SelectedPage(social)?.Name is { Length: > 0 } pageName && native.Channel == ChatBranch.Domain.Channels.Facebook)
+                cfg[ZernioNative.AddressKey] = pageName;
+            native.Config = cfg;
+            if (native.EntityId != level)
+            {
+                native.EntityId = level;
+                _db.SaveChanges();
+                Rebound(native);
+            }
+            else _db.SaveChanges();
+        }
+        if (social.Channel == ChatBranch.Domain.Channels.Social) RescopeThreads(social, level);
+        _db.SaveChanges();
+    }
+
+    private ChannelAccount UpsertSocial(JsonElement acct, int? entityId, string profileId)
     {
         var id = ZernioJson.Str(acct, "_id");
         if (id.Length == 0) id = ZernioJson.Str(acct, "accountId");
@@ -179,21 +438,22 @@ public sealed class SocialAccounts
         if (profileId.Length > 0) cfg[SocialChannels.ProfileIdKey] = profileId;
         cfg[SocialChannels.StatusKey] = active ? "connected" : "disconnected";
         row.Config = cfg;
-        row.Name = SocialChannels.AccountName(SocialChannels.Cfg(row, SocialChannels.PlatformKey),
+        if (SocialChannels.Cfg(row, ZernioNative.CustomNameKey).Length == 0)
+            row.Name = SocialChannels.AccountName(SocialChannels.Cfg(row, SocialChannels.PlatformKey),
             SocialChannels.Cfg(row, SocialChannels.UsernameKey), SocialChannels.Cfg(row, SocialChannels.DisplayNameKey));
         row.EntityId = entityId;
         if (isNew)
         {
             row.HealthStatus = active ? Health.Healthy : Health.Disconnected;
             _db.ChannelAccounts.Add(row);
-            AuditTrail.Add(_db, "account.create", $"social:{row.Name}", "connected through Zernio",
+            AuditTrail.Add(_db, "account.create", $"social:{row.Name}", "managed connection",
                 source: AuditSources.Webhook, entityId: entityId);
         }
         else
         {
             var want = active ? Health.Healthy : Health.Disconnected;
             if (row.HealthStatus != want)
-                AccountHealth.SetStatus(_db, row, want, active ? "connected in Zernio" : "needs reconnecting in Zernio",
+                AccountHealth.SetStatus(_db, row, want, active ? "connected" : "the managed connection needs reconnecting",
                     actor: "zernio");
         }
         _db.SaveChanges();
@@ -222,7 +482,7 @@ public sealed class SocialAccounts
         if (!_zernio.IsConfigured) return (0, 0, _zernio.NotConfiguredReason, 409);
         var (profileId, err) = await EnsureProfileAsync(target, create: true, ct);
         if (profileId.Length == 0)
-            return (0, 0, err.Length > 0 ? err : "Zernio has no profile for that level", 502);
+            return (0, 0, err.Length > 0 ? err : "no connection profile for that level", 502);
         if (profileId != SocialChannels.Cfg(row, SocialChannels.ProfileIdKey))
         {
             var r = await _zernio.MoveAccountAsync(row.ExternalId, profileId, ct);
@@ -236,6 +496,12 @@ public sealed class SocialAccounts
             [SocialChannels.MovedAtKey] = DateTime.UtcNow.ToString("o"),
         };
         await _db.SaveChangesAsync(ct);
+        // WhatsApp / SMS: the native inbox IS the account — its conversations follow it
+        if (ZernioNative.Is(row))
+        {
+            Rebound(row);
+            return (0, 0, "", 0);
+        }
         // a Page bound to an outlet that is no longer under the account's level follows the account again
         if (target is int t)
         {
@@ -247,9 +513,10 @@ public sealed class SocialAccounts
                     page.UpdatedAt = DateTime.UtcNow;
                 }
         }
-        var threads = RescopeThreads(row, target);
+        var threads = RescopeThreads(row, InboxEntity(row));
         var posts = RescopePosts(row, target);
         await _db.SaveChangesAsync(ct);
+        FollowInboxLevel(row);
         return (threads, posts, "", 0);
     }
 
@@ -370,6 +637,7 @@ public sealed class SocialAccounts
             foreach (var gone in existing.Where(x => !keep.Contains(x.PageId))) _db.SocialPages.Remove(gone);
         }
         await _db.SaveChangesAsync(ct);
+        FollowInboxLevel(row);
         return (listed.Count, "");
     }
 
@@ -384,6 +652,7 @@ public sealed class SocialAccounts
             p.IsSelected = p.Id == page.Id;
         page.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        FollowInboxLevel(row);
         return ("", 0);
     }
 
@@ -396,6 +665,7 @@ public sealed class SocialAccounts
         page.EntityId = entityId;
         page.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        if (page.IsSelected) FollowInboxLevel(row);
         var level = entityId ?? row.EntityId;
         var target = SocialChannels.Target(row.ExternalId, page.PageId);
         var pending = new[] { SocialPosts.Draft, SocialPosts.Scheduled, SocialPosts.Failed };
@@ -415,16 +685,20 @@ public sealed class SocialAccounts
     /// <summary>Zernio says an account stopped working (or was removed): the inbox stays, marked down.</summary>
     public ChannelAccount? MarkDisconnected(string zernioAccountId, string reason, bool removed)
     {
-        var row = Find(zernioAccountId);
-        if (row == null) return null;
-        row.Config = new Dictionary<string, object?>(row.Config ?? new())
+        var rows = RowsOf(zernioAccountId);
+        if (rows.Count == 0) return null;
+        foreach (var row in rows)
         {
-            [SocialChannels.StatusKey] = removed ? "removed" : "disconnected",
-        };
-        AccountHealth.SetStatus(_db, row, Health.Disconnected,
-            reason.Length > 0 ? reason : removed ? "removed in Zernio" : "disconnected in Zernio", actor: "zernio");
+            row.Config = new Dictionary<string, object?>(row.Config ?? new())
+            {
+                [SocialChannels.StatusKey] = removed ? "removed" : "disconnected",
+            };
+            AccountHealth.SetStatus(_db, row, Health.Disconnected,
+                reason.Length > 0 ? reason : removed ? "the managed connection was removed" : "the managed connection is disconnected",
+                actor: "zernio");
+        }
         _db.SaveChanges();
-        return row;
+        return rows.FirstOrDefault(r => r.Channel == ChatBranch.Domain.Channels.Social) ?? rows[0];
     }
 
     /// <summary>
@@ -454,26 +728,27 @@ public sealed class SocialAccounts
         {
             var platform = ZernioJson.Str(a, "platform");
             // ads, blogs and CRM connections are no inbox and no posting target
-            if (!SocialChannels.ConnectPlatforms.Contains(platform)) continue;
+            if (!SocialChannels.ConnectPlatforms.Contains(platform) && ZernioNative.ChannelFor(platform) == null) continue;
             var pid = ZernioJson.Id(ZernioJson.At(a, "profileId"));
             if (!owner.TryGetValue(pid, out var eid)) continue;
             var id = ZernioJson.Str(a, "_id");
             seen.Add(id);
-            var isNew = Find(id) == null;
+            var isNew = FindAny(id) == null;
             var row = Upsert(a, eid, pid);
             if (isNew) added++; else updated++;
             if (SocialChannels.Platform(row) == "facebook")
                 try { await SyncPagesAsync(row, refreshPages, ct); } catch { /* the Pages list catches up next time */ }
         }
-        var mirrored = await _db.ChannelAccounts
-            .Where(x => x.Channel == ChatBranch.Domain.Channels.Social).ToListAsync(ct);
+        var mirrored = (await _db.ChannelAccounts
+                .Where(x => x.Provider == Providers.Zernio).ToListAsync(ct))
+            .GroupBy(x => x.ExternalId).Select(g => g.First()).ToList();
         foreach (var row in mirrored.Where(r => !seen.Contains(r.ExternalId)
                                                 && SocialChannels.Cfg(r, SocialChannels.StatusKey) != "removed"))
         {
             // only accounts of profiles we own can be judged missing
             var pid = SocialChannels.Cfg(row, SocialChannels.ProfileIdKey);
             if (pid.Length > 0 && !owner.ContainsKey(pid)) continue;
-            MarkDisconnected(row.ExternalId, "Zernio no longer lists this account", removed: true);
+            MarkDisconnected(row.ExternalId, "the managed connection no longer lists this account", removed: true);
             removed++;
         }
         return (added, updated, removed, "");

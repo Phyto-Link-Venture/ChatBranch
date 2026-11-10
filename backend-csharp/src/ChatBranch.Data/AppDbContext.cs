@@ -119,6 +119,7 @@ public class AppDbContext : DbContext
     // social media through Zernio (Data/Social)
     public DbSet<SocialProfile> SocialProfiles => Set<SocialProfile>();
     public DbSet<SocialPage> SocialPages => Set<SocialPage>();
+    public DbSet<ZernioConversation> ZernioConversations => Set<ZernioConversation>();
     public DbSet<SocialThread> SocialThreads => Set<SocialThread>();
     public DbSet<SocialPost> SocialPosts => Set<SocialPost>();
     public DbSet<ZernioEvent> ZernioEvents => Set<ZernioEvent>();
@@ -466,6 +467,10 @@ public class AppDbContext : DbContext
         Json<SocialPost, List<Dictionary<string, object?>>>(b, x => x.Results);
         b.Entity<ZernioEvent>().ToTable("crm_zernioevent");
         b.Entity<ZernioEvent>().HasIndex(e => e.EventId).IsUnique().HasDatabaseName("uniq_zernioevent_event");
+        b.Entity<ZernioConversation>().ToTable("crm_zernioconversation");
+        b.Entity<ZernioConversation>().HasIndex(c => new { c.AccountId, c.Key }).IsUnique()
+            .HasDatabaseName("uniq_zernioconversation_account_key");
+        b.Entity<ZernioConversation>().HasIndex(c => c.ConversationId).HasDatabaseName("ix_zernioconversation_conv");
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this

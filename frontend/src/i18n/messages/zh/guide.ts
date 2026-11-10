@@ -357,7 +357,7 @@ export const guide: Dict<typeof source> = {
       steps: {
         s1: {
           title: '社交媒体帖子',
-          body: '帖子通过 Zernio 发布到在「渠道 → 社交账号」中连接的账号。',
+          body: '帖子会发布到在“渠道”页面连接的社交账号。',
         },
         s2: {
           title: '发布到',
@@ -749,11 +749,11 @@ export const guide: Dict<typeof source> = {
         },
         s2: {
           title: '添加收件箱',
-          body: '点击“添加收件箱”连接一个新的。分步面板会一步步引导你：选择应用 → 连接 → 选择由谁回复 → 测试。',
+          body: '点击“添加收件箱”连接新的收件箱。分步面板会引导你：选择渠道 → 选择连接方式（有多种时）→ 完成设置。',
         },
         s3: {
           title: '已连接',
-          body: '每张卡片就是一个收件箱，彩色圆点表示健康状态——绿色正常，黄色或红色需要处理。',
+          body: '每个收件箱和社交账号都是一张卡片：连接方式、所属门店、表示健康状态的彩色圆点（绿色正常，黄色或红色需要关注）以及可用功能。',
         },
         s4: {
           title: '只看一类',
@@ -765,21 +765,21 @@ export const guide: Dict<typeof source> = {
         },
         s6: {
           title: '添加渠道',
-          body: '所有可以连接的应用，按类型分组。点击一个即可开始。TikTok 和抖音需要先获得平台批准。',
+          body: '每个渠道一个图块，按类型分组——即时通讯、社交网络、短信/邮件/语音、中国、网站聊天和电商平台。点击即可开始；TikTok 和抖音需要先通过平台审核。',
         },
         s7: {
           title: '高级',
           body: 'Meta Webhook 地址和默认邮件设置。你很少需要用到——开发人员可能会找你要一次。',
         },
         s8: {
-          title: '社交账号',
-          body: '通过 Zernio 连接的 Instagram、Facebook、TikTok、LinkedIn、Google 商家等。它们的评论、评价和私信会进入「聊天」；帖子在「社交媒体帖子」页面撰写。',
+          title: '连接方式与门店',
+          body: '每张卡片都会显示连接方式（Cloud API、YCloud、扫码、托管连接…）和所属门店。社交账号可以直接在这里更改门店；Facebook 登录会列出它的主页，每个主页都有自己的门店。',
         },
       },
     },
     integrations: {
-      title: '集成',
-      intro: '连接 Google、Shopify、Stripe 等应用。',
+      title: '应用',
+      intro: '业务工具：Google、Shopify、Stripe、MCP 服务器等。面向客户的账号在“渠道”中。',
       steps: {
         s1: {
           title: '共享连接',
@@ -800,10 +800,6 @@ export const guide: Dict<typeof source> = {
         s5: {
           title: '已连接的账号',
           body: '目前建立的所有连接、谁在使用以及状态，并提供管理按钮。',
-        },
-        s6: {
-          title: 'Zernio（社交媒体）',
-          body: '将 ChatBranch 连接到 Zernio 的唯一密钥、它的 Webhook，以及哪个实体拥有哪个 Zernio 资料。由超级管理员设置一次。',
         },
       },
     },

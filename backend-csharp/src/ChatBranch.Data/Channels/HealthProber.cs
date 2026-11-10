@@ -140,7 +140,9 @@ public sealed class ChannelHealthProber
     }
 
     /// <summary>Does this account have something to probe?</summary>
-    public static bool Probeable(ChannelAccount a) => a.Channel switch
+    public static bool Probeable(ChannelAccount a) => ChatBranch.Data.Social.ZernioNative.Is(a)
+        ? ChatBranch.Data.Social.ZernioNative.Configured(a)
+        : a.Channel switch
     {
         ChannelIds.WhatsApp => a.Provider == Providers.Baileys
             ? a.ExternalId.Length > 0
@@ -165,6 +167,9 @@ public sealed class ChannelHealthProber
         {
             if (a.Channel == ChannelIds.WhatsApp && a.Provider == Providers.Baileys)
                 return _baileys is { IsConfigured: true } gw ? BaileysVerdict(a, await gw.StatusAsync(a.ExternalId, ct)) : null;
+            // a native channel through Zernio: does Zernio still hold the account, active
+            if (ChatBranch.Data.Social.ZernioNative.Is(a))
+                return _more?.For(ChannelIds.Social) is { } social ? (await social.ProbeAsync(a, ct)).Verdict : null;
             switch (a.Channel)
             {
                 case ChannelIds.Telegram:

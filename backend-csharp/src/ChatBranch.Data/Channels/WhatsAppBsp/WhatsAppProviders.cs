@@ -25,10 +25,11 @@ namespace ChatBranch.Data.Channels;
 public static class WhatsAppProviders
 {
     /// <summary>Every provider a WhatsApp account may have.</summary>
-    public static readonly string[] All = { Providers.Cloud, Providers.Baileys, Providers.YCloud, Providers.Twilio };
+    public static readonly string[] All = { Providers.Cloud, Providers.Baileys, Providers.YCloud, Providers.Twilio, Providers.Zernio };
 
     /// <summary>The official (Meta-sanctioned) ones: template-capable, bound by the 24h window.</summary>
-    public static readonly string[] Official = { Providers.Cloud, Providers.YCloud, Providers.Twilio };
+    /// <remarks>Zernio carries a WhatsApp Business (Cloud API) number too: templates + the 24h window apply.</remarks>
+    public static readonly string[] Official = { Providers.Cloud, Providers.YCloud, Providers.Twilio, Providers.Zernio };
 
     /// <summary>A <see cref="RouteNeed.Provider"/> value meaning "any official provider".</summary>
     public const string AnyOfficial = "official";
@@ -67,6 +68,7 @@ public static class WhatsAppProviders
     public static bool Configured(ChannelAccount a) => Of(a) switch
     {
         Providers.Baileys => true, // paired through the gateway, no credentials here
+        Providers.Zernio => ChatBranch.Data.Social.ZernioNative.Configured(a), // Zernio holds the grant
         Providers.YCloud => a.AccessToken.Length > 0 && a.ExternalId.Length > 0,
         Providers.Twilio => TwilioRestAuth(a) && Cfg(a, "account_sid").Length > 0
                             && (Cfg(a, "from_number").Length > 0 || Cfg(a, "messaging_service_sid").Length > 0),
@@ -92,6 +94,7 @@ public static class WhatsAppProviders
     {
         Providers.Baileys => false,
         Providers.Twilio => true,
+        Providers.Zernio => true, // Zernio lists the WABA's templates
         _ => a.WabaId.Length > 0,
     };
 
@@ -108,6 +111,7 @@ public static class WhatsAppProviders
         Providers.Baileys => "WhatsApp (QR)",
         Providers.YCloud => "WhatsApp (YCloud)",
         Providers.Twilio => "WhatsApp (Twilio)",
+        Providers.Zernio => "WhatsApp (managed connection)",
         _ => "WhatsApp Cloud API",
     };
 

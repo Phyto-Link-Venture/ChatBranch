@@ -15,18 +15,23 @@ public sealed class WhatsAppClientRouter : IWhatsAppCloudClient
     private readonly IWhatsAppCloudClient _meta;
     private readonly IWhatsAppCloudClient _ycloud;
     private readonly IWhatsAppCloudClient _twilio;
+    /// <summary>WhatsApp via Zernio (<see cref="ChatBranch.Data.Social.ZernioWhatsAppClient"/>); null = not wired.</summary>
+    private readonly IWhatsAppCloudClient? _zernio;
 
-    public WhatsAppClientRouter(IWhatsAppCloudClient meta, YCloudWhatsAppClient ycloud, TwilioWhatsAppClient twilio)
+    public WhatsAppClientRouter(IWhatsAppCloudClient meta, YCloudWhatsAppClient ycloud, TwilioWhatsAppClient twilio,
+        IWhatsAppCloudClient? zernio = null)
     {
         _meta = meta;
         _ycloud = ycloud;
         _twilio = twilio;
+        _zernio = zernio;
     }
 
     private IWhatsAppCloudClient For(ChannelAccount a) => WhatsAppProviders.Of(a) switch
     {
         Providers.YCloud => _ycloud,
         Providers.Twilio => _twilio,
+        Providers.Zernio => _zernio ?? NoZernio.Instance,
         _ => _meta,
     };
 
@@ -79,4 +84,13 @@ public sealed class WhatsAppClientRouter : IWhatsAppCloudClient
 
     public Task<BspProbe?> ProbeBspAsync(ChannelAccount account, CancellationToken ct = default) =>
         WhatsAppProviders.IsBsp(account) ? For(account).ProbeBspAsync(account, ct) : Task.FromResult<BspProbe?>(null);
+}
+
+/// <summary>A Zernio WhatsApp account on a host without the Zernio client: never configured.</summary>
+internal sealed class NoZernio : IWhatsAppCloudClient
+{
+    public static readonly NoZernio Instance = new();
+    public bool IsConfigured(ChannelAccount account) => false;
+    public Task<SendOutcome> SendTextAsync(ChannelAccount account, string toWaId, string text, CancellationToken ct = default) =>
+        Task.FromResult(new SendOutcome(false, "", "Zernio is not wired on this host"));
 }

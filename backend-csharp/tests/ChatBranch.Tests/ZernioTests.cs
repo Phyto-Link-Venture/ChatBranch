@@ -43,6 +43,10 @@ public sealed class FakeZernioClient : IZernioClient
         Override = null;
         StaleMoves = false;
         FacebookPages.Clear();
+        Templates.Clear();
+        Files.Clear();
+        PhoneNumbers.Clear();
+        TelegramStatus = null;
     }
 
     public List<Dictionary<string, object?>> Of(string call) =>
@@ -149,6 +153,87 @@ public sealed class FakeZernioClient : IZernioClient
     public Task<ZernioReply> SendMessageAsync(string accountId, string conversationId, string message, CancellationToken ct = default) =>
         Do("SendMessage", new() { ["accountId"] = accountId, ["conversationId"] = conversationId, ["message"] = message },
             () => ZernioReply.Of(new { success = true, data = new { messageId = Next("pm"), conversationId } }));
+
+    public Task<ZernioReply> SendInboxMessageAsync(string accountId, string conversationId, Dictionary<string, object?> body,
+        CancellationToken ct = default) =>
+        Do("SendInboxMessage", new(body) { ["accountId"] = accountId, ["conversationId"] = conversationId },
+            () => ZernioReply.Of(new { success = true, data = new { messageId = Next("wamid"), conversationId } }));
+
+    public Task<ZernioReply> CreateConversationAsync(Dictionary<string, object?> body, CancellationToken ct = default) =>
+        Do("CreateConversation", body, () => ZernioReply.Of(new
+        {
+            success = true, data = new { messageId = Next("wamid"), conversationId = Next("conv") },
+        }, 201));
+
+    public Task<ZernioReply> SendSmsAsync(string from, string to, string text, IReadOnlyList<string>? mediaUrls = null,
+        CancellationToken ct = default) =>
+        Do("SendSms", new() { ["from"] = from, ["to"] = to, ["text"] = text, ["mediaUrls"] = mediaUrls },
+            () => ZernioReply.Of(new { id = Next("sms"), conversationId = Next("conv"), status = "sent" }));
+
+    public Task<ZernioReply> ReactAsync(string accountId, string conversationId, string messageId, string emoji,
+        CancellationToken ct = default) =>
+        Do("React", new() { ["accountId"] = accountId, ["conversationId"] = conversationId, ["messageId"] = messageId, ["emoji"] = emoji },
+            () => ZernioReply.Of(new { success = true, platformMessageId = messageId }));
+
+    /// <summary>The WhatsApp templates GET /v1/whatsapp/templates answers (Meta-shaped).</summary>
+    public List<object> Templates { get; } = new();
+
+    public Task<ZernioReply> ListWhatsAppTemplatesAsync(string accountId, CancellationToken ct = default) =>
+        Do("ListWhatsAppTemplates", new() { ["accountId"] = accountId }, () => ZernioReply.Of(new { success = true, templates = Templates }));
+
+    /// <summary>Files a download answers, by URL.</summary>
+    public ConcurrentDictionary<string, (byte[] Bytes, string Mime)> Files { get; } = new();
+
+    public Task<(byte[]? Bytes, string Mime, string Error)> DownloadAsync(string url, long maxBytes, CancellationToken ct = default)
+    {
+        Calls.Enqueue(("Download", new() { ["url"] = url }));
+        return Task.FromResult<(byte[]?, string, string)>(Files.TryGetValue(url, out var f) ? (f.Bytes, f.Mime, "") : (null, "", "not found"));
+    }
+
+    /// <summary>What PATCH /v1/connect/telegram answers next (null = pending).</summary>
+    public object? TelegramStatus { get; set; }
+
+    public Task<ZernioReply> TelegramCodeAsync(string profileId, CancellationToken ct = default) =>
+        Do("TelegramCode", new() { ["profileId"] = profileId }, () => ZernioReply.Of(new
+        {
+            code = "ZRN-ABC123", expiresAt = "2026-11-10T12:15:00.000Z", expiresIn = 900, botUsername = "ZernioBot",
+            instructions = new[] { "1. Add @ZernioBot as an administrator", "2. Send ZRN-ABC123 to @ZernioBot" },
+        }));
+
+    public Task<ZernioReply> TelegramStatusAsync(string code, CancellationToken ct = default) =>
+        Do("TelegramStatus", new() { ["code"] = code }, () => ZernioReply.Of(TelegramStatus ?? new { status = "pending", expiresIn = 600 }));
+
+    public Task<ZernioReply> TelegramConnectAsync(string profileId, string chatId, CancellationToken ct = default) =>
+        Do("TelegramConnect", new() { ["profileId"] = profileId, ["chatId"] = chatId }, () => ZernioReply.Of(new
+        {
+            message = "Telegram channel connected successfully",
+            account = new { _id = Next("ztg"), platform = "telegram", username = "kedaibot", displayName = "Kedai", isActive = true, chatType = "group" },
+        }));
+
+    public Task<ZernioReply> WhatsAppCredentialsAsync(string profileId, string accessToken, string wabaId, string phoneNumberId,
+        string? pin, CancellationToken ct = default) =>
+        Do("WhatsAppCredentials", new() { ["profileId"] = profileId, ["accessToken"] = accessToken, ["wabaId"] = wabaId, ["phoneNumberId"] = phoneNumberId, ["pin"] = pin },
+            () => ZernioReply.Of(new
+            {
+                message = "WhatsApp connected successfully",
+                account = new
+                {
+                    accountId = Next("zwa"), platform = "whatsapp", username = "+60 12-345 6789", displayName = "Kedai Kopi",
+                    isActive = true, phoneNumber = "+60 12-345 6789", verifiedName = "Kedai Kopi", qualityRating = "GREEN",
+                },
+            }));
+
+    public List<object> PhoneNumbers { get; } = new();
+
+    public Task<ZernioReply> ListPhoneNumbersAsync(string? profileId = null, CancellationToken ct = default) =>
+        Do("ListPhoneNumbers", new() { ["profileId"] = profileId }, () => ZernioReply.Of(new { numbers = PhoneNumbers }));
+
+    public Task<ZernioReply> EnableSmsAsync(string phoneNumberId, CancellationToken ct = default) =>
+        Do("EnableSms", new() { ["phoneNumberId"] = phoneNumberId }, () => ZernioReply.Of(new
+        {
+            enabled = true, id = "zsms-" + phoneNumberId, phoneNumber = "+60123000111", isActive = true, country = "MY",
+            smsCapable = true, needsRegistration = false,
+        }));
 
     public Task<ZernioReply> CreatePostAsync(Dictionary<string, object?> body, CancellationToken ct = default) =>
         Do("CreatePost", body, () => ZernioReply.Of(new
@@ -531,7 +616,7 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         Assert.True(row.GetProperty("can_comments").GetBoolean());
         Assert.False(row.GetProperty("can_reviews").GetBoolean());
 
-        var mirrored = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid));
+        var mirrored = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid));
         Assert.Equal(ChannelIds.Social, mirrored.Channel);
         Assert.Equal(Providers.Zernio, mirrored.Provider);
         Assert.Equal(entity, mirrored.EntityId);
@@ -543,7 +628,7 @@ public class ZernioTests : IClassFixture<ZernioFactory>
             id = Guid.NewGuid().ToString(), @event = "account.disconnected",
             account = new { accountId = zid, profileId = pid, platform = "tiktok", username = "kopi.tt", disconnectionType = "unintentional", reason = "token expired" },
         });
-        Assert.Equal(Health.Disconnected, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid).HealthStatus));
+        Assert.Equal(Health.Disconnected, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid).HealthStatus));
 
         // disconnect from ChatBranch: Zernio is told, the inbox goes
         Assert.Equal(HttpStatusCode.OK, (await c.DeleteAsync($"/api/social/accounts/{zid}?confirm=true")).StatusCode);
@@ -611,7 +696,7 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         });
         var res = await c.GetAsync("/api/social/accounts?refresh=1");
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var row = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid));
+        var row = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid));
         Assert.Null(row.EntityId);
         return row;
     }
@@ -689,7 +774,7 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         Assert.Equal(zid, move["accountId"]);
         Assert.Equal(profileId, move["profileId"]);
 
-        var mirrored = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid));
+        var mirrored = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid));
         Assert.Equal(e1, mirrored.EntityId);
         Assert.Equal(profileId, SocialChannels.Cfg(mirrored, SocialChannels.ProfileIdKey));
 
@@ -706,7 +791,7 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         // the outlet sees it, its sibling no longer does — and a sync keeps the binding
         Assert.Contains(zid, await Listed(c, slug1, refresh: true));
         Assert.DoesNotContain(zid, await Listed(c, slug2));
-        Assert.Equal(e1, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid).EntityId));
+        Assert.Equal(e1, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid).EntityId));
 
         // the same outlet again: no new profile, no Zernio move
         Assert.Equal(HttpStatusCode.OK, (await Assign(c, zid, e1.ToString())).StatusCode);
@@ -718,12 +803,12 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         Assert.Equal(HttpStatusCode.OK, back.StatusCode);
         Assert.Equal(JsonValueKind.Null, (await back.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("entity_id").ValueKind);
         Assert.Equal("prof-default", _f.Zernio.Of("MoveAccount").Last()["profileId"]);
-        Assert.Null(InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid).EntityId));
+        Assert.Null(InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid).EntityId));
         Assert.Null(InDb(db => db.Threads.Single(t => t.Id == comment).EntityId));
         Assert.Null(InDb(db => db.SocialPosts.Single(p => p.Id == scheduled).EntityId));
         Assert.Contains(zid, await Listed(c, slug1, refresh: true));
         Assert.Contains(zid, await Listed(c, slug2));
-        Assert.Null(InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid).EntityId));
+        Assert.Null(InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid).EntityId));
     }
 
     [Fact]
@@ -735,7 +820,7 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         _f.Zernio.StaleMoves = true; // Zernio still lists the account under the default profile
         Assert.Equal(HttpStatusCode.OK, (await Assign(c, acct.ExternalId, slug1)).StatusCode);
         Assert.Contains(acct.ExternalId, await Listed(c, slug1, refresh: true));
-        var row = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == acct.ExternalId));
+        var row = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == acct.ExternalId));
         Assert.Equal(e1, row.EntityId);
         Assert.NotEqual("prof-default", SocialChannels.Cfg(row, SocialChannels.ProfileIdKey));
     }

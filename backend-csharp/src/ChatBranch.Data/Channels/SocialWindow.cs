@@ -42,7 +42,7 @@ public static class SocialWindow
     /// <summary>A page / Instagram account that would send for real (a token on a social account).</summary>
     public static bool Live(ChannelAccount? account, string channel) =>
         account != null && Applies(channel) && account.Channel == channel
-        && !string.IsNullOrEmpty(account.AccessToken);
+        && (!string.IsNullOrEmpty(account.AccessToken) || ChatBranch.Data.Social.ZernioNative.Configured(account));
 
     public static string Label(string channel) => channel == ChannelIds.Instagram ? "Instagram" : "Messenger";
 

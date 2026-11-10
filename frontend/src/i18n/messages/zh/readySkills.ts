@@ -13,7 +13,7 @@ export const readySkills: Dict<typeof source> = {
     templatesIntro: 'AI 行为方式的起点。添加后按您的业务修改文字即可。',
     builtinNote: '始终可用：AI 还有计算器（精确计算总额、税和折扣）和日期工具。',
     codeLimit: '代码技能在没有网络、没有文件的沙盒中运行——要生成 PDF、二维码、付款链接或表格行，请使用这些现成应用。',
-    needsConnection: '需要在“集成”中连接 {provider}',
+    needsConnection: '需要在“应用”中连接 {provider}',
     connected: '已连接 {provider}',
   },
   apps: {
@@ -145,7 +145,7 @@ export const readySkills: Dict<typeof source> = {
     sheetColumns: 'AI 填写的列',
     sheetColumnsHint: '时间、客户姓名、电话和邮箱会自动加在前面。',
     sheetLabel: '此记录的名称',
-    connectAt: '请先在“集成”中连接 {provider}——在此之前 AI 会说明无法完成。',
+    connectAt: '请先在“应用”中连接 {provider}——在此之前 AI 会说明无法完成。',
     problems: {
       currency: '货币必须是三个字母的代码，例如 MYR。',
       taxRate: '税率必须在 0 到 100 之间。',

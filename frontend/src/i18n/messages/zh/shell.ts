@@ -24,7 +24,7 @@ export const shell: Dict<typeof source> = {
     tags: '标签',
     media: '媒体库',
     channels: '渠道',
-    integrations: '集成',
+    integrations: '应用',
     users: '用户与角色',
     teams: '团队',
     entities: '实体',

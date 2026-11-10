@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { AlertTriangle, BadgeCheck, Check, ChevronDown, Loader2, Plug, RefreshCw, Webhook, X } from 'lucide-react'
+import { AlertTriangle, BadgeCheck, Check, ChevronDown, ChevronRight, Loader2, Plug, RefreshCw, Share2, Webhook, X } from 'lucide-react'
 import { UnknownCustomersField, useInboxIdentify } from '@/components/channels/UnknownCustomersField'
 import { Advanced } from '@/components/ui/Advanced'
 import { Button } from '@/components/ui/Button'
@@ -23,6 +23,7 @@ import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { useEntity } from '@/lib/EntityContext'
+import { useAccess } from '@/lib/useAccess'
 import { useCompanyAdmin } from '@/lib/useCompanyAdmin'
 import { absoluteApiResource } from '@/lib/apiBase'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
@@ -48,7 +49,6 @@ import {
   type WidgetLook,
 } from '@/components/settings/WidgetsSettings'
 import {
-  KINDS,
   api,
   errText,
   fromMessaging,
@@ -75,11 +75,17 @@ import {
   type Widget,
 } from './inboxes'
 import { CRED_FIELDS, DEFAULT_NAME, GUIDES, ONE_OF, WEBHOOK_HELP, type FieldSpec } from './setupSpec'
+import { channelDef, channelOfKind, type ChannelDef, type MethodDef } from './catalog'
+import { ChannelTileGrid, MethodCards, channelName } from './ChannelPicker'
+import { ZernioConnectPanel } from './ZernioConnectPanel'
+import { MarketplacePanel } from './MarketplacePanel'
 
 export type Step = 1 | 2 | 3 | 4 | 5 // 5 = done
 
 export interface DrawerTarget {
   kind: InboxKind | null
+  /** Open a NEW inbox on this channel (catalog.ts id): its methods, or its only method's setup. */
+  channel?: string | null
   /** The inbox being edited; null = a new one. */
   inbox: Inbox | null
   step: Step
@@ -245,6 +251,15 @@ export function InboxSetupDrawer({
   defaultEntityRef.current = defaultEntity
   const [kind, setKind] = useState<InboxKind | null>(target.kind)
   const [step, setStep] = useState<Step>(target.step)
+  /** Step 1's two halves: the channel grid, then (when it has more than one) its methods. */
+  const [phase, setPhase] = useState<'channel' | 'method'>('channel')
+  const [channelId, setChannelId] = useState<string | null>(
+    target.channel ?? (target.kind ? (channelOfKind(target.kind)?.id ?? null) : null),
+  )
+  /** A method whose setup is not an inbox kind's: via Zernio, or a marketplace's seller service. */
+  const [alt, setAlt] = useState<MethodDef | null>(null)
+  const channel = channelDef(channelId)
+  const { can } = useAccess()
   /** The persisted inbox (opened for edit, or created in this drawer). */
   const [saved, setSaved] = useState<Inbox | null>(target.inbox)
   const editing = saved !== null
@@ -423,6 +438,11 @@ export function InboxSetupDrawer({
   )
 
   const validateConnect = (): boolean => {
+    // connected through Zernio: its credentials live there
+    if (saved?.viaZernio) {
+      setErrors({})
+      return true
+    }
     const next: Record<string, string> = {}
     if (kind === 'wa_qr' && !ack) next.ack = t('channels.drawer.ackRequired')
     if (kind === 'website') Object.assign(next, widgetLookErrors(look, t))
@@ -472,9 +492,11 @@ export function InboxSetupDrawer({
       return inbox
     }
 
-    if (isWaKind(kind)) {
+    if (isWaKind(kind) && !saved?.msg) {
       const body: Record<string, string> = { name: name.trim(), role, ...who(), ...deliveryPatch(delivery, t) }
-      if (isBspKind(kind)) {
+      if (saved?.viaZernio) {
+        // connected through Zernio: only the inbox settings are ours to change
+      } else if (isBspKind(kind)) {
         // YCloud / Twilio — keys mirror the accounts API; a blank secret keeps the stored one
         if (!id) body.provider = WA_PROVIDER[kind]
         for (const f of fields) {
@@ -524,6 +546,8 @@ export function InboxSetupDrawer({
         imap_port: c('imap_port'),
       })
       if (c('password')) body.password = c('password')
+    } else if (saved?.viaZernio) {
+      // connected through Zernio — nothing to send but the inbox settings
     } else if (isMoreKind(kind)) {
       // LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo — keys mirror the API's field table;
       // a blank secret means "keep the stored one"
@@ -584,9 +608,75 @@ export function InboxSetupDrawer({
       setKind(k)
       seed(k, null)
     }
+    setAlt(null)
     setShowGuide(true)
     setNotice(null)
     setStep(2)
+  }
+
+  /** Step 1 → a channel: its method cards, or straight into its only method. */
+  const pickChannel = (id: string) => {
+    const ch = channelDef(id)
+    if (!ch) return
+    setChannelId(id)
+    setFormError(null)
+    if (ch.methods.length === 1) pickMethod(ch.methods[0])
+    else {
+      setAlt(null)
+      setPhase('method')
+      setStep(1)
+    }
+  }
+
+  /** Step 2 → a method: the inbox kind's own setup, or the Zernio / marketplace panel. */
+  const pickMethod = (mth: MethodDef) => {
+    setFormError(null)
+    if (mth.kind) {
+      choose(mth.kind)
+      return
+    }
+    setSaved(null)
+    setKind(null)
+    setAlt(mth)
+    setNotice(null)
+    setStep(2)
+  }
+
+  /** Back to step 1: the method cards when the channel has several, else the channel grid. */
+  const toPicker = (to: 'channel' | 'method' = channel && channel.methods.length > 1 ? 'method' : 'channel') => {
+    setFormError(null)
+    setAlt(null)
+    setStep(1)
+    setPhase(to)
+  }
+
+  /** Start over for another inbox. */
+  const restart = () => {
+    setSaved(null)
+    setKind(null)
+    setAlt(null)
+    setChannelId(null)
+    setPhase('channel')
+    setStep(1)
+    setNotice(null)
+  }
+
+  // Opened on a channel (a catalog tile): skip straight past the grid.
+  useEffect(() => {
+    if (!target.inbox && !target.kind && target.channel) pickChannel(target.channel)
+    // once, on open
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /** Why a method can't be used by this person (null = it can). */
+  const methodBlocked = (mth: MethodDef): string | null => {
+    if (mth.zernio) return can('social.manage') ? null : t('channels.drawer.needsSocial')
+    if (mth.kind === 'voice' && !canKeys && !voiceConfigured) return t('channels.page.superOnly')
+    return can('channels.manage') ? null : t('channels.page.addNeedsPermission')
+  }
+  const channelBlocked = (ch: ChannelDef): string | null => {
+    const reasons = ch.methods.map(methodBlocked)
+    return reasons.every((r) => r) ? reasons[0] : null
   }
 
   const next = () => {
@@ -628,6 +718,7 @@ export function InboxSetupDrawer({
   const back = () => {
     setFormError(null)
     if (step === 5) setStep(4)
+    else if (step === 2 && !saved) toPicker()
     else if (step > 1) setStep((step - 1) as Step)
   }
 
@@ -793,33 +884,24 @@ export function InboxSetupDrawer({
   const devSetupOpen = tgBase.trim() !== '' || tgResult !== null
 
   // ── step bodies ────────────────────────────────────────────────────────
-  const chooseStep = (
-    <div className="flex flex-col gap-2">
-      <p className="text-[12.5px] text-text-muted">{t('channels.drawer.chooseIntro')}</p>
-      {KINDS.map((k) => (
-        <button
-          key={k.kind}
-          type="button"
-          onClick={() => choose(k.kind)}
-          className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors hover:bg-fill-hover ${
-            kind === k.kind ? 'border-text-primary' : 'border-line'
-          }`}
-        >
-          <ChannelLogo channel={k.logo} variant="tile" size={32} title="" />
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-1.5 text-[13.5px] font-bold text-text-heading">
-              {t(k.label)}
-              {k.badge && <KindBadge badge={k.badge} />}
-              {k.approval && <ApprovalChip compact />}
-            </span>
-            <span className="block truncate text-[12px] text-text-muted">{t(k.blurb)}</span>
-          </span>
-        </button>
-      ))}
+  const chooseStep =
+    phase === 'method' && channel ? (
+      <MethodCards channel={channel} onPick={pickMethod} disabled={methodBlocked} />
+    ) : (
+      <div className="flex flex-col gap-3">
+        <p className="text-[12.5px] text-text-muted">{t('channels.drawer.chooseIntro')}</p>
+        <ChannelTileGrid dense onPick={pickChannel} selected={channelId} disabled={channelBlocked} groupIdPrefix="drawer-grp" />
+      </div>
+    )
+
+  const zernioNote = (
+    <div className="flex gap-2.5 rounded-lg border border-line bg-well px-3 py-2.5 text-[12.5px] leading-relaxed text-text-mid">
+      <Share2 size={16} className="mt-0.5 shrink-0 text-text-muted" aria-hidden />
+      <span>{t('channels.drawer.viaZernioNote')}</span>
     </div>
   )
 
-  const connectStep = !kind ? null : (
+  const connectStep = !kind ? null : saved?.viaZernio ? zernioNote : (
     <div className="flex flex-col gap-5">
       {kind === 'wa_qr' && (
         <>
@@ -936,7 +1018,8 @@ export function InboxSetupDrawer({
     </div>
   )
 
-  const isWa = isWaKind(kind)
+  // a WhatsApp number on the messaging accounts (one connected through Zernio) has no role / delivery
+  const isWa = isWaKind(kind) && !saved?.msg
 
   const whoStep = !kind ? null : kind === 'voice' ? (
     <div className="flex flex-col gap-3 text-[12.5px] leading-relaxed text-text-mid">
@@ -1162,7 +1245,7 @@ export function InboxSetupDrawer({
             {test && <ResultLine result={test} />}
           </Section>
 
-          {kind === 'wa_cloud' && (
+          {kind === 'wa_cloud' && !saved.viaZernio && (
             <Section title={t('channels.drawer.test.pointMeta')}>
               <p className="text-[12.5px] leading-relaxed text-text-mid">
                 <Trans
@@ -1174,7 +1257,7 @@ export function InboxSetupDrawer({
             </Section>
           )}
 
-          {(kind === 'messenger' || kind === 'instagram') && (
+          {(kind === 'messenger' || kind === 'instagram') && !saved.viaZernio && (
             <Section title={t('channels.drawer.test.pointMeta')}>
               <p className="text-[12.5px] leading-relaxed text-text-mid">
                 <Trans
@@ -1190,7 +1273,7 @@ export function InboxSetupDrawer({
             </Section>
           )}
 
-          {kind === 'telegram' && (
+          {kind === 'telegram' && !saved.viaZernio && (
             <Section title={t('channels.drawer.test.registerWebhook')}>
               <p className="text-[12.5px] leading-relaxed text-text-mid">
                 <Trans
@@ -1240,7 +1323,7 @@ export function InboxSetupDrawer({
             </Section>
           )}
 
-          {isMoreKind(kind) && saved.msg && (
+          {isMoreKind(kind) && saved.msg && !saved.viaZernio && (
             <Section title={t('channels.drawer.test.pointPlatform', { platform: meta ? t(meta.label) : '' })}>
               {WEBHOOK_HELP[kind] && (
                 <p className="text-[12.5px] leading-relaxed text-text-mid">{t(WEBHOOK_HELP[kind]!)}</p>
@@ -1386,15 +1469,7 @@ export function InboxSetupDrawer({
     step === 5 ? (
       <>
         {!target.inbox && (
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setSaved(null)
-              setKind(null)
-              setStep(1)
-              setNotice(null)
-            }}
-          >
+          <Button variant="secondary" onClick={restart}>
             {t('channels.drawer.footer.addAnother')}
           </Button>
         )}
@@ -1404,11 +1479,22 @@ export function InboxSetupDrawer({
       </>
     ) : step === 1 ? (
       <>
-        <Button variant="secondary" onClick={onClose}>
+        {phase === 'method' && (
+          <Button variant="secondary" onClick={() => toPicker('channel')}>
+            {t('common.actions.back')}
+          </Button>
+        )}
+        <Button variant="secondary" className="ml-auto" onClick={onClose}>
           {t('common.actions.cancel')}
         </Button>
-        <Button className="ml-auto" onClick={() => kind && choose(kind)} disabled={!kind}>
-          {t('common.actions.continue')}
+      </>
+    ) : alt ? (
+      <>
+        <Button variant="secondary" onClick={() => toPicker()}>
+          {t('common.actions.back')}
+        </Button>
+        <Button variant="secondary" className="ml-auto" onClick={onClose}>
+          {t('common.actions.close')}
         </Button>
       </>
     ) : (
@@ -1423,8 +1509,67 @@ export function InboxSetupDrawer({
       </>
     )
 
-  const title = saved ? inboxName(saved, t) : meta ? t(meta.label) : t('channels.drawer.addInbox')
+  const chName = channel ? channelName(channel, t) : null
+  const methodLabel = alt ? t(alt.label) : kind && channel && channel.methods.length > 1 ? t(meta!.label) : null
+  const title = saved
+    ? inboxName(saved, t)
+    : alt && chName
+      ? chName
+      : meta
+        ? t(meta.label)
+        : chName ?? t('channels.drawer.addInbox')
   const eyebrow = target.inbox ? t('channels.drawer.inboxSettings') : t('channels.drawer.newInbox')
+  const logo = meta?.logo ?? channel?.logo
+
+  // ── the stepper: Channel → Method (when there is a choice) → the method's setup ──
+  type NavItem = { id: string; title: string; state: 'done' | 'current' | 'todo'; onJump: (() => void) | null }
+  const multiMethod = !!channel && channel.methods.length > 1
+  const pickable = !busy && !editing
+  const navItems: NavItem[] = []
+  if (!target.inbox) {
+    const atChannel = step === 1 && phase === 'channel'
+    const atMethod = step === 1 && phase === 'method'
+    navItems.push({
+      id: 'channel',
+      title: chName ? t('channels.drawer.steps.channelNamed', { channel: chName }) : t('channels.drawer.steps.channel'),
+      state: atChannel ? 'current' : channelId ? 'done' : 'todo',
+      onJump: pickable && !atChannel ? () => toPicker('channel') : null,
+    })
+    if (multiMethod || !channelId)
+      navItems.push({
+        id: 'method',
+        title: methodLabel && step > 1 ? t('channels.drawer.steps.methodNamed', { method: methodLabel }) : t('channels.drawer.steps.method'),
+        state: atMethod ? 'current' : step > 1 ? 'done' : 'todo',
+        onJump: pickable && multiMethod && !atMethod ? () => toPicker('method') : null,
+      })
+  }
+  if (alt)
+    navItems.push({
+      id: 'connect',
+      title: t(alt.zernio ? 'channels.drawer.steps.zernio' : 'channels.drawer.steps.shops'),
+      state: step === 2 ? 'current' : 'todo',
+      onJump: null,
+    })
+  else
+    for (const s of STEPS) {
+      if (s.n === 1) continue
+      navItems.push({
+        id: `s${s.n}`,
+        title: s.title(kind, t),
+        state: step === 5 || s.n < step ? 'done' : s.n === step ? 'current' : 'todo',
+        onJump: canJump(s.n) ? () => setStep(s.n) : null,
+      })
+    }
+  const currentTitle = step === 5 ? t('common.actions.done') : (navItems.find((x) => x.state === 'current')?.title ?? '')
+
+  /** "Add inbox › WhatsApp › YCloud" — earlier crumbs go back to that step. */
+  const crumbs: { label: string; onClick: (() => void) | null }[] = target.inbox
+    ? []
+    : [
+        { label: t('channels.drawer.addInbox'), onClick: channelId && pickable ? () => toPicker('channel') : null },
+        ...(chName ? [{ label: chName, onClick: multiMethod && pickable && step > 1 ? () => toPicker('method') : null }] : []),
+        ...(methodLabel && step > 1 ? [{ label: methodLabel, onClick: null }] : []),
+      ]
 
   return createPortal(
     <div
@@ -1441,13 +1586,38 @@ export function InboxSetupDrawer({
         aria-modal="true"
         aria-labelledby="inbox-drawer-title"
         tabIndex={-1}
-        className="flex h-[100dvh] w-full flex-col bg-card shadow-pop outline-none sm:max-w-[480px] sm:border-l sm:border-line-strong"
+        className="flex h-[100dvh] w-full flex-col bg-card shadow-pop outline-none sm:max-w-[560px] sm:border-l sm:border-line-strong"
       >
         {/* header */}
         <div className="flex items-start gap-3 border-b border-line px-5 py-4 sm:px-6">
-          {meta && <ChannelLogo channel={meta.logo} variant="tile" size={36} title="" className="mt-0.5" />}
+          {logo && <ChannelLogo channel={logo} variant="tile" size={36} title="" className="mt-0.5" />}
           <div className="min-w-0 flex-1">
-            <div className="eyebrow">{eyebrow}</div>
+            {crumbs.length > 1 ? (
+              <nav aria-label={t('channels.drawer.breadcrumb')}>
+                <ol className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-[11.5px] text-text-muted">
+                  {crumbs.map((c, i) => (
+                    <li key={i} className="flex min-w-0 items-center gap-1">
+                      {i > 0 && <ChevronRight size={11} className="shrink-0 text-text-faint" aria-hidden />}
+                      {c.onClick ? (
+                        <button
+                          type="button"
+                          onClick={c.onClick}
+                          className="cursor-pointer truncate font-semibold text-text-mid underline-offset-2 hover:text-text-high hover:underline"
+                        >
+                          {c.label}
+                        </button>
+                      ) : (
+                        <span className="truncate" aria-current={i === crumbs.length - 1 ? 'page' : undefined}>
+                          {c.label}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </nav>
+            ) : (
+              <div className="eyebrow">{eyebrow}</div>
+            )}
             <h2 id="inbox-drawer-title" className="display mt-0.5 truncate text-[24px] leading-tight text-text-heading">
               {title}
             </h2>
@@ -1466,56 +1636,47 @@ export function InboxSetupDrawer({
         {/* stepper — a vertical list on wider screens, a compact row on phones */}
         <nav aria-label={t('channels.drawer.steps.aria')} className="border-b border-line px-5 py-3 sm:px-6">
           <ol className="hidden flex-col sm:flex">
-            {STEPS.map((s) => {
-              const state = step === 5 || s.n < step ? 'done' : s.n === step ? 'current' : 'todo'
-              const jump = canJump(s.n)
-              return (
-                <li key={s.n}>
-                  <button
-                    type="button"
-                    disabled={!jump}
-                    onClick={() => jump && setStep(s.n)}
-                    aria-current={state === 'current' ? 'step' : undefined}
-                    className="flex w-full items-center gap-3 py-1.5 text-left enabled:cursor-pointer enabled:hover:opacity-80"
+            {navItems.map((s, i) => (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  disabled={!s.onJump}
+                  onClick={() => s.onJump?.()}
+                  aria-current={s.state === 'current' ? 'step' : undefined}
+                  className="flex w-full items-center gap-3 py-1.5 text-left enabled:cursor-pointer enabled:hover:opacity-80"
+                >
+                  <StepCircle state={s.state} n={i + 1} />
+                  <span
+                    className={`truncate text-[13px] ${
+                      s.state === 'current'
+                        ? 'font-bold text-text-heading'
+                        : s.state === 'done'
+                          ? 'text-text-muted'
+                          : 'text-text-mid'
+                    }`}
                   >
-                    <StepCircle state={state} n={s.n} />
-                    <span
-                      className={`text-[13px] ${
-                        state === 'current'
-                          ? 'font-bold text-text-heading'
-                          : state === 'done'
-                            ? 'text-text-muted'
-                            : 'text-text-mid'
-                      }`}
-                    >
-                      {s.title(kind, t)}
-                    </span>
-                  </button>
-                </li>
-              )
-            })}
+                    {s.title}
+                  </span>
+                </button>
+              </li>
+            ))}
           </ol>
           <div className="flex items-center gap-2 sm:hidden">
-            {STEPS.map((s, i) => {
-              const state = step === 5 || s.n < step ? 'done' : s.n === step ? 'current' : 'todo'
-              return (
-                <span key={s.n} className="flex items-center gap-2">
-                  {i > 0 && <span className="h-px w-3 bg-line-strong" aria-hidden />}
-                  <button
-                    type="button"
-                    disabled={!canJump(s.n)}
-                    onClick={() => setStep(s.n)}
-                    aria-label={t('channels.drawer.steps.stepAria', { n: s.n, title: s.title(kind, t) })}
-                    aria-current={state === 'current' ? 'step' : undefined}
-                  >
-                    <StepCircle state={state} n={s.n} />
-                  </button>
-                </span>
-              )
-            })}
-            <span className="ml-1 min-w-0 truncate text-[13px] font-bold text-text-heading">
-              {step === 5 ? t('common.actions.done') : STEPS[step - 1].title(kind, t)}
-            </span>
+            {navItems.map((s, i) => (
+              <span key={s.id} className="flex items-center gap-2">
+                {i > 0 && <span className="h-px w-3 bg-line-strong" aria-hidden />}
+                <button
+                  type="button"
+                  disabled={!s.onJump}
+                  onClick={() => s.onJump?.()}
+                  aria-label={t('channels.drawer.steps.stepAria', { n: i + 1, title: s.title })}
+                  aria-current={s.state === 'current' ? 'step' : undefined}
+                >
+                  <StepCircle state={s.state} n={i + 1} />
+                </button>
+              </span>
+            ))}
+            <span className="ml-1 min-w-0 truncate text-[13px] font-bold text-text-heading">{currentTitle}</span>
           </div>
         </nav>
 
@@ -1540,7 +1701,21 @@ export function InboxSetupDrawer({
             </div>
           )}
           {step === 1 && chooseStep}
-          {step === 2 && connectStep}
+          {step === 2 &&
+            (alt?.zernio && channel ? (
+              <ZernioConnectPanel
+                key={`${channel.id}-${alt.zernio.platform}`}
+                channelName={channelName(channel, t)}
+                method={alt}
+                onChanged={onChanged}
+                onAnother={restart}
+                onClose={onClose}
+              />
+            ) : alt?.commerce && channel ? (
+              <MarketplacePanel channel={alt.commerce} channelName={channelName(channel, t)} onChanged={onChanged} />
+            ) : (
+              connectStep
+            ))}
           {step === 3 && whoStep}
           {step === 4 && testStep}
           {step === 5 && doneStep}
@@ -1554,32 +1729,4 @@ export function InboxSetupDrawer({
   )
 }
 
-/** "Requires platform approval" — TikTok / Douyin only open their messaging APIs to approved apps. */
-export function ApprovalChip({ compact = false }: { compact?: boolean }) {
-  const t = useT()
-  return (
-    <span
-      className="inline-flex items-center gap-1 rounded-full bg-amber/15 px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.06em]"
-      style={{ color: 'var(--amber-ink)' }}
-      title={t('channels.chips.approvalTitle')}
-    >
-      <BadgeCheck size={10} aria-hidden />
-      {compact ? t('channels.chips.approval') : t('channels.chips.requiresApproval')}
-    </span>
-  )
-}
-
-export function KindBadge({ badge }: { badge: 'Beta' | 'Demo' }) {
-  const t = useT()
-  return (
-    <span
-      className={`rounded-full px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.06em] ${
-        badge === 'Demo' ? 'bg-amber/15' : 'bg-fill text-text-mid'
-      }`}
-      style={badge === 'Demo' ? { color: 'var(--amber-ink)' } : undefined}
-      title={badge === 'Demo' ? t('channels.chips.demoTitle') : t('channels.chips.betaTitle')}
-    >
-      {badge === 'Demo' ? t('channels.chips.demo') : t('channels.chips.beta')}
-    </span>
-  )
-}
+export { ApprovalChip, KindBadge } from './parts'

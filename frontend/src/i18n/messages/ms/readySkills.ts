@@ -13,7 +13,7 @@ export const readySkills: Dict<typeof source> = {
     templatesIntro: 'Titik mula untuk cara AI berkelakuan. Tambah satu dan sunting ayatnya mengikut perniagaan anda.',
     builtinNote: 'Sentiasa aktif: AI juga mempunyai kalkulator (jumlah tepat, cukai dan diskaun) serta alat tarikh.',
     codeLimit: 'Kemahiran kod berjalan dalam kotak pasir tanpa internet dan tanpa fail — untuk membuat PDF, kod QR, pautan bayaran atau baris helaian, gunakan aplikasi sedia ada ini.',
-    needsConnection: 'Perlukan {provider} di Integrasi',
+    needsConnection: 'Perlukan {provider} di Aplikasi',
     connected: '{provider} disambungkan',
   },
   apps: {
@@ -145,7 +145,7 @@ export const readySkills: Dict<typeof source> = {
     sheetColumns: 'Lajur yang diisi AI',
     sheetColumnsHint: 'Masa, nama pelanggan, telefon dan e-mel ditambah di hadapan secara automatik.',
     sheetLabel: 'Nama log ini',
-    connectAt: 'Sambungkan {provider} di Integrasi dahulu — sehingga itu AI akan memberitahu ia tidak dapat melakukannya.',
+    connectAt: 'Sambungkan {provider} di Aplikasi dahulu — sehingga itu AI akan memberitahu ia tidak dapat melakukannya.',
     problems: {
       currency: 'Mata wang mestilah kod 3 huruf seperti MYR.',
       taxRate: 'Kadar cukai mestilah antara 0 dan 100.',

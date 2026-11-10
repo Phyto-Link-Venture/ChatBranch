@@ -68,10 +68,13 @@ public class AiTaskService
     private readonly IntegrationActions _actions;
     private readonly IHttpClientFactory _http;
     private readonly MediaStore? _media;
+    /// <summary>The managed social connection (the social tools); null = not wired.</summary>
+    private readonly ChatBranch.Data.Social.IZernioClient? _zernio;
 
     public AiTaskService(AppDbContext db, ScopingService sc, ILlmClient llm, IntegrationActions actions,
-        IHttpClientFactory http, MediaStore? media = null)
+        IHttpClientFactory http, MediaStore? media = null, ChatBranch.Data.Social.IZernioClient? zernio = null)
     {
+        _zernio = zernio;
         _db = db;
         _sc = sc;
         _llm = llm;
@@ -101,6 +104,12 @@ public class AiTaskService
             // a group chat's members never consented to background AI reading them
             if (ChatBranch.Data.Channels.GroupChats.IsGroup(thread)) return 0;
             var tasks = InScope(db, sc, thread.EntityId, thread.Channel);
+            // a PUBLIC social conversation (a comment, a review, a social DM) reaches only the tasks that
+            // name the social channel or carry a comment tool — never every all-channel task
+            if (thread.Channel == ChatBranch.Domain.Channels.Social)
+                tasks = tasks.Where(t => t.Channels.Any(c => c.Trim().ToLowerInvariant() == ChatBranch.Domain.Channels.Social)
+                                         || t.Tools.Contains(AiTaskTools.SocialHide) || t.Tools.Contains(AiTaskTools.SocialReply))
+                    .ToList();
             if (tasks.Count == 0) return 0;
             var queued = 0;
             var due = DateTime.UtcNow.AddSeconds(DelaySeconds);
@@ -619,6 +628,11 @@ public class AiTaskService
                 AiTaskTools.DriveUpload => await DriveTool(ctx, args, ct),
                 AiTaskTools.CalendarEvent => await CalendarTool(ctx, args, ct),
                 AiTaskTools.Webhook => await WebhookTool(ctx, args, ct),
+                AiTaskTools.SocialAccounts => SocialAccountsTool(ctx),
+                AiTaskTools.SocialDraft => SocialDraftTool(ctx, args),
+                AiTaskTools.SocialSchedule => await SocialScheduleTool(ctx, args, ct),
+                AiTaskTools.SocialHide => await SocialHideTool(ctx, args, ct),
+                AiTaskTools.SocialReply => await SocialReplyTool(ctx, args, ct),
                 _ => (Json(false, "Unknown tool."), false, false),
             };
         }
@@ -627,6 +641,171 @@ public class AiTaskService
         {
             return (Json(false, $"The tool failed ({ex.GetType().Name})."), false, false);
         }
+    }
+
+    // ---- social media (a managed connection) ----------------------------------------------
+
+    private string? SocialOff() =>
+        _zernio is { IsConfigured: true } ? null
+            : Json(false, "Social media isn't connected (managed connections aren't enabled yet).", skipped: true);
+
+    /// <summary>The level whose accounts this run may use: the conversation's entity, else the task's.</summary>
+    private int? SocialLevel(RunContext ctx) => ctx.Thread?.EntityId ?? ctx.EntityId ?? ctx.Task.EntityId;
+
+    /// <summary>Social accounts (and Facebook Pages) visible to that level: its own and every level above it.</summary>
+    private List<(ChannelAccount Account, List<SocialPage> Pages)> SocialVisible(RunContext ctx)
+    {
+        var level = SocialLevel(ctx);
+        var chain = level is int l ? _sc.EntityChain(l).Cast<int?>().ToHashSet() : new HashSet<int?>();
+        bool Sees(int? e) => e == null || chain.Contains(e);
+        var rows = _db.ChannelAccounts.AsNoTracking().Where(a => a.Channel == ChatBranch.Domain.Channels.Social).ToList()
+            .Where(a => ChatBranch.Data.Social.SocialChannels.Cfg(a, ChatBranch.Data.Social.SocialChannels.StatusKey) != "removed")
+            .ToList();
+        var ids = rows.Select(a => a.Id).ToList();
+        var pages = _db.SocialPages.AsNoTracking().Where(p => ids.Contains(p.AccountId)).ToList();
+        return rows.Select(a => (a, pages.Where(p => p.AccountId == a.Id && Sees(p.EntityId ?? a.EntityId)).ToList()))
+            .Where(x => Sees(x.a.EntityId) || x.Item2.Count > 0).ToList();
+    }
+
+    private (string, bool, bool) SocialAccountsTool(RunContext ctx)
+    {
+        if (SocialOff() is { } off) return (off, false, false);
+        var list = SocialVisible(ctx).Select(x => new Dictionary<string, object?>
+        {
+            ["id"] = x.Account.ExternalId,
+            ["platform"] = ChatBranch.Data.Social.SocialChannels.Platform(x.Account),
+            ["username"] = ChatBranch.Data.Social.SocialChannels.Cfg(x.Account, ChatBranch.Data.Social.SocialChannels.UsernameKey),
+            ["name"] = x.Account.Name,
+            ["can_publish"] = ChatBranch.Data.Social.SocialChannels.PublishPlatforms.Contains(ChatBranch.Data.Social.SocialChannels.Platform(x.Account)),
+            ["pages"] = x.Pages.Select(p => new { target = ChatBranch.Data.Social.SocialChannels.Target(x.Account.ExternalId, p.PageId), name = p.Name }).ToList(),
+        }).ToList();
+        return (Json(true, $"{list.Count} account(s)", data: new() { ["accounts"] = list }), true, false);
+    }
+
+    /// <summary>The asked targets, each visible to this run's level: (targets, platforms, error).</summary>
+    private (List<string> Targets, List<string> Platforms, string Error) SocialTargets(RunContext ctx, JsonElement args)
+    {
+        var want = new List<string>();
+        if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("account_ids", out var a) && a.ValueKind == JsonValueKind.Array)
+            want = a.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? (x.GetString() ?? "").Trim() : "")
+                .Where(x => x.Length > 0).Distinct().Take(20).ToList();
+        var visible = SocialVisible(ctx);
+        var platforms = new List<string>();
+        foreach (var t in want)
+        {
+            var (acct, page) = ChatBranch.Data.Social.SocialChannels.ParseTarget(t);
+            var hit = visible.FirstOrDefault(v => v.Account.ExternalId == acct);
+            if (hit.Account == null || (page.Length > 0 && hit.Pages.All(p => p.PageId != page))
+                || (page.Length == 0 && !(hit.Account.EntityId == null
+                                          || (SocialLevel(ctx) is int l && _sc.EntityChain(l).Contains(hit.Account.EntityId.Value)))))
+                return (want, platforms, $"'{t}' is not one of this outlet's social accounts (social_list_accounts).");
+            platforms.Add(ChatBranch.Data.Social.SocialChannels.Platform(hit.Account));
+        }
+        return (want, platforms, "");
+    }
+
+    private (string, bool, bool) SocialDraftTool(RunContext ctx, JsonElement args)
+    {
+        if (SocialOff() is { } off) return (off, false, false);
+        var content = Cap((Str(args, "content") ?? "").Trim(), 5000);
+        if (content.Length == 0) return (Json(false, "content is required."), false, false);
+        var (targets, platforms, err) = SocialTargets(ctx, args);
+        if (err.Length > 0) return (Json(false, err), false, false);
+        if (ctx.Preview) return (Preview("would save a draft social post", args), true, true);
+        var post = new SocialPost
+        {
+            EntityId = SocialLevel(ctx), Content = content, AccountIds = targets, Platforms = platforms,
+            Status = ChatBranch.Data.Social.SocialPosts.Draft, CreatedBy = $"ai_task:{ctx.Task.Id}",
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        };
+        _db.SocialPosts.Add(post);
+        _db.SaveChanges();
+        return (Json(true, $"draft post #{post.Id} saved for review", data: new() { ["post_id"] = post.Id }), true, false);
+    }
+
+    private async Task<(string, bool, bool)> SocialScheduleTool(RunContext ctx, JsonElement args, CancellationToken ct)
+    {
+        if (SocialOff() is { } off) return (off, false, false);
+        var content = Cap((Str(args, "content") ?? "").Trim(), 5000);
+        if (content.Length == 0) return (Json(false, "content is required."), false, false);
+        var (targets, platforms, err) = SocialTargets(ctx, args);
+        if (err.Length > 0) return (Json(false, err), false, false);
+        if (targets.Count == 0) return (Json(false, "account_ids is required."), false, false);
+        DateTime? at = null;
+        var raw = (Str(args, "scheduled_at") ?? "").Trim();
+        if (raw.Length > 0)
+        {
+            if (!DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dto))
+                return (Json(false, "scheduled_at is not an ISO 8601 time."), false, false);
+            at = dto.UtcDateTime;
+            if (at < DateTime.UtcNow.AddMinutes(1)) return (Json(false, "scheduled_at is in the past."), false, false);
+        }
+        var what = at == null ? "would publish a social post now" : $"would schedule a social post for {at:yyyy-MM-dd HH:mm} UTC";
+        if (ctx.Preview) return (Preview(what, args), true, true);
+        // public: only when the operator opted this task in
+        if (!string.Equals(Conf(ctx.Task, AiTaskTools.AllowPublish), "true", StringComparison.OrdinalIgnoreCase))
+            return (Json(false, "This task is not allowed to publish (Tools → Social media → allow publishing). " +
+                                "Save a draft instead.", skipped: true), false, false);
+        var post = new SocialPost
+        {
+            EntityId = SocialLevel(ctx), Content = content, AccountIds = targets, Platforms = platforms,
+            Status = at == null ? ChatBranch.Data.Social.SocialPosts.Publishing : ChatBranch.Data.Social.SocialPosts.Scheduled,
+            ScheduledAt = at, Timezone = Cap((Str(args, "timezone") ?? "").Trim(), 60),
+            CreatedBy = $"ai_task:{ctx.Task.Id}", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        };
+        _db.SocialPosts.Add(post);
+        _db.SaveChanges();
+        await ChatBranch.Data.Social.SocialPosts.PushAsync(_db, _zernio!, post, publishNow: at == null, ct);
+        var ok = post.Status != ChatBranch.Data.Social.SocialPosts.Failed;
+        return (Json(ok, ok ? $"post #{post.Id} {post.Status}" : $"the post failed: {post.Error}",
+            data: new() { ["post_id"] = post.Id, ["status"] = post.Status }), ok, false);
+    }
+
+    /// <summary>This run's conversation as a social COMMENT (the comment tools work on nothing else).</summary>
+    private SocialThread? CommentOf(RunContext ctx) =>
+        ctx.Thread == null || ctx.Thread.Channel != ChatBranch.Domain.Channels.Social
+            ? null
+            : _db.SocialThreads.FirstOrDefault(s => s.ThreadId == ctx.Thread.Id && s.Kind == ChatBranch.Data.Social.SocialChannels.Comment
+                                                    && s.PostId != "");
+
+    private async Task<(string, bool, bool)> SocialHideTool(RunContext ctx, JsonElement args, CancellationToken ct)
+    {
+        if (SocialOff() is { } off) return (off, false, false);
+        var hidden = !(args.ValueKind == JsonValueKind.Object && args.TryGetProperty("hidden", out var h) && h.ValueKind == JsonValueKind.False);
+        var st = CommentOf(ctx);
+        if (st == null && !ctx.Preview)
+            return (Json(false, "This conversation is not a social comment.", skipped: true), false, false);
+        if (st != null && !ChatBranch.Data.Social.SocialChannels.HidePlatforms.Contains(st.Platform))
+            return (Json(false, "This platform does not let a comment be hidden."), false, false);
+        if (ctx.Preview) return (Preview(hidden ? "would hide the comment" : "would unhide the comment", args), true, true);
+        var r = await _zernio!.HideCommentAsync(st!.ZernioAccountId, st.PostId, st.RootCommentId, hidden, ct);
+        if (!r.Ok) return (Json(false, AiTaskTools.Redact(r.Error, 300)), false, false);
+        st.Hidden = hidden;
+        st.UpdatedAt = DateTime.UtcNow;
+        ctx.Thread!.UpdatedAt = DateTime.UtcNow;
+        _db.SaveChanges();
+        return (Json(true, hidden ? "comment hidden" : "comment unhidden"), true, false);
+    }
+
+    private async Task<(string, bool, bool)> SocialReplyTool(RunContext ctx, JsonElement args, CancellationToken ct)
+    {
+        if (SocialOff() is { } off) return (off, false, false);
+        var text = Cap((Str(args, "text") ?? "").Trim(), 1000);
+        if (text.Length == 0) return (Json(false, "text is required."), false, false);
+        var st = CommentOf(ctx);
+        if (st == null && !ctx.Preview)
+            return (Json(false, "This conversation is not a social comment.", skipped: true), false, false);
+        if (ctx.Preview) return (Preview("would reply publicly under the comment", args), true, true);
+        if (!string.Equals(Conf(ctx.Task, AiTaskTools.AllowReply), "true", StringComparison.OrdinalIgnoreCase))
+            return (Json(false, "This task is not allowed to reply publicly (Tools → Social media → allow replies).",
+                skipped: true), false, false);
+        var account = _db.ChannelAccounts.FirstOrDefault(a => a.Channel == ChatBranch.Domain.Channels.Social
+                                                              && a.ExternalId == st!.ZernioAccountId);
+        var r = await _zernio!.ReplyToCommentAsync(st!.ZernioAccountId, st.PostId, st.RootCommentId, text, ct);
+        if (!r.Ok) return (Json(false, AiTaskTools.Redact(r.Error, 300)), false, false);
+        new ChatBranch.Data.Stores.ThreadStore(_db, _sc).AppendMessage(ctx.Thread!, MessageDirection.Out,
+            MessageSource.Ai, text, status: "sent", externalId: r.Str("data", "commentId"), accountId: account?.Id);
+        return (Json(true, "public reply posted"), true, false);
     }
 
     private (string, bool, bool) NoteTool(RunContext ctx, JsonElement args)

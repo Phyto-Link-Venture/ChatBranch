@@ -357,7 +357,7 @@ export const guide: Dict<typeof source> = {
       steps: {
         s1: {
           title: 'Siaran media sosial',
-          body: 'Siaran dihantar melalui Zernio ke akaun media sosial yang disambungkan di Saluran → Akaun media sosial.',
+          body: 'Siaran dihantar ke akaun media sosial yang disambungkan di halaman Saluran.',
         },
         s2: {
           title: 'Siarkan ke',
@@ -749,11 +749,11 @@ export const guide: Dict<typeof source> = {
         },
         s2: {
           title: 'Tambah peti masuk',
-          body: 'Klik Tambah peti masuk untuk menyambung yang baharu. Panel langkah demi langkah membimbing anda: pilih aplikasi → sambungkan → pilih siapa menjawab → uji.',
+          body: 'Klik Tambah peti masuk untuk menyambung yang baharu. Panel langkah demi langkah membimbing anda: pilih saluran → pilih cara menyambungnya (jika ada pilihan) → sediakannya.',
         },
         s3: {
           title: 'Disambungkan',
-          body: 'Setiap kad ialah satu peti masuk, dengan titik berwarna untuk kesihatannya — hijau berfungsi, kuning atau merah perlu perhatian.',
+          body: 'Setiap peti masuk dan akaun media sosial ialah satu kad: cara ia disambungkan, cawangannya, titik berwarna untuk kesihatannya (hijau berfungsi, kuning atau merah perlu perhatian) dan apa yang boleh dilakukan.',
         },
         s4: {
           title: 'Tunjuk satu jenis',
@@ -765,21 +765,21 @@ export const guide: Dict<typeof source> = {
         },
         s6: {
           title: 'Tambah saluran',
-          body: 'Setiap aplikasi yang boleh disambung, dikumpulkan mengikut jenis. Klik satu untuk bermula. TikTok dan Douyin memerlukan kelulusan platform dahulu.',
+          body: 'Satu jubin bagi setiap saluran, dikumpulkan mengikut jenis — aplikasi pemesejan, rangkaian sosial, SMS/e-mel/suara, China, sembang laman web dan pasaran dalam talian. Klik satu untuk bermula; TikTok dan Douyin memerlukan kelulusan platform dahulu.',
         },
         s7: {
           title: 'Lanjutan',
           body: 'Alamat webhook Meta dan tetapan mel lalai. Anda jarang memerlukannya — pembangun anda mungkin memintanya sekali.',
         },
         s8: {
-          title: 'Akaun media sosial',
-          body: 'Instagram, Facebook, TikTok, LinkedIn, Google Business dan lain-lain, disambungkan melalui Zernio. Komen, ulasan dan mesejnya masuk ke Sembang; siaran ditulis di halaman Siaran media sosial.',
+          title: 'Kaedah dan cawangan',
+          body: 'Setiap kad menunjukkan cara ia disambungkan (Cloud API, YCloud, QR, Sambungan terurus…) dan cawangan pemiliknya. Untuk akaun media sosial anda boleh menukar cawangan di sini; log masuk Facebook menyenaraikan Halamannya, masing-masing dengan cawangan sendiri.',
         },
       },
     },
     integrations: {
-      title: 'Integrasi',
-      intro: 'Sambungkan Google, Shopify, Stripe dan aplikasi lain.',
+      title: 'Aplikasi',
+      intro: 'Alat perniagaan: Google, Shopify, Stripe, pelayan MCP dan lain-lain. Akaun yang berhadapan dengan pelanggan berada di Saluran.',
       steps: {
         s1: {
           title: 'Sambungan dikongsi',
@@ -800,10 +800,6 @@ export const guide: Dict<typeof source> = {
         s5: {
           title: 'Akaun yang disambungkan',
           body: 'Setiap sambungan yang telah dibuat, siapa yang menggunakannya dan statusnya, dengan butang untuk mengurusnya.',
-        },
-        s6: {
-          title: 'Zernio (media sosial)',
-          body: 'Satu kunci yang menghubungkan ChatBranch dengan Zernio, webhooknya dan entiti mana yang memiliki profil Zernio mana. Super admin menetapkannya sekali.',
         },
       },
     },

@@ -22,7 +22,7 @@ export const shell = {
     tags: 'Tags',
     media: 'Media library',
     channels: 'Channels',
-    integrations: 'Integrations',
+    integrations: 'Apps',
     users: 'Users & roles',
     teams: 'Teams',
     entities: 'Entities',

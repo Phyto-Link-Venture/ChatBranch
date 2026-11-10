@@ -211,7 +211,7 @@ public static class SocialChannels
 
     /// <summary>Why a social account cannot be created or credential-edited from the accounts API.</summary>
     public const string NotEditable =
-        "A social account is connected through Zernio, not here: use Channels → Social accounts → Connect. " +
+        "A social account is a managed connection, connected from Channels → Add inbox, not here. " +
         "It then appears as an inbox by itself; you can still choose who answers it, its team and its AI default here.";
 
     // ---- the AI ------------------------------------------------------------------------
@@ -236,7 +236,7 @@ public static class SocialChannels
                 "Thank the reviewer, keep it brief (two to four sentences) and professional, address a complaint " +
                 "calmly and offer to continue privately. Never share personal or order details and never argue.",
             _ =>
-                $"This is a direct message on {where}, received through Zernio. Keep replies short and conversational.",
+                $"This is a direct message on {where}, received through a managed connection. Keep replies short and conversational.",
         };
     }
 }

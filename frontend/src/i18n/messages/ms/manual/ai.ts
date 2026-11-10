@@ -418,7 +418,7 @@ export const ai: Dict<typeof source> = {
   aiCalendar: {
     title: 'Benarkan AI menempah temujanji',
     summary: 'Tambah kemahiran kalendar supaya AI boleh menawarkan masa lapang, menempah dan membatalkan temujanji — dalam kalendar ChatBranch sendiri atau di Google Calendar.',
-    before: 'Anda perlukan log masuk pentadbir. Untuk kalendar ChatBranch sendiri, tiada apa-apa lagi diperlukan. Untuk Google Calendar, sambungkannya dahulu di Saluran → Integrasi (dikongsi), atau setiap ejen menyambung kalendar sendiri di Tetapan → Sambungan saya.',
+    before: 'Anda perlukan log masuk pentadbir. Untuk kalendar ChatBranch sendiri, tiada apa-apa lagi diperlukan. Untuk Google Calendar, sambungkannya dahulu di Pentadbiran → Aplikasi (dikongsi), atau setiap ejen menyambung kalendar sendiri di Tetapan → Sambungan saya.',
     steps: {
       s1: {
         title: 'Buka Kemahiran AI',
@@ -470,15 +470,15 @@ export const ai: Dict<typeof source> = {
       t1: 'Uji dalam Ruang uji AI dahulu — alat kalendar hanya membuat pratonton di sana, tiada apa-apa ditempah.',
       t2: 'Jika balasan ditahan untuk semakan, tempahan hanya dibuat apabila seseorang meluluskan balasan itu.',
       t3: 'Anda boleh membatalkan tempahan dari halaman Tempahan — pelanggan tidak dimaklumkan secara automatik, jadi beritahu mereka dalam sembang.',
-      t4: 'Untuk temu janji dalam talian, tetapkan “Mesyuarat video” kepada Zoom (sambungkan Zoom di Saluran → Integrasi dahulu), Google Meet (Google Calendar sahaja) atau “Pautan mesyuarat saya sendiri”. Pautan dihantar kepada pelanggan dalam mesejnya sendiri sejurus selepas AI mengesahkan tempahan.',
+      t4: 'Untuk temu janji dalam talian, tetapkan “Mesyuarat video” kepada Zoom (sambungkan Zoom di Pentadbiran → Aplikasi dahulu), Google Meet (Google Calendar sahaja) atau “Pautan mesyuarat saya sendiri”. Pautan dihantar kepada pelanggan dalam mesejnya sendiri sejurus selepas AI mengesahkan tempahan.',
     },
-    trouble: 'Google menunjukkan belum disambungkan: sambungkannya di Integrasi — sehingga itu AI memberitahu kalendar tidak tersedia dan menawarkan rakan sepasukan; ia tidak pernah menempah dalam ChatBranch sebagai ganti. “Tiada masa lapang”: luaskan waktu bekerja, pendekkan notis minimum atau benarkan lebih banyak hari ke hadapan. Tempahan gagal semasa balasan dihantar: balasan ditahan dan sembang diserahkan kepada manusia.',
+    trouble: 'Google menunjukkan belum disambungkan: sambungkannya di Aplikasi — sehingga itu AI memberitahu kalendar tidak tersedia dan menawarkan rakan sepasukan; ia tidak pernah menempah dalam ChatBranch sebagai ganti. “Tiada masa lapang”: luaskan waktu bekerja, pendekkan notis minimum atau benarkan lebih banyak hari ke hadapan. Tempahan gagal semasa balasan dihantar: balasan ditahan dan sembang diserahkan kepada manusia.',
   },
 
   aiReadySkills: {
     title: 'Tambah kemahiran sedia ada (invois PDF, kod QR, pautan bayaran, Sheets)',
     summary: 'Hidupkan keupayaan sebenar tanpa kod: AI membuat invois, sebut harga, resit dan surat PDF, kod QR, pautan bayaran Stripe, atau merekod baris ke Google Sheet.',
-    before: 'Anda perlukan log masuk pentadbir. Pautan bayaran memerlukan Stripe disambungkan di Saluran → Integrasi; log Sheets memerlukan Google Sheets disambungkan di sana. Dokumen dan kod QR tidak memerlukan apa-apa lagi.',
+    before: 'Anda perlukan log masuk pentadbir. Pautan bayaran memerlukan Stripe disambungkan di Pentadbiran → Aplikasi; log Sheets memerlukan Google Sheets disambungkan di sana. Dokumen dan kod QR tidak memerlukan apa-apa lagi.',
     steps: {
       s1: {
         title: 'Buka kemahiran AI',
@@ -525,7 +525,7 @@ export const ai: Dict<typeof source> = {
       t4: 'Aksara Cina hanya dicetak apabila pelayan mempunyai fon Cina (DOCUMENT_CJK_FONT); jika tidak, AI menulis dokumen dalam bahasa Inggeris atau Melayu.',
       t5: 'Mahu ia kelihatan sama seperti invois yang anda guna sekarang? Dalam “Reka templat”, tukar ke “Susun atur tersuai (HTML)”: mula daripada “Klasik Malaysia” atau klik “Muat naik reka bentuk saya”, tambah medan tambahan yang dicetak oleh susun atur anda (cth. PRO atau Tel U/P — AI bertanya kepada pelanggan), dan semak “Pratonton PDF”. Rakan sepasukan juga boleh membuatnya dari sembang: panel maklumat “Dokumen” → “Dokumen baharu”.',
     },
-    trouble: 'AI kata ia tidak dapat membuat dokumen: pastikan kemahiran dihidupkan dan membenarkan jenis itu, serta item mempunyai harga. Pautan bayaran kata Stripe tidak disambungkan: sambungkannya di Integrasi. Tiada fail sampai di WhatsApp: sembang menunjukkan pautan muat turun dan nota menerangkan sebab fail ditolak.',
+    trouble: 'AI kata ia tidak dapat membuat dokumen: pastikan kemahiran dihidupkan dan membenarkan jenis itu, serta item mempunyai harga. Pautan bayaran kata Stripe tidak disambungkan: sambungkannya di Aplikasi. Tiada fail sampai di WhatsApp: sembang menunjukkan pautan muat turun dan nota menerangkan sebab fail ditolak.',
   },
 
   aiHumanLike: {

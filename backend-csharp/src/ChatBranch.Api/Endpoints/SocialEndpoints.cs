@@ -51,6 +51,10 @@ public static class SocialEndpoints
         // one IChannelTransport for "social": OutboundSender → MoreChannelSender → Routing carry it
         services.AddSingleton<IChannelTransport>(sp =>
             new SocialTransport(sp.GetRequiredService<IZernioClient>(), sp.GetRequiredService<IServiceScopeFactory>()));
+        // Zernio as a connection method on NATIVE channels (ZernioNative): the send seam for
+        // Messenger / Instagram / Telegram / SMS, and WhatsApp behind the Cloud router
+        services.AddSingleton<ZernioNativeTransport>();
+        services.AddSingleton<ZernioWhatsAppClient>();
         services.AddSingleton<SocialSyncClock>();
         services.AddScoped<SocialAccounts>();
         services.AddScoped<ZernioWebhook>();
@@ -233,8 +237,11 @@ public static class SocialEndpoints
         return v.Length > 0 ? v : (Environment.GetEnvironmentVariable("ZERNIO_WEBHOOK_SECRET") ?? "").Trim();
     }
 
+    /// <summary>What normal users read when the managed-connection service has no key (the code stays machine-readable).</summary>
+    public const string NotConfiguredDetail = "Managed connections aren't enabled yet. Ask your admin to set them up.";
+
     private static IResult NotConfigured(IZernioClient zernio) =>
-        Results.Json(new { code = NotConfiguredCode, detail = zernio.NotConfiguredReason }, statusCode: 409);
+        Results.Json(new { code = NotConfiguredCode, detail = NotConfiguredDetail }, statusCode: 409);
 
     // ---- accounts --------------------------------------------------------------
 
@@ -269,29 +276,277 @@ public static class SocialEndpoints
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("social.view", "channels.view");
 
+        // Connect an account for an entity. {platform, entity?, purpose?: "inbox" | "social"} →
+        // flow "hosted" ({url}: the platform's own login, Zernio hosts any selection step),
+        // "code" (Telegram: an access code + steps, then poll …/telegram/status) or
+        // "select" (SMS: pick one of the profile's numbers, then POST …/sms). See ConnectFlow.
         app.MapPost("/api/social/connect", async (Dictionary<string, JsonElement>? body, AppDbContext db,
             ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, SocialAccounts accounts, HttpContext ctx) =>
         {
             if (!zernio.IsConfigured) return NotConfigured(zernio);
             var platform = PlatformAlias(Str(body, "platform"));
-            if (!SocialChannels.ConnectPlatforms.Contains(platform))
+            if (!SocialChannels.ConnectPlatforms.Contains(platform) && platform != "sms")
                 return Results.Json(new
                 {
-                    detail = $"platform must be one of {string.Join(", ", SocialChannels.ConnectPlatforms.OrderBy(p => p))}.",
+                    detail = $"platform must be one of {string.Join(", ", SocialChannels.ConnectPlatforms.Append("sms").OrderBy(p => p))}.",
                 }, statusCode: 400);
+            var purpose = (Str(body, "purpose") ?? "").Trim().ToLowerInvariant();
+            if (purpose.Length > 0 && purpose is not ("inbox" or "social"))
+                return Results.Json(new { detail = "purpose must be \"inbox\" or \"social\"." }, statusCode: 400);
+            if (purpose == "inbox" && ZernioNative.ChannelFor(platform) == null)
+                return Results.Json(new
+                {
+                    detail = $"{SocialChannels.PlatformLabel(platform)} has no inbox channel here — connect it with purpose \"social\".",
+                }, statusCode: 400);
+            if (purpose == "social" && !ZernioNative.HasSocialRow(platform))
+                return Results.Json(new { detail = $"{SocialChannels.PlatformLabel(platform)} is an inbox only." }, statusCode: 400);
             var (entityId, err) = await ActScope(db, sc, me, Str(body, "entity") ?? ctx.Request.Query["entity"]);
             if (err != null) return err;
             var (profileId, perr) = await accounts.EnsureProfileAsync(entityId);
             if (profileId.Length == 0)
                 return Results.Json(new { detail = perr, code = "zernio_error" }, statusCode: 502);
-            var redirect = Dashboard(ctx, sc) + "/channels?zernio=connected";
-            var r = await zernio.ConnectUrlAsync(platform, profileId, redirect);
-            if (!r.Ok) return Results.Json(new { detail = r.Error, code = "zernio_error" }, statusCode: 502);
-            var url = r.Str("authUrl");
-            if (url.Length == 0) return Results.Json(new { detail = "Zernio returned no connect URL." }, statusCode: 502);
-            AuditTrail.Write(db, "social.connect", platform, $"profile {profileId}", entityId: entityId);
-            return Results.Ok(new { url, platform, profile_id = profileId });
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("social.manage");
+            if (purpose.Length == 0 && ZernioNative.ChannelFor(platform) != null && !ZernioNative.HasSocialRow(platform))
+                purpose = "inbox";
+            accounts.SetIntent(profileId, platform, purpose);
+            var entitySlug = entityId is int eid ? await db.Entities.AsNoTracking().Where(e => e.Id == eid)
+                .Select(e => e.Slug).FirstOrDefaultAsync() : null;
+            var common = new Dictionary<string, object?>
+            {
+                ["platform"] = platform,
+                ["purpose"] = purpose.Length > 0 ? purpose : null,
+                ["profile_id"] = profileId,
+                ["entity"] = entitySlug,
+                ["channel"] = ZernioNative.ChannelFor(platform),
+            };
+
+            if (platform == "telegram")
+            {
+                var r = await zernio.TelegramCodeAsync(profileId);
+                if (!r.Ok) return Results.Json(new { detail = r.Error, code = "zernio_error" }, statusCode: 502);
+                var code = r.Str("code");
+                var bot = r.Str("botUsername");
+                AuditTrail.Write(db, "social.connect", platform, "managed connection: access code issued", entityId: entityId);
+                var botUrl = bot.Length > 0 ? $"https://t.me/{bot.TrimStart('@')}" : null;
+                var steps = new List<object>
+                {
+                    new { title = "Add the bot as an admin", body = $"Add @{bot.TrimStart('@')} as an administrator of your group or channel.", url = botUrl, code = (string?)null },
+                    new { title = "Send the code", body = $"Open a private chat with @{bot.TrimStart('@')} and send the code (with @yourchannel for a public channel).", url = botUrl, code = (string?)code },
+                    new { title = "Wait for confirmation", body = "This page updates by itself once the bot has the code (valid 15 minutes).", url = (string?)null, code = (string?)null },
+                };
+                return Results.Ok(new Dictionary<string, object?>(common)
+                {
+                    ["flow"] = "code",
+                    ["status"] = "pending",
+                    ["status_url"] = $"/api/social/connect/telegram/status?code={Uri.EscapeDataString(code)}"
+                                     + (entitySlug != null ? "&entity=" + Uri.EscapeDataString(entitySlug) : ""),
+                    ["poll_interval_seconds"] = 3,
+                    ["code"] = code,
+                    ["bot_username"] = bot,
+                    ["bot_url"] = botUrl,
+                    ["expires_at"] = r.Str("expiresAt"),
+                    ["expires_in"] = ZernioJson.Int(r.Json, "expiresIn"),
+                    ["steps"] = steps,
+                    // the bot already an admin: POST {credentials:{chat_id}} to /api/social/connect/telegram instead
+                    ["alternative_submit_url"] = "/api/social/connect/telegram",
+                });
+            }
+            if (platform == "sms")
+            {
+                var r = await zernio.ListPhoneNumbersAsync(profileId);
+                if (!r.Ok) return Results.Json(new { detail = r.Error, code = "zernio_error" }, statusCode: 502);
+                var numbers = ZernioJson.Arr(r.Json, "numbers")
+                    // active numbers Zernio hosts (a number brought via WhatsApp signup cannot do SMS)
+                    .Where(n => ZernioJson.Str(n, "status") is "active" or ""
+                                && ZernioJson.At(n, "hostedByZernio").ValueKind != JsonValueKind.False)
+                    .Select(n => new
+                    {
+                        id = ZernioJson.Str(n, "_id"),
+                        phone_number = ZernioJson.Str(n, "phoneNumber"),
+                        country = ZernioJson.Str(n, "country"),
+                        sms_capable = ZernioJson.At(n, "smsCapable").ValueKind == JsonValueKind.False ? false : (bool?)ZernioJson.Bool(n, "smsCapable"),
+                        sms_send_approved = ZernioJson.Bool(n, "smsSendApproved"),
+                        registration_pending = ZernioJson.Bool(n, "smsRegistrationPending"),
+                    }).ToList();
+                return Results.Ok(new Dictionary<string, object?>(common)
+                {
+                    ["flow"] = "fields",
+                    ["numbers"] = numbers,
+                    ["steps"] = new[]
+                    {
+                        "Pick one of this outlet's numbers to receive and send SMS.",
+                        "US numbers can receive at once but need an approved carrier registration before they send.",
+                    },
+                    ["submit_url"] = "/api/social/connect/sms",
+                    ["fields"] = new object[]
+                    {
+                        new
+                        {
+                            key = "phone_number_id", label = "Number", type = "select", secret = false, required = true,
+                            help = numbers.Count == 0 ? "This outlet has no phone number yet: buy or port one in your managed connection account first." : "",
+                            placeholder = "Choose a number",
+                            options = numbers.Select(n => new { value = n.id, label = n.phone_number }).ToList(),
+                        },
+                    },
+                });
+            }
+
+            var redirect = Dashboard(ctx, sc) + "/channels?zernio=connected" + (purpose.Length > 0 ? "&purpose=" + purpose : "");
+            var hosted = await zernio.ConnectUrlAsync(platform, profileId, redirect);
+            if (!hosted.Ok) return Results.Json(new { detail = hosted.Error, code = "zernio_error" }, statusCode: 502);
+            var url = hosted.Str("authUrl");
+            if (url.Length == 0) return Results.Json(new { detail = "No connect URL came back." }, statusCode: 502);
+            AuditTrail.Write(db, "social.connect", platform, "managed connection started", entityId: entityId);
+            var outv = new Dictionary<string, object?>(common) { ["flow"] = "hosted", ["url"] = url };
+            if (platform == "whatsapp")
+                outv["alternatives"] = new object[]
+                {
+                    new
+                    {
+                        flow = "fields",
+                        label = "Use my own WhatsApp Business credentials",
+                        submit_url = "/api/social/connect/whatsapp",
+                        fields = new object[]
+                        {
+                            new { key = "access_token", label = "Permanent access token (System User)", type = "password", secret = true, required = true, help = "Meta Business Suite → System users", placeholder = "EAAB…" },
+                            new { key = "waba_id", label = "WhatsApp Business Account ID", type = "text", secret = false, required = true, help = "", placeholder = "" },
+                            new { key = "phone_number_id", label = "Phone number ID", type = "text", secret = false, required = true, help = "", placeholder = "" },
+                            new { key = "pin", label = "Two-step verification PIN (6 digits)", type = "text", secret = true, required = false, help = "Only when two-step verification is on for the number", placeholder = "123456" },
+                        },
+                    },
+                };
+            return Results.Ok(outv);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("social.manage", "channels.manage");
+
+        // Telegram's access code: pending | connected (the inbox is created now) | expired.
+        app.MapGet("/api/social/connect/telegram/status", async (string? code, string? entity, AppDbContext db,
+            ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, SocialAccounts accounts) =>
+        {
+            if (!zernio.IsConfigured) return NotConfigured(zernio);
+            if (string.IsNullOrWhiteSpace(code)) return Results.Json(new { detail = "code is required." }, statusCode: 400);
+            var (entityId, err) = await ActScope(db, sc, me, entity);
+            if (err != null) return err;
+            var r = await zernio.TelegramStatusAsync(code.Trim());
+            if (!r.Ok)
+                return Results.Json(new { detail = r.Error, code = "zernio_error" }, statusCode: r.Status == 404 ? 404 : 502);
+            var status = r.Str("status");
+            if (status != "connected")
+                return Results.Ok(new { status, connected = false, expired = status == "expired",
+                    expires_in = ZernioJson.Int(r.Json, "expiresIn"), message = r.Str("message") });
+            var row = await MirrorConnectedAsync(db, accounts, entityId, r.At("account"), "telegram");
+            return Results.Ok(new { status, connected = true, chat_title = r.Str("chatTitle"), chat_type = r.Str("chatType"),
+                account = row == null ? null : ConnectedRow(db, row) });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("social.manage", "channels.manage");
+
+        // Telegram, the bot already an admin: connect by chat id.
+        app.MapPost("/api/social/connect/telegram", async (Dictionary<string, JsonElement>? body, AppDbContext db,
+            ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, SocialAccounts accounts) =>
+        {
+            if (!zernio.IsConfigured) return NotConfigured(zernio);
+            var chat = Cred(body, "chat_id").Trim();
+            if (chat.Length == 0) return Results.Json(new { detail = "chat_id is required." }, statusCode: 400);
+            var (entityId, err) = await ActScope(db, sc, me, Str(body, "entity"));
+            if (err != null) return err;
+            var (profileId, perr) = await accounts.EnsureProfileAsync(entityId);
+            if (profileId.Length == 0) return Results.Json(new { detail = perr, code = "zernio_error" }, statusCode: 502);
+            var purpose = (Str(body, "purpose") ?? "inbox").Trim().ToLowerInvariant();
+            accounts.SetIntent(profileId, "telegram", purpose);
+            var r = await zernio.TelegramConnectAsync(profileId, chat);
+            if (!r.Ok)
+                return Results.Json(new { detail = r.Error, code = "zernio_error" }, statusCode: r.Status is 400 or 404 ? 400 : 502);
+            var row = await MirrorConnectedAsync(db, accounts, entityId, r.At("account"), "telegram", profileId);
+            AuditTrail.Write(db, "social.connect", "telegram", $"managed connection: chat {chat}", entityId: entityId);
+            return Results.Ok(new { ok = true, connected = true, status = "connected", account = row == null ? null : ConnectedRow(db, row) });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("social.manage", "channels.manage");
+
+        // WhatsApp with the business's own Meta credentials (the headless alternative to the hosted signup).
+        app.MapPost("/api/social/connect/whatsapp", async (Dictionary<string, JsonElement>? body, AppDbContext db,
+            ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, SocialAccounts accounts) =>
+        {
+            if (!zernio.IsConfigured) return NotConfigured(zernio);
+            var token = Cred(body, "access_token").Trim();
+            var waba = Cred(body, "waba_id").Trim();
+            var pnid = Cred(body, "phone_number_id").Trim();
+            var pin = Cred(body, "pin").Trim();
+            var missing = new[] { ("access_token", token), ("waba_id", waba), ("phone_number_id", pnid) }
+                .Where(x => x.Item2.Length == 0).Select(x => x.Item1).ToList();
+            if (missing.Count > 0)
+                return Results.Json(new { detail = $"{string.Join(", ", missing)} required." }, statusCode: 400);
+            if (pin.Length > 0 && (pin.Length != 6 || !pin.All(char.IsAsciiDigit)))
+                return Results.Json(new { detail = "pin must be 6 digits." }, statusCode: 400);
+            var (entityId, err) = await ActScope(db, sc, me, Str(body, "entity"));
+            if (err != null) return err;
+            var (profileId, perr) = await accounts.EnsureProfileAsync(entityId);
+            if (profileId.Length == 0) return Results.Json(new { detail = perr, code = "zernio_error" }, statusCode: 502);
+            accounts.SetIntent(profileId, "whatsapp", "inbox");
+            var r = await zernio.WhatsAppCredentialsAsync(profileId, token, waba, pnid, pin.Length > 0 ? pin : null);
+            if (!r.Ok)
+                return Results.Json(new
+                {
+                    detail = r.Error.Replace(token, "••••", StringComparison.Ordinal),
+                    code = "zernio_error",
+                    available_phone_numbers = r.At("availablePhoneNumbers").ValueKind == JsonValueKind.Array ? r.At("availablePhoneNumbers") : (JsonElement?)null,
+                }, statusCode: r.Status is 400 or 401 or 409 ? r.Status : 502);
+            var row = await MirrorConnectedAsync(db, accounts, entityId, r.At("account"), "whatsapp", profileId);
+            AuditTrail.Write(db, "social.connect", "whatsapp", "managed connection: own credentials", entityId: entityId);
+            return Results.Ok(new
+            {
+                ok = true,
+                connected = true,
+                status = "connected",
+                warning = r.Str("registrationWarning") is { Length: > 0 } w ? w : null,
+                account = row == null ? null : ConnectedRow(db, row),
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("social.manage", "channels.manage");
+
+        // SMS: turn SMS on for one of the profile's numbers → its SMS account becomes the inbox.
+        app.MapPost("/api/social/connect/sms", async (Dictionary<string, JsonElement>? body, AppDbContext db,
+            ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, SocialAccounts accounts) =>
+        {
+            if (!zernio.IsConfigured) return NotConfigured(zernio);
+            var numberId = Cred(body, "phone_number_id").Trim();
+            if (numberId.Length == 0) return Results.Json(new { detail = "phone_number_id is required." }, statusCode: 400);
+            var (entityId, err) = await ActScope(db, sc, me, Str(body, "entity"));
+            if (err != null) return err;
+            var (profileId, perr) = await accounts.EnsureProfileAsync(entityId);
+            if (profileId.Length == 0) return Results.Json(new { detail = perr, code = "zernio_error" }, statusCode: 502);
+            var r = await zernio.EnableSmsAsync(numberId);
+            if (!r.Ok)
+                return Results.Json(new { detail = r.Error, code = "zernio_error" }, statusCode: r.Status is 404 or 422 ? 400 : 502);
+            var registration = new
+            {
+                needs_registration = ZernioJson.Bool(r.Json, "needsRegistration"),
+                already_registered = ZernioJson.Bool(r.Json, "alreadyRegistered"),
+                registration_status = r.Str("registrationStatus") is { Length: > 0 } rs ? rs : null,
+                reusable = r.At("reusable").ValueKind == JsonValueKind.Object,
+            };
+            if (!ZernioJson.Bool(r.Json, "enabled") || r.Str("id").Length == 0)
+                return Results.Ok(new
+                {
+                    ok = false,
+                    connected = false,
+                    status = ZernioJson.Bool(r.Json, "notReady") ? "pending" : "unavailable",
+                    message = r.Str("message"), registration, account = (object?)null,
+                });
+            var acct = JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+            {
+                ["_id"] = r.Str("id"), ["platform"] = "sms", ["username"] = r.Str("phoneNumber"),
+                ["phoneNumber"] = r.Str("phoneNumber"), ["displayName"] = r.Str("phoneNumber"),
+                // a US number without an approved registration receives but cannot send yet: still an inbox
+                ["isActive"] = true,
+            });
+            var row = await MirrorConnectedAsync(db, accounts, entityId, acct, "sms", profileId);
+            AuditTrail.Write(db, "social.connect", "sms", $"managed connection: {r.Str("phoneNumber")}", entityId: entityId);
+            return Results.Ok(new
+            {
+                ok = true,
+                connected = true,
+                status = "connected",
+                can_send = ZernioJson.Bool(r.Json, "isActive"),
+                message = r.Str("message") is { Length: > 0 } m ? m : null,
+                registration,
+                account = row == null ? null : ConnectedRow(db, row),
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("social.manage", "channels.manage");
 
         app.MapDelete("/api/social/accounts/{id}", async (string id, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me, IZernioClient zernio) =>
@@ -303,13 +558,18 @@ public static class SocialEndpoints
             var r = await zernio.DeleteAccountAsync(row.ExternalId);
             if (!r.Ok && r.Status != 404)
                 return Results.Json(new { detail = r.Error, code = "zernio_error" }, statusCode: 502);
-            var label = $"social:{row.Name}";
-            // its conversations stay (back in sandbox), like any deleted inbox
-            await InboxSettings.DetachAccountAsync(db, row.Id);
-            db.SocialPages.RemoveRange(db.SocialPages.Where(p => p.AccountId == row.Id));
-            db.ChannelAccounts.Remove(row);
+            var label = $"{row.Channel}:{row.Name}";
+            // its conversations stay (back in sandbox), like any deleted inbox — its social row AND native inbox
+            foreach (var each in await db.ChannelAccounts.Where(a => a.Provider == Providers.Zernio
+                                                                    && a.ExternalId == row.ExternalId).ToListAsync())
+            {
+                await InboxSettings.DetachAccountAsync(db, each.Id);
+                db.SocialPages.RemoveRange(db.SocialPages.Where(p => p.AccountId == each.Id));
+                db.ZernioConversations.RemoveRange(db.ZernioConversations.Where(c => c.AccountId == each.Id));
+                db.ChannelAccounts.Remove(each);
+            }
             await db.SaveChangesAsync();
-            AuditTrail.Write(db, "account.delete", label, "disconnected in Zernio", entityId: row.EntityId);
+            AuditTrail.Write(db, "account.delete", label, "managed connection disconnected", entityId: row.EntityId);
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("social.manage");
 
@@ -336,12 +596,12 @@ public static class SocialEndpoints
             var from = row.EntityId;
             var (threads, posts, error, status) = await accounts.MoveAsync(row, target);
             if (status != 0)
-                return Results.Json(new { detail = error, code = status == 409 ? NotConfiguredCode : "zernio_error" },
+                return Results.Json(new { detail = status == 409 ? NotConfiguredDetail : error, code = status == 409 ? NotConfiguredCode : "zernio_error" },
                     statusCode: status);
             var names = await EntityNames(db, new[] { from, target });
             string Level(int? e) => e is int x && names.TryGetValue(x, out var n) ? n.Slug : "organization";
             AuditTrail.Write(db, "account.entity", $"social:{row.Name}",
-                $"moved {Level(from)} → {Level(target)} (Zernio profile {SocialChannels.Cfg(row, SocialChannels.ProfileIdKey)}; " +
+                $"moved {Level(from)} → {Level(target)} (connection profile {SocialChannels.Cfg(row, SocialChannels.ProfileIdKey)}; " +
                 $"{threads} conversation(s), {posts} post(s) re-scoped)", entityId: target);
             return Results.Ok(await FullRow(db, row));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("social.manage");
@@ -426,14 +686,51 @@ public static class SocialEndpoints
         return AccountRow(row, names, pages);
     }
 
-    /// <summary>A social account by its Zernio id, else by its ChannelAccount id.</summary>
-    private static async Task<ChannelAccount?> FindAccount(AppDbContext db, string id) =>
-        await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Channel == ChatBranch.Domain.Channels.Social
-                                                          && a.ExternalId == id)
-        ?? (int.TryParse(id, out var pk)
-            ? await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Id == pk
-                                                                && a.Channel == ChatBranch.Domain.Channels.Social)
-            : null);
+    /// <summary>
+    /// A Zernio account by its Zernio id (its social row, else its native inbox — WhatsApp / SMS
+    /// have only the latter), else by either row's ChannelAccount id (a native id resolves to
+    /// its social twin when there is one).
+    /// </summary>
+    private static async Task<ChannelAccount?> FindAccount(AppDbContext db, string id)
+    {
+        var rows = await db.ChannelAccounts.Where(a => a.Provider == Providers.Zernio && a.ExternalId == id).ToListAsync();
+        if (rows.Count == 0 && int.TryParse(id, out var pk)
+            && await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Id == pk && a.Provider == Providers.Zernio) is { } byPk)
+            rows = await db.ChannelAccounts.Where(a => a.Provider == Providers.Zernio && a.ExternalId == byPk.ExternalId)
+                .ToListAsync();
+        return rows.FirstOrDefault(a => a.Channel == ChatBranch.Domain.Channels.Social) ?? rows.FirstOrDefault();
+    }
+
+    /// <summary>Mirror an account a connect endpoint just made (Telegram / WhatsApp credentials / SMS) at once.</summary>
+    private static async Task<ChannelAccount?> MirrorConnectedAsync(AppDbContext db, SocialAccounts accounts, int? entityId,
+        JsonElement acct, string platform, string? profileId = null)
+    {
+        if (acct.ValueKind != JsonValueKind.Object) return null;
+        var d = JsonSerializer.Deserialize<Dictionary<string, object?>>(acct.GetRawText()) ?? new();
+        d.TryAdd("platform", platform);
+        if (!d.ContainsKey("_id") && d.TryGetValue("accountId", out var aid)) d["_id"] = aid;
+        var el = JsonSerializer.SerializeToElement(d);
+        profileId ??= (await accounts.EnsureProfileAsync(entityId, create: false)).ProfileId;
+        accounts.Upsert(el, entityId, profileId ?? "", intent: "inbox");
+        return accounts.FindNative(ZernioJson.Str(el, "_id")) ?? accounts.FindAny(ZernioJson.Str(el, "_id"));
+    }
+
+    /// <summary>A just-connected inbox as the Connected list shows it (the /api/messaging/accounts row shape).</summary>
+    private static Dictionary<string, object?> ConnectedRow(AppDbContext db, ChannelAccount row)
+    {
+        var entity = row.EntityId is int e ? db.Entities.AsNoTracking().FirstOrDefault(x => x.Id == e) : null;
+        var outv = new Dictionary<string, object?>
+        {
+            ["id"] = row.Id.ToString(),
+            ["channel"] = row.Channel,
+            ["name"] = row.Name,
+            ["entity"] = entity?.Slug,
+            ["entity_name"] = entity?.Name ?? "",
+            ["configured"] = ZernioNative.Is(row) ? ZernioNative.Configured(row) : SocialChannels.Configured(row),
+        };
+        foreach (var (k, v) in ZernioNative.Payload(row)) outv[k] = v;
+        return outv;
+    }
 
     private static async Task<Dictionary<int, (string Name, string Slug)>> EntityNames(AppDbContext db,
         IEnumerable<int?> ids)
@@ -471,6 +768,8 @@ public static class SocialEndpoints
             ["can_comments"] = comments,
             ["can_dm"] = dm,
             ["can_reviews"] = reviews,
+            ["method"] = ZernioNative.Method,
+            ["method_label"] = ZernioNative.MethodLabel,
             // facebook: the Pages it publishes to (each a target "<id>:<page id>"), each with its outlet
             ["pages"] = platform == "facebook"
                 ? (pages ?? Enumerable.Empty<SocialPage>()).OrderByDescending(p => p.IsSelected).ThenBy(p => p.Name)
@@ -499,8 +798,21 @@ public static class SocialEndpoints
     }
 
     /// <summary>The social part of an inbox account payload (GET /api/messaging/accounts).</summary>
+    /// <summary>The managed-connection part of a NATIVE inbox payload (GET /api/messaging/accounts, /api/whatsapp/accounts).</summary>
+    public static void AddNativePayload(Dictionary<string, object?> outv, ChannelAccount a)
+    {
+        foreach (var (k, v) in ZernioNative.Payload(a)) outv[k] = v;
+        outv["configured"] = ZernioNative.Configured(a);
+        outv["webhook_path"] = "";
+        outv["access_token_masked"] = "";
+    }
+
     public static void AddAccountPayload(Dictionary<string, object?> outv, ChannelAccount a)
     {
+        outv["provider"] = Providers.Zernio;
+        outv["method"] = ZernioNative.Method;
+        outv["method_label"] = ZernioNative.MethodLabel;
+        outv["health_status"] = a.HealthStatus;
         outv["platform"] = SocialChannels.Platform(a);
         outv["username"] = SocialChannels.Cfg(a, SocialChannels.UsernameKey);
         outv["zernio_account_id"] = a.ExternalId;
@@ -512,6 +824,8 @@ public static class SocialEndpoints
     private static string PlatformAlias(string? raw) => (raw ?? "").Trim().ToLowerInvariant() switch
     {
         "x" => "twitter",
+        "messenger" or "facebook_messenger" => "facebook",
+        "ig" => "instagram",
         "google_business" or "google-business" or "gmb" or "google" => "googlebusiness",
         var p => p,
     };
@@ -969,55 +1283,8 @@ public static class SocialEndpoints
         BoolOf(body, "publish_now", false) || post.ScheduledAt == null || post.ScheduledAt <= DateTime.UtcNow;
 
     /// <summary>Create (or update) the Zernio post and apply its answer.</summary>
-    private static async Task PushAsync(AppDbContext db, IZernioClient zernio, SocialPost post, bool publishNow)
-    {
-        var targets = post.AccountIds.Select(SocialChannels.ParseTarget).ToList();
-        var acctIds = targets.Select(t => t.AccountId).Distinct().ToList();
-        var accounts = db.ChannelAccounts.AsNoTracking()
-            .Where(a => a.Channel == ChatBranch.Domain.Channels.Social && acctIds.Contains(a.ExternalId)).ToList();
-        var body = new Dictionary<string, object?>
-        {
-            ["content"] = post.Content,
-            ["mediaItems"] = post.Media.Select(m => new Dictionary<string, object?>
-            {
-                ["url"] = m.GetValueOrDefault("url")?.ToString(), ["type"] = m.GetValueOrDefault("type")?.ToString(),
-            }).ToList(),
-            // one entry per target; a Facebook Page repeats its account with platformSpecificData.pageId
-            ["platforms"] = targets.Select(t =>
-            {
-                var entry = new Dictionary<string, object?>
-                {
-                    ["platform"] = SocialChannels.Platform(accounts.First(a => a.ExternalId == t.AccountId)),
-                    ["accountId"] = t.AccountId,
-                };
-                if (t.PageId.Length > 0)
-                    entry["platformSpecificData"] = new Dictionary<string, object?> { ["pageId"] = t.PageId };
-                return entry;
-            }).ToList(),
-            ["metadata"] = new Dictionary<string, object?> { [SocialPosts.MetadataKey] = post.Id.ToString() },
-        };
-        if (post.Status == SocialPosts.Draft) body["isDraft"] = true;
-        else if (publishNow) body["publishNow"] = true;
-        else
-        {
-            body["scheduledFor"] = DateTime.SpecifyKind(post.ScheduledAt!.Value, DateTimeKind.Utc)
-                .ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
-            if (post.ZernioPostId.Length > 0) body["isDraft"] = false;
-        }
-        if (post.Timezone.Length > 0) body["timezone"] = post.Timezone;
-
-        var r = post.ZernioPostId.Length > 0
-            ? await zernio.UpdatePostAsync(post.ZernioPostId, body)
-            : await zernio.CreatePostAsync(body);
-        if (r.At("post").ValueKind == JsonValueKind.Object) SocialPosts.Apply(post, r.At("post"));
-        if (!r.Ok)
-        {
-            post.Status = SocialPosts.Failed;
-            post.Error = r.Error.Length > 500 ? r.Error[..500] : r.Error;
-        }
-        post.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync();
-    }
+    private static Task PushAsync(AppDbContext db, IZernioClient zernio, SocialPost post, bool publishNow) =>
+        SocialPosts.PushAsync(db, zernio, post, publishNow);
 
     // ---- scope ---------------------------------------------------------------------
 
@@ -1085,6 +1352,15 @@ public static class SocialEndpoints
     }
 
     // ---- small readers --------------------------------------------------------------
+
+    /// <summary>A connect field: <c>credentials.{key}</c> (the stepper's shape), else the top-level key.</summary>
+    private static string Cred(Dictionary<string, JsonElement>? body, string key)
+    {
+        if (body != null && body.TryGetValue("credentials", out var c) && c.ValueKind == JsonValueKind.Object
+            && c.TryGetProperty(key, out var v))
+            return (v.ValueKind == JsonValueKind.String ? v.GetString() : v.ValueKind == JsonValueKind.Number ? v.ToString() : "") ?? "";
+        return Str(body, key) ?? "";
+    }
 
     private static string? Str(Dictionary<string, JsonElement>? body, string key) =>
         body != null && body.TryGetValue(key, out var v)

@@ -264,9 +264,13 @@ public sealed class TelegramChannel
     private readonly ScopingService _scoping;
     private readonly ThreadStore _threads;
     private readonly ITelegramClient _client;
+    /// <summary>A Telegram inbox connected through Zernio (managed connection); null = not wired.</summary>
+    private readonly ChatBranch.Data.Social.ZernioNativeTransport? _zernio;
 
-    public TelegramChannel(AppDbContext db, ScopingService scoping, ThreadStore threads, ITelegramClient client)
+    public TelegramChannel(AppDbContext db, ScopingService scoping, ThreadStore threads, ITelegramClient client,
+        ChatBranch.Data.Social.ZernioNativeTransport? zernio = null)
     {
+        _zernio = zernio;
         _db = db;
         _scoping = scoping;
         _threads = threads;
@@ -288,7 +292,8 @@ public sealed class TelegramChannel
         {
             var r = new Routing(_db, _scoping).ForThread(thread, RouteNeed.Any, accountId ?? thread.AccountId, apply);
             var bot = r.Account ?? r.DownAccount;
-            return bot != null && TelegramBot.Configured(bot) ? _db.ChannelAccounts.Find(bot.Id) : null;
+            return bot != null && (TelegramBot.Configured(bot) || _zernio?.Live(bot) == true)
+                ? _db.ChannelAccounts.Find(bot.Id) : null;
         }
         catch { return null; }
     }
@@ -320,6 +325,9 @@ public sealed class TelegramChannel
             _scoping.SyncThreadEntity(thread, save: false);
             _db.SaveChanges();
         }
+
+        if (ChatBranch.Data.Social.ZernioNative.Is(bot) && _zernio != null)
+            return WithMedia(ZernioSend(thread, bot, text, source, media, replyToExternalId), media);
 
         TelegramResult result;
         if (media != null && File.Exists(media.AbsolutePath)
@@ -381,12 +389,58 @@ public sealed class TelegramChannel
         if (bot == null) return (false, true, "sandbox");
         if (!long.TryParse(messageId, out var mid) || mid <= 0)
             return (true, false, "That message has no Telegram id, so it can't carry a reaction.");
+        if (ChatBranch.Data.Social.ZernioNative.Is(bot) && _zernio != null)
+        {
+            var z = _zernio.ReactAsync(bot, thread.Key, messageId, emoji).GetAwaiter().GetResult();
+            return (true, z.Ok, z.Ok ? "sent" : z.Detail);
+        }
         var reaction = string.IsNullOrEmpty(emoji)
             ? Array.Empty<object>()
             : new object[] { new { type = "emoji", emoji } };
         var r = _client.CallAsync(bot.AccessToken, "setMessageReaction",
             new { chat_id = thread.Key, message_id = mid, reaction }).GetAwaiter().GetResult();
         return (true, r.Ok, r.Ok ? "sent" : r.Description);
+    }
+
+    /// <summary>A Telegram inbox carried by a managed connection (Zernio): its conversation endpoint.</summary>
+    private Message ZernioSend(Thread thread, ChannelAccount bot, string text, string source, OutboundMedia? media,
+        string? replyTo)
+    {
+        TransportResult result;
+        if (media != null)
+        {
+            var caption = text.StartsWith('[') && text.EndsWith(']') ? null : text;
+            result = _zernio!.SendMediaAsync(bot, new SendTarget(thread.Key, null, null, thread.Id), media, caption)
+                .GetAwaiter().GetResult();
+        }
+        else
+        {
+            result = TransportResult.Fail(TransportFailure.Unsupported, "empty message");
+            var first = true;
+            foreach (var chunk in Chunks(text))
+            {
+                result = _zernio!.SendAsync(bot, thread.Key, chunk, replyTo: first ? replyTo : null)
+                    .GetAwaiter().GetResult().ToTransport();
+                first = false;
+                if (!result.Ok) break;
+            }
+        }
+        Message msg;
+        if (result.Ok)
+        {
+            msg = _threads.AppendMessage(thread, MessageDirection.Out, source, text,
+                status: "sent", externalId: result.ExternalId, accountId: bot.Id);
+            HealthRecorder.Ok(_db, bot);
+        }
+        else
+        {
+            msg = _threads.AppendMessage(thread, MessageDirection.Out, MessageSource.System,
+                $"[send failed: {result.Detail}] {text}", status: "failed", accountId: bot.Id);
+            msg.Error = result.Detail.Length > 300 ? result.Detail[..300] : result.Detail;
+            MoreChannelSender.Record(_db, bot, result);
+        }
+        _db.SaveChanges();
+        return msg;
     }
 
     /// <summary>The Bot API message_id — one sequence per chat across both directions,

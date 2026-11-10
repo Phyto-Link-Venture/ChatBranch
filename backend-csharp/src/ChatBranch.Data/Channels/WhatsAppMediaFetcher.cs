@@ -79,6 +79,20 @@ public sealed class MediaFetcher
                 kind is "image" or "video" or "audio" or "document" ? kind : null, ct);
         });
 
+    /// <summary>
+    /// A native-channel attachment that arrived through Zernio: WhatsApp's url is Zernio's
+    /// authenticated media endpoint (the key rides only to Zernio's host), the others a
+    /// platform CDN link → stored and attached to message <paramref name="messageId"/>.
+    /// </summary>
+    public void FetchZernio(int messageId, string url, string type) =>
+        Enqueue(async (sp, ct) =>
+        {
+            var zernio = sp.GetRequiredService<ChatBranch.Data.Social.IZernioClient>();
+            var (bytes, mime, _) = await zernio.DownloadAsync(url, MediaStore.MaxBytes, ct);
+            if (bytes == null) return;
+            await AttachAsync(sp, messageId, bytes, mime, "", type is "image" or "video" or "audio" or "document" ? type : null, ct);
+        });
+
     /// <summary>A new Messenger / Instagram conversation is keyed by an opaque id —
     /// learn the person's display name once.</summary>
     public void FetchProfileName(int threadId, int accountId) =>

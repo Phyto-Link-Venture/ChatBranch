@@ -416,7 +416,7 @@ export const ai = {
   aiCalendar: {
     title: 'Let the AI book appointments',
     summary: 'Add a calendar skill so the AI can offer free times, book, and cancel appointments — in ChatBranch’s own calendar or on Google Calendar.',
-    before: 'You need an admin login. For ChatBranch’s own calendar you need nothing else. For Google Calendar, connect it first in Channels → Integrations (shared), or each agent connects their own in Settings → My connections.',
+    before: 'You need an admin login. For ChatBranch’s own calendar you need nothing else. For Google Calendar, connect it first in Admin → Apps (shared), or each agent connects their own in Settings → My connections.',
     steps: {
       s1: {
         title: 'Open AI skills',
@@ -468,15 +468,15 @@ export const ai = {
       t1: 'Test it in the AI playground first — calendar tools only preview there, nothing is booked.',
       t2: 'If replies are held for review, the booking is only made when someone approves the reply.',
       t3: 'You can cancel a booking from the Bookings page — the customer is not messaged automatically, so tell them in the chat.',
-      t4: 'For online appointments, set “Video meeting” to Zoom (connect Zoom in Channels → Integrations first), Google Meet (Google Calendar only) or “My own meeting link”. The link is sent to the customer in its own message right after the AI confirms the booking.',
+      t4: 'For online appointments, set “Video meeting” to Zoom (connect Zoom in Admin → Apps first), Google Meet (Google Calendar only) or “My own meeting link”. The link is sent to the customer in its own message right after the AI confirms the booking.',
     },
-    trouble: 'Google shows “Not connected”: connect it in Integrations — until then the AI says the calendar is unavailable and offers a teammate; it never books into ChatBranch instead. “No free times”: widen the working hours, shorten the minimum notice or allow more days ahead. A booking failed when the reply was sent: the reply is held and the chat is handed to a person.',
+    trouble: 'Google shows “Not connected”: connect it in Apps — until then the AI says the calendar is unavailable and offers a teammate; it never books into ChatBranch instead. “No free times”: widen the working hours, shorten the minimum notice or allow more days ahead. A booking failed when the reply was sent: the reply is held and the chat is handed to a person.',
   },
 
   aiReadySkills: {
     title: 'Add a ready-made skill (PDF invoices, QR codes, payment links, Sheets)',
     summary: 'Switch on real capabilities without code: the AI creates PDF invoices, quotations, receipts and letters, QR codes, Stripe payment links, or logs rows to a Google Sheet.',
-    before: 'You need an admin login. Payment links need Stripe connected at Channels → Integrations; the Sheets log needs Google Sheets connected there. Documents and QR codes need nothing else.',
+    before: 'You need an admin login. Payment links need Stripe connected at Admin → Apps; the Sheets log needs Google Sheets connected there. Documents and QR codes need nothing else.',
     steps: {
       s1: {
         title: 'Open AI skills',
@@ -523,7 +523,7 @@ export const ai = {
       t4: 'Chinese characters print only when the server has a Chinese font installed (DOCUMENT_CJK_FONT); otherwise the AI writes the document in English or Malay.',
       t5: 'Need it to look exactly like the invoice you already use? In “Design template”, switch to “Custom layout (HTML)”: start from “Malaysian classic” or click “Upload my design”, add the extra fields your layout prints (for example PRO or Attn tel — the AI asks the customer for them), and check “PDF preview”. A teammate can also make one from a chat: the info panel’s “Documents” → “New document”.',
     },
-    trouble: 'The AI says it can’t create the document: check the skill is switched on and allows that type, and that the items have prices. Payment links say Stripe is not connected: connect it at Integrations. No file arrived on WhatsApp: the chat shows a download link instead and the note says why the file was refused.',
+    trouble: 'The AI says it can’t create the document: check the skill is switched on and allows that type, and that the items have prices. Payment links say Stripe is not connected: connect it at Apps. No file arrived on WhatsApp: the chat shows a download link instead and the note says why the file was refused.',
   },
 
   aiHumanLike: {

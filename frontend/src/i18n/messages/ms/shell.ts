@@ -24,7 +24,7 @@ export const shell: Dict<typeof source> = {
     tags: 'Tag',
     media: 'Perpustakaan media',
     channels: 'Saluran',
-    integrations: 'Integrasi',
+    integrations: 'Aplikasi',
     users: 'Pengguna & peranan',
     teams: 'Pasukan',
     entities: 'Entiti',

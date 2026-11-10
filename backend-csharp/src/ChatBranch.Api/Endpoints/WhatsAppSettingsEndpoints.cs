@@ -594,6 +594,11 @@ public static class WhatsAppSettingsEndpoints
         {
             var body = await ReadBody(ctx);
             var provider = (AsString(body, "provider") ?? "").Trim().ToLowerInvariant();
+            if (provider == Providers.Zernio)
+                return Results.Json(new
+                {
+                    detail = "A managed WhatsApp connection is made with POST /api/social/connect {platform: \"whatsapp\", purpose: \"inbox\"}.",
+                }, statusCode: 400);
             if (!WhatsAppProviders.Known(provider)) provider = Providers.Cloud;
             var name = (AsString(body, "name") ?? "").Trim();
             var pnid = (AsString(body, "phone_number_id") ?? "").Trim();
@@ -686,6 +691,12 @@ public static class WhatsAppSettingsEndpoints
             var body = await ReadBody(ctx);
             if (RoleError(body) is IResult roleErr) return roleErr;
             if (ShellScope.CompanyLevelError(db, sc, me, row.EntityId) is { } outside) return outside;
+            // a managed connection: its credentials (and its outlet — its profile) are not edited here
+            if (ChatBranch.Data.Social.ZernioNative.Is(row)
+                && new[] { "phone_number_id", "waba_id", "access_token", "app_secret", "api_version", "provider", "entity",
+                           "phone_number" }.Any(k => TryString(body, k, out var v) && !v.Contains("••")
+                                                     && v.Trim() != (k == "provider" ? Providers.Zernio : "")))
+                return Results.Json(new { detail = ChatBranch.Data.Social.ZernioNative.NotEditable }, statusCode: 400);
 
             var oldRole = AccountRole(row);
             var credsChanged = false;
@@ -700,7 +711,11 @@ public static class WhatsAppSettingsEndpoints
                 write(value);
             }
 
-            Patch("name", () => row.Name, v => row.Name = v);
+            Patch("name", () => row.Name, v =>
+            {
+                if (ChatBranch.Data.Social.ZernioNative.Is(row)) ChatBranch.Data.Social.ZernioNative.Rename(row, v);
+                else row.Name = v;
+            });
             Patch("phone_number_id", () => row.ExternalId, v => row.ExternalId = v);
             Patch("waba_id", () => row.WabaId, v => row.WabaId = v);
             Patch("access_token", () => row.AccessToken, v => row.AccessToken = v);
@@ -709,7 +724,9 @@ public static class WhatsAppSettingsEndpoints
             Patch("owner", () => row.Owner, v => row.Owner = v);
             Patch("provider", () => row.Provider, v =>
             {
-                if (WhatsAppProviders.Known(v)) row.Provider = v.ToLowerInvariant();
+                // nobody turns a number INTO (or out of) a managed connection by editing it
+                if (WhatsAppProviders.Known(v) && v.ToLowerInvariant() != Providers.Zernio
+                    && row.Provider != Providers.Zernio) row.Provider = v.ToLowerInvariant();
             });
             if (WhatsAppProviders.IsBsp(row))
             {
@@ -822,6 +839,12 @@ public static class WhatsAppSettingsEndpoints
                                                  statusCode: 400);
             if (ShellScope.CompanyLevelError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me, row.EntityId) is { } outside)
                 return outside;
+            if (ChatBranch.Data.Social.ZernioNative.Is(row))
+                return Results.Json(new
+                {
+                    detail = "This number is a managed connection: disconnect it with DELETE /api/social/accounts/{id}.",
+                    zernio_account_id = row.ExternalId,
+                }, statusCode: 409);
             // Chats stay: the threads (and their message history) go back to
             // sandbox rather than vanishing with the number. Detaching first is
             // also what keeps the optional FKs from blocking the delete.
@@ -1913,6 +1936,16 @@ public static class WhatsAppSettingsEndpoints
         // QR numbers: how much of the number's own chat history to import when it links
         import_history_days = BaileysSettings.ImportHistoryDays(a),
         import_history_supported = WhatsAppProviders.Of(a) == Providers.Baileys,
+        // the connection method a Connected card shows: cloud | qr | ycloud | twilio | managed
+        method = WhatsAppProviders.Of(a) switch
+        {
+            Providers.Baileys => "qr",
+            Providers.Zernio => ChatBranch.Data.Social.ZernioNative.Method,
+            var p => p,
+        },
+        method_label = WhatsAppProviders.Of(a) == Providers.Zernio ? ChatBranch.Data.Social.ZernioNative.MethodLabel : null,
+        // a managed connection (Zernio): its number, status and the twin ids — null otherwise
+        managed = ChatBranch.Data.Social.ZernioNative.Is(a) ? ChatBranch.Data.Social.ZernioNative.Payload(a) : null,
     };
 
     /// <summary>The provider-specific, non-secret settings of a YCloud / Twilio account (secrets masked).</summary>

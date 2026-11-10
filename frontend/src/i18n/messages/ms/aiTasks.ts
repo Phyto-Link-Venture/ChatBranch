@@ -86,12 +86,14 @@ export const aiTasks: Dict<typeof source> = {
     toolsHint: 'Tiada apa-apa di luar senarai ini akan ditawarkan kepada AI. Tiada alat yang menghantar mesej kepada pelanggan.',
     groups: {
       chatbranch: 'Dalam ChatBranch',
-      apps: 'Aplikasi bersambung',
+      apps: 'Aplikasi',
       webhook: 'Sistem anda sendiri',
       mcp: 'Pelayan MCP luaran',
     },
     notConnected: 'Tidak bersambung',
-    connectHint: 'Sambungkannya di halaman Integrasi dahulu.',
+    connectHint: 'Sambungkannya di halaman Aplikasi dahulu.',
+    socialMedia: 'Media sosial',
+    connectSocialHint: 'Sambungkan akaun media sosial di halaman Saluran dahulu.',
     readOnlyTool: 'baca sahaja',
     noMcp: 'Tiada pelayan MCP luaran yang sedia. Tambah dan uji satu di Pembangun → Pelayan MCP untuk menawarkan alatnya di sini.',
     settings: {

@@ -522,7 +522,7 @@ export const guide: Overlay<Messages['guide']> = {
           body: 'Every WhatsApp number, mailbox, bot, page and website chat your team answers from — all of them stay on this page.',
         },
         s2: {
-          body: 'Click Add inbox to connect a new one. A step-by-step panel walks you through it, no need to panic: choose the app → connect it → choose who answers → test.',
+          body: 'Click Add inbox to connect a new one. A step-by-step panel walks you through it, no need to panic: pick the channel → pick how to connect it → set it up.',
         },
         s3: {
           body: 'Each card is one inbox, with a coloured dot for its health — green means OK, amber or red means got something to look at.',
@@ -534,7 +534,7 @@ export const guide: Overlay<Messages['guide']> = {
           body: 'Settings changes the inbox and who answers it (team, AI on or off, unknown customers). Test checks the connection on the spot. Pair shows the QR code for a personal WhatsApp number.',
         },
         s6: {
-          body: 'Every app you can connect, grouped by type. Click one to start. TikTok and Douyin need the platform’s approval first ah.',
+          body: 'One tile per channel, grouped by type. Click one to start. TikTok and Douyin need the platform’s approval first ah.',
         },
         s7: {
           body: 'The Meta webhook address and the default mail settings. You seldom need this one — maybe your developer will ask for it once.',
@@ -542,7 +542,7 @@ export const guide: Overlay<Messages['guide']> = {
       },
     },
     integrations: {
-      intro: 'Connect Google, Shopify, Stripe and your other apps.',
+      intro: 'Your business tools — Google, Shopify, Stripe, MCP servers and all that. Customer-facing accounts stay on Channels.',
       steps: {
         s1: {
           body: 'Connections the whole organization, or one entity, shares — like a company Google Calendar the AI books appointments into.',

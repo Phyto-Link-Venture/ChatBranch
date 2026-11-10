@@ -9,6 +9,7 @@ using ChatBranch.Data.Channels;
 using ChatBranch.Data.Documents;
 using ChatBranch.Data.Flows;
 using ChatBranch.Data.Integrations;
+using ChatBranch.Data.Social;
 using ChatBranch.Data.Stores;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -61,6 +62,8 @@ internal sealed class AiTaskRig : IDisposable
     public MediaStore Media { get; }
     public InboundProcessor Inbound { get; }
     public AiTaskService Tasks { get; }
+    /// <summary>The managed social connection the social tools reach (never the real one).</summary>
+    public FakeZernioClient Zernio { get; } = new();
     private readonly string _dir;
 
     public AiTaskRig()
@@ -80,7 +83,7 @@ internal sealed class AiTaskRig : IDisposable
         Inbound = new InboundProcessor(Db, Threads, assistant, sender, new FlowEngine(Db, Sc, queue), queue, Sc,
             new AutomationService(Db, Sc), responder);
         var actions = new IntegrationActions(Db, new IntegrationResolver(Db, Sc), new GoogleOAuth(Db, Sc, Http), Http);
-        Tasks = new AiTaskService(Db, Sc, Llm, actions, Http, Media);
+        Tasks = new AiTaskService(Db, Sc, Llm, actions, Http, Media, Zernio);
     }
 
     public Entity Entity(string slug, int? parent = null)
@@ -627,5 +630,134 @@ public class AiTaskApiTests : IClassFixture<PlaygroundFactory>
         var runs = await admin.GetFromJsonAsync<JsonElement>($"/api/ai/tasks/{id}/runs");
         Assert.Equal(1, runs.GetProperty("runs").GetArrayLength());
         await admin.DeleteAsync($"/api/ai/tasks/{id}");
+    }
+}
+
+/// <summary>The "Social media" connected app of background AI tasks (a managed connection — Zernio behind it).</summary>
+public class AiTaskSocialTests
+{
+    private static ChannelAccount Social(AiTaskRig rig, string platform, int? entityId) => rig.Add(new ChannelAccount
+    {
+        Channel = Channels.Social, Provider = Providers.Zernio, ExternalId = $"z-{platform}-{Guid.NewGuid():N}"[..20],
+        Name = $"@kedai ({platform})", EntityId = entityId, CreatedAt = DateTime.UtcNow,
+        Config = new Dictionary<string, object?> { ["platform"] = platform, ["username"] = "kedai", ["zernio_status"] = "connected" },
+    });
+
+    [Fact]
+    public void A_task_lists_only_its_outlets_accounts_and_saves_a_draft_without_publishing()
+    {
+        using var rig = new AiTaskRig();
+        var a = rig.Entity("outlet-a");
+        var b = rig.Entity("outlet-b");
+        var org = Social(rig, "instagram", null);
+        var mine = Social(rig, "facebook", a.Id);
+        var sibling = Social(rig, "tiktok", b.Id);
+        var bot = rig.Account(a.Id, "bot-a");
+        rig.Task(name: "Promo drafts", tools: new[] { AiTaskTools.SocialAccounts, AiTaskTools.SocialDraft });
+        rig.Llm.Script = (msgs, _) =>
+        {
+            var done = msgs.Count(m => m.Role == "tool");
+            return done switch
+            {
+                0 => ToolScriptLlm.Calls((AiTaskTools.SocialAccounts, "{}")),
+                1 => ToolScriptLlm.Calls((AiTaskTools.SocialDraft,
+                    $"{{\"content\":\"New menu this Friday!\",\"account_ids\":[\"{org.ExternalId}\",\"{mine.ExternalId}\"]}}")),
+                _ => ToolScriptLlm.Says("{\"relevant\":true,\"summary\":\"drafted a promo post\"}"),
+            };
+        };
+        rig.Inbound_("we have a new menu", bot);
+        Assert.Equal(1, rig.RunDue());
+
+        var run = rig.Db.AiTaskRuns.AsNoTracking().Single();
+        Assert.Equal(AiTaskRunStatus.Ok, run.Status);
+        Assert.Contains(org.ExternalId, run.Steps);
+        Assert.Contains(mine.ExternalId, run.Steps);
+        Assert.DoesNotContain(sibling.ExternalId, run.Steps);   // a sibling outlet's account is invisible
+        var post = rig.Db.SocialPosts.AsNoTracking().Single();
+        Assert.Equal(SocialPosts.Draft, post.Status);
+        Assert.Equal(a.Id, post.EntityId);
+        Assert.Equal("", post.ZernioPostId);                    // a local draft: nothing reached the platform
+        Assert.Empty(rig.Zernio.Of("CreatePost"));
+        Assert.Equal($"ai_task:{rig.Db.AiTasks.Single().Id}", post.CreatedBy);
+    }
+
+    [Fact]
+    public void Scheduling_needs_the_operators_opt_in_and_a_sibling_outlets_account_is_refused()
+    {
+        using var rig = new AiTaskRig();
+        var a = rig.Entity("outlet-a");
+        var b = rig.Entity("outlet-b");
+        var mine = Social(rig, "instagram", a.Id);
+        var sibling = Social(rig, "instagram", b.Id);
+        var bot = rig.Account(a.Id, "bot-a");
+        var task = rig.Task(name: "Auto post", tools: new[] { AiTaskTools.SocialSchedule });
+        var target = mine.ExternalId;
+        rig.Llm.Script = (msgs, _) => msgs.Any(m => m.Role == "tool")
+            ? ToolScriptLlm.Says("{\"relevant\":true,\"summary\":\"tried\"}")
+            : ToolScriptLlm.Calls((AiTaskTools.SocialSchedule,
+                $"{{\"content\":\"Open late tonight\",\"account_ids\":[\"{target}\"],\"scheduled_at\":\"{DateTime.UtcNow.AddDays(1):yyyy-MM-ddTHH:mm:ssZ}\"}}"));
+
+        // not opted in: refused, nothing created, nothing sent
+        rig.Inbound_("we open late", bot, key: "c1");
+        rig.RunDue();
+        Assert.Empty(rig.Zernio.Of("CreatePost"));
+        Assert.Empty(rig.Db.SocialPosts.AsNoTracking());
+        Assert.Contains("not allowed to publish", rig.Db.AiTaskRuns.AsNoTracking().Single().Steps);
+
+        // opted in: scheduled through the managed connection
+        task.Config[AiTaskTools.AllowPublish] = "true";
+        rig.Db.Entry(task).Property(t => t.Config).IsModified = true;
+        rig.Db.SaveChanges();
+        rig.Inbound_("we open late again", bot, key: "c2");
+        rig.RunDue();
+        var created = Assert.Single(rig.Zernio.Of("CreatePost"));
+        Assert.True(created.ContainsKey("scheduledFor"));
+        Assert.Equal(SocialPosts.Scheduled, rig.Db.SocialPosts.AsNoTracking().Single().Status);
+
+        // a sibling outlet's account: refused before anything happens
+        target = sibling.ExternalId;
+        rig.Inbound_("and again", bot, key: "c3");
+        rig.RunDue();
+        Assert.Single(rig.Zernio.Of("CreatePost"));
+        Assert.Contains("not one of this outlet", rig.Db.AiTaskRuns.AsNoTracking().OrderByDescending(r => r.Id).First().Steps);
+
+        // the dry run (no conversation: the task's own level — the organization's accounts) previews it and calls nothing
+        target = Social(rig, "facebook", null).ExternalId;
+        var before = rig.Zernio.Calls.Count;
+        var o = System.Threading.Tasks.Task.Run(() => rig.Tasks.TestAsync(task, "test", null, null)).GetAwaiter().GetResult();
+        Assert.Contains(o.Steps, st => st.Preview);
+        Assert.Equal(before, rig.Zernio.Calls.Count);
+    }
+
+    [Fact]
+    public void Comment_tools_work_on_a_social_comment_only_and_reply_needs_its_opt_in()
+    {
+        using var rig = new AiTaskRig();
+        var acct = Social(rig, "instagram", null);
+        var task = rig.Task(name: "Spam guard", channels: new[] { Channels.Social },
+            tools: new[] { AiTaskTools.SocialHide, AiTaskTools.SocialReply });
+        rig.Llm.Script = (msgs, _) => msgs.Any(m => m.Role == "tool")
+            ? ToolScriptLlm.Says("{\"relevant\":true,\"summary\":\"hid spam\"}")
+            : ToolScriptLlm.Calls((AiTaskTools.SocialHide, "{\"hidden\":true}"), (AiTaskTools.SocialReply, "{\"text\":\"Thanks!\"}"));
+        var key = $"comment:{acct.ExternalId}:c-1";
+        var thread = rig.Threads.GetOrCreateThread(Channels.Social, key, "Spammer", acct.Id);
+        rig.Add(new SocialThread
+        {
+            ThreadId = thread.Id, Kind = SocialChannels.Comment, Platform = "instagram", ZernioAccountId = acct.ExternalId,
+            PostId = "ig-post-1", RootCommentId = "c-1", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        });
+        rig.Inbound.ProcessInbound(Channels.Social, key, "cheap followers here!!", "Spammer", acct.Id, "c-1");
+        Assert.Equal(1, rig.RunDue());
+
+        var hide = Assert.Single(rig.Zernio.Of("HideComment"));
+        Assert.Equal("c-1", hide["commentId"]);
+        Assert.True(rig.Db.SocialThreads.AsNoTracking().Single(s => s.ThreadId == thread.Id).Hidden);
+        Assert.Empty(rig.Zernio.Of("ReplyToComment"));          // no opt-in to reply in public
+        Assert.Contains("not allowed to reply", rig.Db.AiTaskRuns.AsNoTracking().Single().Steps);
+
+        // an all-channel task without comment tools never reads public comments
+        rig.Task(name: "Invoices", tools: new[] { AiTaskTools.Note });
+        rig.Inbound.ProcessInbound(Channels.Social, key, "another", "Spammer", acct.Id, "c-2");
+        Assert.False(rig.Db.AiTaskRuns.Any(r => r.TaskId != task.Id));
     }
 }

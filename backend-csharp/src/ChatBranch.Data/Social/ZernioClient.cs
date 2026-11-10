@@ -128,6 +128,46 @@ public interface IZernioClient
     Task<ZernioReply> SendMessageAsync(string accountId, string conversationId, string message,
         CancellationToken ct = default);
 
+    // ---- native channels via Zernio (WhatsApp, Messenger, Instagram, Telegram, SMS) ----
+    /// <summary>
+    /// POST /v1/inbox/conversations/{conversationId}/messages with a full body (sendInboxMessage):
+    /// <c>message</c>, <c>attachmentUrl</c> + <c>attachmentType</c> (image | video | audio | file),
+    /// <c>attachmentName</c>, <c>replyTo</c>, <c>template</c> ({elements:[{name, language, components}]}
+    /// on WhatsApp), <c>messagingType</c> + <c>messageTag</c> (Messenger / Instagram HUMAN_AGENT).
+    /// <paramref name="accountId"/> is added. → {success, data:{messageId, conversationId}}.
+    /// </summary>
+    Task<ZernioReply> SendInboxMessageAsync(string accountId, string conversationId, Dictionary<string, object?> body,
+        CancellationToken ct = default);
+    /// <summary>POST /v1/inbox/conversations (createInboxConversation) {accountId, participantId, message?,
+    /// templateName?, templateLanguage?, templateParams?} → 201 {data:{messageId, conversationId}}.</summary>
+    Task<ZernioReply> CreateConversationAsync(Dictionary<string, object?> body, CancellationToken ct = default);
+    /// <summary>POST /v1/sms/messages {from, to, text, mediaUrls?} → {id, conversationId, status}.</summary>
+    Task<ZernioReply> SendSmsAsync(string from, string to, string text, IReadOnlyList<string>? mediaUrls = null,
+        CancellationToken ct = default);
+    /// <summary>POST (emoji) / DELETE ("" = remove ours) /v1/inbox/conversations/{c}/messages/{m}/reactions.</summary>
+    Task<ZernioReply> ReactAsync(string accountId, string conversationId, string messageId, string emoji,
+        CancellationToken ct = default);
+    /// <summary>GET /v1/whatsapp/templates?accountId= → {templates:[{id, name, status, category, language, components}]}.</summary>
+    Task<ZernioReply> ListWhatsAppTemplatesAsync(string accountId, CancellationToken ct = default);
+    /// <summary>
+    /// GET an inbound attachment: the bearer key rides ONLY to Zernio's own host (WhatsApp media
+    /// points at <c>GET /v1/whatsapp/media/{id}</c>); a platform CDN link is fetched bare.
+    /// </summary>
+    Task<(byte[]? Bytes, string Mime, string Error)> DownloadAsync(string url, long maxBytes, CancellationToken ct = default);
+    /// <summary>GET /v1/connect/telegram?profileId= → {code, expiresAt, expiresIn, botUsername, instructions[]}.</summary>
+    Task<ZernioReply> TelegramCodeAsync(string profileId, CancellationToken ct = default);
+    /// <summary>PATCH /v1/connect/telegram?code= → {status: pending | connected | expired, chatId, chatTitle, account}.</summary>
+    Task<ZernioReply> TelegramStatusAsync(string code, CancellationToken ct = default);
+    /// <summary>POST /v1/connect/telegram {chatId, profileId} → {message, account:{_id…}} (the bot is already an admin).</summary>
+    Task<ZernioReply> TelegramConnectAsync(string profileId, string chatId, CancellationToken ct = default);
+    /// <summary>POST /v1/connect/whatsapp/credentials {profileId, accessToken, wabaId, phoneNumberId, pin?} → {account:{accountId…}}.</summary>
+    Task<ZernioReply> WhatsAppCredentialsAsync(string profileId, string accessToken, string wabaId, string phoneNumberId,
+        string? pin, CancellationToken ct = default);
+    /// <summary>GET /v1/phone-numbers[?profileId=] → {numbers:[OwnedPhoneNumber]}.</summary>
+    Task<ZernioReply> ListPhoneNumbersAsync(string? profileId = null, CancellationToken ct = default);
+    /// <summary>POST /v1/phone-numbers/{id}/sms → {enabled, id (the SMS account), phoneNumber, isActive, needsRegistration…}.</summary>
+    Task<ZernioReply> EnableSmsAsync(string phoneNumberId, CancellationToken ct = default);
+
     // ---- posts + media ---------------------------------------------------------
     /// <summary>POST /v1/posts → {post:{_id, status, platforms[]}}.</summary>
     Task<ZernioReply> CreatePostAsync(Dictionary<string, object?> body, CancellationToken ct = default);
@@ -171,6 +211,19 @@ public sealed class NullZernioClient : IZernioClient
     public Task<ZernioReply> PrivateReplyAsync(string a, string p, string c, string m, CancellationToken ct = default) => No();
     public Task<ZernioReply> ReplyToReviewAsync(string a, string r, string m, CancellationToken ct = default) => No();
     public Task<ZernioReply> SendMessageAsync(string a, string c, string m, CancellationToken ct = default) => No();
+    public Task<ZernioReply> SendInboxMessageAsync(string a, string c, Dictionary<string, object?> b, CancellationToken ct = default) => No();
+    public Task<ZernioReply> CreateConversationAsync(Dictionary<string, object?> b, CancellationToken ct = default) => No();
+    public Task<ZernioReply> SendSmsAsync(string f, string t, string x, IReadOnlyList<string>? m = null, CancellationToken ct = default) => No();
+    public Task<ZernioReply> ReactAsync(string a, string c, string m, string e, CancellationToken ct = default) => No();
+    public Task<ZernioReply> ListWhatsAppTemplatesAsync(string a, CancellationToken ct = default) => No();
+    public Task<(byte[]? Bytes, string Mime, string Error)> DownloadAsync(string u, long m, CancellationToken ct = default) =>
+        Task.FromResult<(byte[]?, string, string)>((null, "", NotConfiguredReason));
+    public Task<ZernioReply> TelegramCodeAsync(string p, CancellationToken ct = default) => No();
+    public Task<ZernioReply> TelegramStatusAsync(string c, CancellationToken ct = default) => No();
+    public Task<ZernioReply> TelegramConnectAsync(string p, string c, CancellationToken ct = default) => No();
+    public Task<ZernioReply> WhatsAppCredentialsAsync(string p, string t, string w, string n, string? pin, CancellationToken ct = default) => No();
+    public Task<ZernioReply> ListPhoneNumbersAsync(string? p = null, CancellationToken ct = default) => No();
+    public Task<ZernioReply> EnableSmsAsync(string n, CancellationToken ct = default) => No();
     public Task<ZernioReply> CreatePostAsync(Dictionary<string, object?> b, CancellationToken ct = default) => No();
     public Task<ZernioReply> GetPostAsync(string p, CancellationToken ct = default) => No();
     public Task<ZernioReply> UpdatePostAsync(string p, Dictionary<string, object?> b, CancellationToken ct = default) => No();
@@ -270,11 +323,11 @@ public sealed class HttpZernioClient : IZernioClient
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            return ZernioReply.Fail($"Zernio timed out ({timeoutSeconds}s) at {baseUrl}");
+            return ZernioReply.Fail($"the managed connection timed out ({timeoutSeconds}s)");
         }
         catch (Exception ex)
         {
-            return ZernioReply.Fail($"Zernio is unreachable at {baseUrl} ({ex.GetType().Name})");
+            return ZernioReply.Fail($"the managed connection is unreachable ({ex.GetType().Name})");
         }
     }
 
@@ -367,6 +420,90 @@ public sealed class HttpZernioClient : IZernioClient
         CallAsync(HttpMethod.Post, $"/inbox/conversations/{E(conversationId)}/messages",
             new Dictionary<string, object?> { ["accountId"] = accountId, ["message"] = message }, ct);
 
+    public Task<ZernioReply> SendInboxMessageAsync(string accountId, string conversationId,
+        Dictionary<string, object?> body, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Post, $"/inbox/conversations/{E(conversationId)}/messages",
+            new Dictionary<string, object?>(body) { ["accountId"] = accountId }, ct, timeoutSeconds: 60);
+
+    public Task<ZernioReply> CreateConversationAsync(Dictionary<string, object?> body, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Post, "/inbox/conversations", body, ct, timeoutSeconds: 60);
+
+    public Task<ZernioReply> SendSmsAsync(string from, string to, string text, IReadOnlyList<string>? mediaUrls = null,
+        CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Post, "/sms/messages", new Dictionary<string, object?>
+        {
+            ["from"] = from, ["to"] = to,
+            ["text"] = string.IsNullOrEmpty(text) ? null : text,
+            ["mediaUrls"] = mediaUrls is { Count: > 0 } ? mediaUrls : null,
+        }, ct);
+
+    public Task<ZernioReply> ReactAsync(string accountId, string conversationId, string messageId, string emoji,
+        CancellationToken ct = default) =>
+        string.IsNullOrEmpty(emoji)
+            ? CallAsync(HttpMethod.Delete,
+                $"/inbox/conversations/{E(conversationId)}/messages/{E(messageId)}/reactions?accountId={E(accountId)}", null, ct)
+            : CallAsync(HttpMethod.Post, $"/inbox/conversations/{E(conversationId)}/messages/{E(messageId)}/reactions",
+                new Dictionary<string, object?> { ["accountId"] = accountId, ["emoji"] = emoji }, ct);
+
+    public Task<ZernioReply> ListWhatsAppTemplatesAsync(string accountId, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Get, $"/whatsapp/templates?accountId={E(accountId)}", null, ct);
+
+    public async Task<(byte[]? Bytes, string Mime, string Error)> DownloadAsync(string url, long maxBytes,
+        CancellationToken ct = default)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+            return (null, "", "not an https link");
+        var (key, baseUrl) = Config();
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, uri);
+            // the key goes to Zernio's own host only — never to a platform CDN
+            if (key.Length > 0 && Uri.TryCreate(baseUrl, UriKind.Absolute, out var b)
+                && string.Equals(b.Host, uri.Host, StringComparison.OrdinalIgnoreCase))
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromMinutes(2));
+            using var res = await _http.CreateClient(ClientName).SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+            if (!res.IsSuccessStatusCode) return (null, "", $"download failed (HTTP {(int)res.StatusCode})");
+            if (res.Content.Headers.ContentLength is long len && len > maxBytes) return (null, "", "file too large");
+            var bytes = await res.Content.ReadAsByteArrayAsync(cts.Token);
+            if (bytes.LongLength > maxBytes) return (null, "", "file too large");
+            var mime = res.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+            if (mime.Contains("json", StringComparison.OrdinalIgnoreCase))
+                return (null, "", "the managed connection answered with an error instead of the file");
+            return (bytes, mime, "");
+        }
+        catch (Exception ex)
+        {
+            return (null, "", $"download failed ({ex.GetType().Name})");
+        }
+    }
+
+    public Task<ZernioReply> TelegramCodeAsync(string profileId, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Get, $"/connect/telegram?profileId={E(profileId)}", null, ct);
+
+    public Task<ZernioReply> TelegramStatusAsync(string code, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Patch, $"/connect/telegram?code={E(code)}", null, ct);
+
+    public Task<ZernioReply> TelegramConnectAsync(string profileId, string chatId, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Post, "/connect/telegram",
+            new Dictionary<string, object?> { ["chatId"] = chatId, ["profileId"] = profileId }, ct);
+
+    public Task<ZernioReply> WhatsAppCredentialsAsync(string profileId, string accessToken, string wabaId,
+        string phoneNumberId, string? pin, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Post, "/connect/whatsapp/credentials", new Dictionary<string, object?>
+        {
+            ["profileId"] = profileId, ["accessToken"] = accessToken, ["wabaId"] = wabaId,
+            ["phoneNumberId"] = phoneNumberId, ["pin"] = string.IsNullOrEmpty(pin) ? null : pin,
+        }, ct, timeoutSeconds: 60);
+
+    public Task<ZernioReply> ListPhoneNumbersAsync(string? profileId = null, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Get, "/phone-numbers" + (string.IsNullOrEmpty(profileId) ? "" : "?profileId=" + E(profileId)),
+            null, ct);
+
+    public Task<ZernioReply> EnableSmsAsync(string phoneNumberId, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Post, $"/phone-numbers/{E(phoneNumberId)}/sms", null, ct);
+
     // publishing now runs every platform inside the request — give it room
     public Task<ZernioReply> CreatePostAsync(Dictionary<string, object?> body, CancellationToken ct = default) =>
         CallAsync(HttpMethod.Post, "/posts", body, ct, timeoutSeconds: 120);
@@ -400,7 +537,7 @@ public sealed class HttpZernioClient : IZernioClient
         CancellationToken ct = default)
     {
         if (!uploadUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            return ZernioReply.Fail("Zernio returned an upload URL that is not https");
+            return ZernioReply.Fail("the upload URL is not https");
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Put, uploadUrl) { Content = new ByteArrayContent(bytes) };

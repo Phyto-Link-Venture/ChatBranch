@@ -3,7 +3,8 @@ namespace ChatBranch.Api.Tools;
 public static partial class ToolCatalog
 {
     /// <summary>
-    /// Social media through Zernio: connected accounts, posts, and the comment actions.
+    /// Social media through Zernio ("managed connections" to users): connected accounts, posts, the comment
+    /// actions, and the connect flows of native inboxes (WhatsApp / Telegram / SMS).
     /// Replying to a comment, a review or a social DM is send_message on the thread
     /// (channel "social") — those tools are the inbox's own.
     /// </summary>
@@ -16,33 +17,68 @@ public static partial class ToolCatalog
         var postId = A.Id("post");
 
         yield return T(g, "social_list_accounts", "List social accounts",
-            "The social media accounts connected through Zernio (Instagram, Facebook, TikTok, YouTube, LinkedIn, X, " +
-            "Threads, Google Business…) for an entity: id (Zernio account id), platform, username, the outlet it is " +
+            "The social media accounts connected as managed connections (Instagram, Facebook, TikTok, YouTube, LinkedIn, X, " +
+            "Threads, Google Business…) for an entity: id (the connection's account id), platform, username, the outlet it is " +
             "bound to, whether it is active, what it can do (publish, comments, DMs, reviews), and for Facebook the " +
             "Pages it can post to (each with its outlet and post target).", "GET", "/api/social/accounts",
             C("social.view", "channels.view"),
-            new[] { A.Entity(), A.Bool("refresh", "Reconcile with Zernio first.") },
+            new[] { A.Entity(), A.Bool("refresh", "Reconcile with the connection service first.") },
             link: (_, _) => Page("Open channels", "/channels"));
 
-        yield return T(g, "social_connect_url", "Get a social account connect link",
-            "A Zernio sign-in link that connects one social media account to an entity (or the organization). Give " +
-            "the link to the person — they sign in to the platform themselves; the account then appears by itself.",
-            "POST", "/api/social/connect", manage,
+        yield return T(g, "social_connect_url", "Start connecting an account",
+            "Start a managed connection for one account of a platform, for an entity (or the organization). " +
+            "purpose \"inbox\" makes WhatsApp, Messenger (facebook), Instagram, Telegram or SMS an inbox of that channel; " +
+            "\"social\" connects a social account for comments and posts. The answer says what comes next: flow " +
+            "\"hosted\" = a sign-in link (url) to give the person; Telegram = an access code with steps (status_url " +
+            "polls it — social_telegram_status); SMS = the outlet's numbers to choose from (social_connect_sms).",
+            "POST", "/api/social/connect", C("social.manage", "channels.manage"),
             new[]
             {
-                A.Str("platform", "instagram, facebook, tiktok, youtube, linkedin, twitter (x), threads, pinterest, " +
-                                  "googlebusiness, bluesky, reddit, telegram, discord, slack, snapchat, whatsapp.", req: true),
-                A.Entity("The entity slug whose Zernio profile gets the account; omit for the organization."),
+                A.Str("platform", "whatsapp, facebook (Messenger / Page), instagram, telegram, sms, tiktok, youtube, " +
+                                  "linkedin, twitter (x), threads, pinterest, googlebusiness, bluesky, reddit, discord, " +
+                                  "slack, snapchat.", req: true),
+                A.Str("purpose", "inbox (DMs into the channel's inbox) or social (comments / posts)."),
+                A.Entity("The entity slug that gets the account; omit for the organization."),
+            }, outside: true);
+
+        yield return T(g, "social_telegram_status", "Check a Telegram connection code",
+            "Whether the access code from social_connect_url (platform telegram) has been sent to the bot yet: " +
+            "pending, expired, or connected (the Telegram inbox exists from then on).",
+            "GET", "/api/social/connect/telegram/status", C("social.manage", "channels.manage"),
+            new[]
+            {
+                A.Str("code", "The access code social_connect_url returned.", req: true),
+                A.Entity("The same entity the connect named."),
+            });
+
+        yield return T(g, "social_connect_telegram_chat", "Connect a Telegram group or channel by id",
+            "Connect a Telegram group or channel whose admins already include the connection bot, by its chat id " +
+            "(a group's negative id, or @channel). It becomes a Telegram inbox.",
+            "POST", "/api/social/connect/telegram", C("social.manage", "channels.manage"),
+            new[]
+            {
+                A.Str("chat_id", "The chat id (-100…) or @channelname.", req: true),
+                A.Entity("The entity slug that gets the inbox; omit for the organization."),
+            }, outside: true);
+
+        yield return T(g, "social_connect_sms", "Turn on SMS for a number",
+            "Turn SMS on for one of the outlet's phone numbers (social_connect_url with platform sms lists them) so " +
+            "it becomes an SMS inbox. A US number receives at once but sends only after its carrier registration.",
+            "POST", "/api/social/connect/sms", C("social.manage", "channels.manage"),
+            new[]
+            {
+                A.Str("phone_number_id", "The number's id from the list.", req: true),
+                A.Entity("The entity slug that gets the inbox; omit for the organization."),
             }, outside: true);
 
         yield return T(g, "social_assign_account", "Assign a social account to an outlet",
-            "Bind a connected social account to an entity (outlet), or back to the organization level: it moves to " +
-            "that entity's Zernio profile, and its existing social conversations and not-yet-published posts follow. " +
+            "Bind a connected social account (or a managed WhatsApp / SMS inbox) to an entity (outlet), or back to the " +
+            "organization level: it moves to that entity's connection profile, and its existing social conversations and not-yet-published posts follow. " +
             "Organization-level accounts are usable from every outlet; an outlet's own accounts from that outlet only.",
             "PATCH", "/api/social/accounts/{id}", manage,
             new[]
             {
-                A.Str("id", "The Zernio account id (social_list_accounts).", req: true),
+                A.Str("id", "The account id (social_list_accounts, or zernio_account_id on an inbox row).", req: true),
                 A.Any("entity", "The entity slug (or id) to bind it to; null or \"\" for the organization level.", req: true),
             }, outside: true, idempotent: true);
 
@@ -53,25 +89,26 @@ public static partial class ToolCatalog
             "PATCH", "/api/social/accounts/{id}/pages/{pageId}", manage,
             new[]
             {
-                A.Str("id", "The facebook account's Zernio id (social_list_accounts).", req: true),
+                A.Str("id", "The facebook account's id (social_list_accounts).", req: true),
                 A.Str("pageId", "The Facebook Page id (the account's pages[].id).", req: true),
                 A.Any("entity", "The entity slug (or id); null or \"\" = follow the account's level.", req: true),
             }, idempotent: true);
 
         yield return T(g, "social_select_page", "Choose the Facebook Page for the inbox",
-            "Switch which Page of a facebook account receives comments and messages in the inbox (Zernio's selected " +
-            "Page; also the Page a post without a page id goes to).",
+            "Switch which Page of a facebook account receives comments and messages in the inbox (the selected Page; " +
+            "also the Page a post without a page id goes to). The account's inbox conversations take that Page's outlet.",
             "POST", "/api/social/accounts/{id}/pages/{pageId}/select", manage,
             new[]
             {
-                A.Str("id", "The facebook account's Zernio id (social_list_accounts).", req: true),
+                A.Str("id", "The facebook account's id (social_list_accounts).", req: true),
                 A.Str("pageId", "The Facebook Page id (the account's pages[].id).", req: true),
             }, outside: true, idempotent: true);
 
         yield return T(g, "social_disconnect_account", "Disconnect a social account",
-            "Disconnect a social account from Zernio and remove its inbox here (its conversations stay). The " +
+            "Disconnect a managed connection (a social account or a WhatsApp / Messenger / Instagram / Telegram / SMS " +
+            "inbox connected that way) and remove its inbox here (its conversations stay). The " +
             "platform grant is revoked — ask the person first.", "DELETE", "/api/social/accounts/{id}", manage,
-            new[] { A.Str("id", "The Zernio account id (social_list_accounts).", req: true) },
+            new[] { A.Str("id", "The account id (social_list_accounts, or zernio_account_id on an inbox row).", req: true) },
             destructive: true, outside: true);
 
         yield return T(g, "social_hide_comment", "Hide or unhide a social comment",
@@ -114,7 +151,7 @@ public static partial class ToolCatalog
         var postFields = new[]
         {
             A.Str("content", "The post text."),
-            A.StrList("account_ids", "Targets to publish to (social_list_accounts): a Zernio account id, or " +
+            A.StrList("account_ids", "Targets to publish to (social_list_accounts): an account id, or " +
                                      "\"<account id>:<page id>\" for one Facebook Page (pages[].target)."),
             A.Arr("media", "[{url, type}] — public https URLs; type image | video | gif | document."),
             A.Str("scheduled_at", "ISO 8601 time to publish; omit (with publish_now) to publish immediately."),

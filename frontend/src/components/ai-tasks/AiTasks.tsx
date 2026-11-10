@@ -77,6 +77,8 @@ interface BuiltinTool {
   description: string
   provider: string
   connected: boolean
+  /** Opt-in switches a tool declares itself (e.g. social `allow_publish`), stored as "true" in config. */
+  settings?: { key: string; type: string; default?: boolean; label: string }[]
 }
 
 interface McpTool {
@@ -156,6 +158,9 @@ const GROUP_LABEL: Record<string, MessageKey> = {
   apps: 'aiTasks.editor.groups.apps',
   webhook: 'aiTasks.editor.groups.webhook',
 }
+/** Social tools come from the managed-connections provider; its name never reaches the screen. */
+const isSocialTool = (b: { provider: string; id: string }) => /zernio|social/i.test(b.provider) || /^social[._]/.test(b.id)
+const PROVIDER_NAME = /\s*\(?\b(via\s+)?zernio\b\)?/gi
 const TOOL_KEYS = [
   'add_private_note',
   'add_conversation_label',
@@ -699,7 +704,11 @@ function TaskEditor({
                         <input type="checkbox" checked={has(b.id)} onChange={() => flip(b.id)} className="mt-0.5" />
                         <span className="min-w-0">
                           <span className="flex flex-wrap items-center gap-1.5 text-[12px] font-semibold text-text-high">
-                            {isToolKey(b.id) ? t(`aiTasks.tools.${b.id}.label` as MessageKey) : b.label}
+                            {isToolKey(b.id)
+                              ? t(`aiTasks.tools.${b.id}.label` as MessageKey)
+                              : isSocialTool(b)
+                                ? `${t('aiTasks.editor.socialMedia')}: ${b.label.replace(PROVIDER_NAME, '').trim() || b.id}`
+                                : b.label}
                             {!b.connected && (
                               <span className="rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-bold text-amber-300">
                                 {t('aiTasks.editor.notConnected')}
@@ -707,12 +716,19 @@ function TaskEditor({
                             )}
                           </span>
                           <span className="block text-[10.5px] leading-snug text-text-muted">
-                            {isToolKey(b.id) ? t(`aiTasks.tools.${b.id}.hint` as MessageKey) : b.description}
+                            {isToolKey(b.id)
+                              ? t(`aiTasks.tools.${b.id}.hint` as MessageKey)
+                              : isSocialTool(b)
+                                ? b.description.replace(PROVIDER_NAME, '')
+                                : b.description}
                             {!b.connected && (
                               <>
                                 {' '}
-                                <Link href="/integrations" className="font-semibold text-brand-300 hover:underline">
-                                  {t('aiTasks.editor.connectHint')}
+                                <Link
+                                  href={isSocialTool(b) ? '/channels' : '/integrations'}
+                                  className="font-semibold text-brand-300 hover:underline"
+                                >
+                                  {t(isSocialTool(b) ? 'aiTasks.editor.connectSocialHint' : 'aiTasks.editor.connectHint')}
                                 </Link>
                               </>
                             )}
@@ -780,6 +796,32 @@ function TaskEditor({
                   })}
                 </>
               )}
+            </div>
+          )}
+
+          {/* opt-in switches declared by the picked tools themselves (catalog `settings`) */}
+          {catalog.builtins.some((b) => has(b.id) && (b.settings?.length ?? 0) > 0) && (
+            <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
+              {catalog.builtins
+                .filter((b) => has(b.id))
+                .flatMap((b) => (b.settings ?? []).filter((x) => x.type === 'bool').map((x) => ({ tool: b, x })))
+                .map(({ tool, x }) => {
+                  const on = (draft.config[x.key] ?? (x.default ? 'true' : '')) === 'true'
+                  return (
+                    <label key={`${tool.id}:${x.key}`} className="flex cursor-pointer items-start gap-2 text-[12px] text-text-mid">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) => setConf(x.key, e.target.checked ? 'true' : 'false')}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="font-semibold text-text-high">{x.label}</span>
+                        <span className="block text-[10.5px] text-text-muted">{tool.label}</span>
+                      </span>
+                    </label>
+                  )
+                })}
             </div>
           )}
         </div>

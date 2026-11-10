@@ -108,11 +108,11 @@ public sealed class SocialTransport : IChannelTransport
         var mine = ZernioJson.Arr(r.Json, "accounts").FirstOrDefault(x => ZernioJson.Str(x, "_id") == a.ExternalId);
         if (mine.ValueKind != System.Text.Json.JsonValueKind.Object)
             return new TransportProbe(new ProbeVerdict(Health.Disconnected,
-                "Zernio no longer holds this account — connect it again"));
+                "the managed connection no longer holds this account — connect it again"));
         var active = ZernioJson.Bool(mine, "isActive") && !ZernioJson.Bool(mine, "needsReconnection");
         return new TransportProbe(active
                 ? new ProbeVerdict(Health.Healthy, "")
-                : new ProbeVerdict(Health.Disconnected, "the platform connection needs to be renewed in Zernio"),
+                : new ProbeVerdict(Health.Disconnected, "the platform connection needs to be renewed (reconnect it)"),
             "");
     }
 
@@ -132,6 +132,6 @@ public sealed class SocialTransport : IChannelTransport
             0 or >= 500 => TransportFailure.Transient,
             _ => TransportFailure.Recipient, // 400 / 403 / 404 / 422: this comment, review or person
         };
-        return TransportResult.Fail(failure, r.Error.Length > 0 ? r.Error : $"Zernio answered HTTP {r.Status}", r.Status);
+        return TransportResult.Fail(failure, r.Error.Length > 0 ? r.Error : $"the managed connection answered HTTP {r.Status}", r.Status);
     }
 }

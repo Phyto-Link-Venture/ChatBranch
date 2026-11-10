@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using ChatBranch.Domain;
 
@@ -74,7 +75,7 @@ public static class SocialPosts
             if (row.Error.Length > 500) row.Error = row.Error[..500];
         }
         if (zstatus == "cancelled" && row.Error.Length == 0)
-            row.Error = "cancelled in Zernio (an account disconnected, or the post was unpublished)";
+            row.Error = "cancelled (an account disconnected, or the post was unpublished)";
         row.UpdatedAt = DateTime.UtcNow;
     }
 
@@ -119,4 +120,56 @@ public static class SocialPosts
         ["created_at"] = DateTime.SpecifyKind(p.CreatedAt, DateTimeKind.Utc).ToString("o"),
         ["updated_at"] = DateTime.SpecifyKind(p.UpdatedAt, DateTimeKind.Utc).ToString("o"),
     };
+
+    /// <summary>Create (or update) the post in Zernio: a draft, a schedule or publish-now; the answer is applied.</summary>
+    public static async Task PushAsync(AppDbContext db, IZernioClient zernio, SocialPost post, bool publishNow,
+        CancellationToken ct = default)
+    {
+        var targets = post.AccountIds.Select(SocialChannels.ParseTarget).ToList();
+        var acctIds = targets.Select(t => t.AccountId).Distinct().ToList();
+        var accounts = db.ChannelAccounts.AsNoTracking()
+            .Where(a => a.Channel == ChatBranch.Domain.Channels.Social && acctIds.Contains(a.ExternalId)).ToList();
+        var body = new Dictionary<string, object?>
+        {
+            ["content"] = post.Content,
+            ["mediaItems"] = post.Media.Select(m => new Dictionary<string, object?>
+            {
+                ["url"] = m.GetValueOrDefault("url")?.ToString(), ["type"] = m.GetValueOrDefault("type")?.ToString(),
+            }).ToList(),
+            // one entry per target; a Facebook Page repeats its account with platformSpecificData.pageId
+            ["platforms"] = targets.Select(t =>
+            {
+                var entry = new Dictionary<string, object?>
+                {
+                    ["platform"] = SocialChannels.Platform(accounts.First(a => a.ExternalId == t.AccountId)),
+                    ["accountId"] = t.AccountId,
+                };
+                if (t.PageId.Length > 0)
+                    entry["platformSpecificData"] = new Dictionary<string, object?> { ["pageId"] = t.PageId };
+                return entry;
+            }).ToList(),
+            ["metadata"] = new Dictionary<string, object?> { [SocialPosts.MetadataKey] = post.Id.ToString() },
+        };
+        if (post.Status == SocialPosts.Draft) body["isDraft"] = true;
+        else if (publishNow) body["publishNow"] = true;
+        else
+        {
+            body["scheduledFor"] = DateTime.SpecifyKind(post.ScheduledAt!.Value, DateTimeKind.Utc)
+                .ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+            if (post.ZernioPostId.Length > 0) body["isDraft"] = false;
+        }
+        if (post.Timezone.Length > 0) body["timezone"] = post.Timezone;
+
+        var r = post.ZernioPostId.Length > 0
+            ? await zernio.UpdatePostAsync(post.ZernioPostId, body, ct)
+            : await zernio.CreatePostAsync(body, ct);
+        if (r.At("post").ValueKind == JsonValueKind.Object) SocialPosts.Apply(post, r.At("post"));
+        if (!r.Ok)
+        {
+            post.Status = SocialPosts.Failed;
+            post.Error = r.Error.Length > 500 ? r.Error[..500] : r.Error;
+        }
+        post.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+    }
 }
