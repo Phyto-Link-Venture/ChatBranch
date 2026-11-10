@@ -58,6 +58,8 @@ export const social: Dict<typeof source> = {
     capComments: 'Komen',
     capReviews: 'Ulasan',
     capDm: 'Mesej',
+    dmInbox: 'Peti masuk mesej',
+    dmInboxHint: 'Mesej terus ke akaun ini masuk ke Chats seperti peti masuk lain.',
     disconnectTitle: 'Putuskan {name}?',
     disconnectBody: 'Komen, ulasan dan mesejnya berhenti masuk dan siaran tidak lagi boleh dihantar kepadanya. Perbualan lalu kekal dalam Sembang.',
     disconnected: '{name} diputuskan.',

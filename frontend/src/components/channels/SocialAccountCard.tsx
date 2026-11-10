@@ -17,7 +17,8 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { Check, ExternalLink, Inbox, Loader2, Unplug } from 'lucide-react'
+import { Check, ExternalLink, Inbox, Loader2, Plug, Settings2, Unplug } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/Button'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
@@ -36,7 +37,8 @@ import {
   type SocialPage,
 } from '@/lib/social'
 import { useT, type MessageKey } from '@/i18n'
-import { CapChip, HealthDot, MethodBadge, OutletChip } from './parts'
+import { CapChip, HealthDot, MethodBadge, OutletChip, cardBtn } from './parts'
+import type { HealthStatus } from '@/lib/channelHealth'
 import { ZERNIO_BADGE } from './catalog'
 
 /** The capability chips an account shows, in order. */
@@ -213,8 +215,26 @@ export function useSocialAccounts() {
 
 export type SocialAccountsState = ReturnType<typeof useSocialAccounts>
 
+/**
+ * The native DM inbox behind the same managed account (Instagram / Messenger DMs:
+ * a second ChannelAccount sharing zernio_account_id). It is shown INSIDE the
+ * account's card — one card per account — with the inbox's own Settings / Test.
+ * Its outlet follows the account's (the backend moves both together), and
+ * Disconnect removes both.
+ */
+export interface LinkedInbox {
+  health: { status: HealthStatus; detail: string } | null
+  /** Team · AI on/off, already translated. */
+  meta: string[]
+  /** The Test result line (or a spinner), when a test ran. */
+  test?: ReactNode
+  testing?: boolean
+  onSettings?: () => void
+  onTest: () => void
+}
+
 /** One Zernio account in the Connected list: method badge, outlet picker, Facebook Pages, capabilities. */
-export function SocialAccountCard({ a, s }: { a: SocialAccount; s: SocialAccountsState }) {
+export function SocialAccountCard({ a, s, inbox }: { a: SocialAccount; s: SocialAccountsState; inbox?: LinkedInbox }) {
   const t = useT()
   const { entities, bound } = useEntity()
   const { canManage, saves } = s
@@ -343,9 +363,44 @@ export function SocialAccountCard({ a, s }: { a: SocialAccount; s: SocialAccount
         </div>
       )}
 
-      {CAPS.some((c) => a[c.key]) && (
+      {inbox && (
+        <div className="flex flex-col gap-1.5 rounded-lg border border-line px-2.5 py-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Inbox size={12} className="text-text-muted" aria-hidden />
+            <span className="text-[12.5px] font-semibold text-text-high" title={t('social.accounts.dmInboxHint')}>
+              {t('social.accounts.dmInbox')}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-text-muted">
+            {inbox.health ? (
+              <HealthDot status={inbox.health.status} detail={inbox.health.detail} />
+            ) : (
+              <span>{t('channels.card.notMonitored')}</span>
+            )}
+            {inbox.meta.map((m) => (
+              <span key={m} className="inline-flex items-center gap-2">
+                <span aria-hidden>·</span>
+                <span className="truncate">{m}</span>
+              </span>
+            ))}
+          </div>
+          {inbox.test}
+          <div className="flex flex-wrap items-center gap-2">
+            {inbox.onSettings && (
+              <button type="button" className={cardBtn} onClick={inbox.onSettings}>
+                <Settings2 size={13} aria-hidden /> {t('channels.card.settings')}
+              </button>
+            )}
+            <button type="button" className={cardBtn} onClick={inbox.onTest} disabled={inbox.testing}>
+              <Plug size={13} aria-hidden /> {t('channels.card.test')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {CAPS.some((c) => a[c.key] || (inbox && c.key === 'can_dm')) && (
         <div className="flex flex-wrap gap-1" aria-label={t('channels.card.capabilities')}>
-          {CAPS.filter((c) => a[c.key]).map((c) => (
+          {CAPS.filter((c) => a[c.key] || (inbox && c.key === 'can_dm')).map((c) => (
             <CapChip key={c.key} label={t(c.lbl)} />
           ))}
         </div>

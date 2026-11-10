@@ -85,6 +85,35 @@ function inboxCaps(inbox: Inbox): MessageKey[] {
   return caps
 }
 
+/** The result line of an inbox's Test. */
+function TestLine({ test }: { test: TestResult | 'running' }) {
+  const t = useT()
+  return (
+      <div
+        role="status"
+        className="rounded-lg bg-well px-2.5 py-1.5 text-[12px] leading-relaxed"
+        style={{
+          color:
+            test === 'running'
+              ? 'var(--text-muted)'
+              : test.tone === 'ok'
+                ? 'var(--green-ink)'
+                : test.tone === 'info'
+                  ? 'var(--amber-ink)'
+                  : 'var(--red-ink)',
+        }}
+      >
+        {test === 'running' ? (
+          <span className="inline-flex items-center gap-1.5">
+            <Loader2 size={12} className="animate-spin" aria-hidden /> {t('channels.card.testing')}
+          </span>
+        ) : (
+          test.text
+        )}
+      </div>
+  )
+}
+
 function InboxCard({
   inbox,
   health,
@@ -168,30 +197,7 @@ function InboxCard({
         ))}
       </div>
 
-      {test && (
-        <div
-          role="status"
-          className="rounded-lg bg-well px-2.5 py-1.5 text-[12px] leading-relaxed"
-          style={{
-            color:
-              test === 'running'
-                ? 'var(--text-muted)'
-                : test.tone === 'ok'
-                  ? 'var(--green-ink)'
-                  : test.tone === 'info'
-                    ? 'var(--amber-ink)'
-                    : 'var(--red-ink)',
-          }}
-        >
-          {test === 'running' ? (
-            <span className="inline-flex items-center gap-1.5">
-              <Loader2 size={12} className="animate-spin" aria-hidden /> {t('channels.card.testing')}
-            </span>
-          ) : (
-            test.text
-          )}
-        </div>
-      )}
+      {test && <TestLine test={test} />}
 
       <div data-tour="channels-card-actions" className="mt-auto flex flex-wrap items-center gap-2 pt-0.5">
         {editable && (
@@ -260,7 +266,14 @@ const DELETE_NOTE: Partial<Record<InboxKind, MessageKey>> = {
 /** One card in the Connected list. */
 type Row =
   | { type: 'inbox'; key: string; filter: ChannelFilter | null; inbox: Inbox }
-  | { type: 'social'; key: string; filter: ChannelFilter | null; account: NonNullable<ReturnType<typeof useSocialAccounts>['accounts']>[number] }
+  | {
+      type: 'social'
+      key: string
+      filter: ChannelFilter | null
+      account: NonNullable<ReturnType<typeof useSocialAccounts>['accounts']>[number]
+      /** The account's DM inbox, shown inside its card. */
+      inbox?: Inbox
+    }
   | { type: 'shop'; key: string; filter: ChannelFilter | null; shop: Shop }
 
 export function ChannelsSettings() {
@@ -327,8 +340,13 @@ export function ChannelsSettings() {
     const out: Row[] = inboxes.map((inbox) => ({ type: 'inbox', key: inbox.key, filter: kindMeta(inbox.kind).filter, inbox }))
     for (const a of social.accounts ?? []) {
       const pid = platformId(a.platform)
+      // the same managed account's DM inbox (Instagram / Messenger) joins its card: one card per account
+      const at = out.findIndex(
+        (r) => r.type === 'inbox' && !!r.inbox.viaZernio && (r.inbox.msg?.zernio_account_id ?? r.inbox.wa?.zernio_account_id) === a.id,
+      )
+      const linked = at >= 0 ? (out.splice(at, 1)[0] as Extract<Row, { type: 'inbox' }>).inbox : undefined
       // our Facebook filter is Messenger's for DMs; a Facebook account is its Page's posts / comments
-      out.push({ type: 'social', key: `social:${a.id}`, filter: asFilter(pid), account: a })
+      out.push({ type: 'social', key: `social:${a.id}`, filter: asFilter(pid), account: a, inbox: linked })
     }
     for (const shop of shops) out.push({ type: 'shop', key: `shop:${shop.id}`, filter: asFilter(shop.channel), shop })
     return out
@@ -386,6 +404,19 @@ export function ChannelsSettings() {
       setDeleting(false)
     }
   }
+
+  /** A managed account's DM inbox, as its card shows it. */
+  const linkedInbox = (inbox: Inbox) => ({
+    health: healthOf(inbox, health),
+    meta: [
+      teamName(inbox.teamId),
+      inbox.aiDefault ? t(inbox.aiDefault === 'on' ? 'channels.card.aiOn' : 'channels.card.aiOff') : undefined,
+    ].filter((x): x is string => !!x),
+    test: tests[inbox.key] && <TestLine test={tests[inbox.key]} />,
+    testing: tests[inbox.key] === 'running',
+    onSettings: canManage ? () => open(inbox.kind, inbox, 3) : undefined,
+    onTest: () => runTest(inbox),
+  })
 
   const shopOutlet = (s: Shop) =>
     s.entity_id == null ? t('channels.card.allEntities') : (entities.find((e) => e.id === s.entity_id)?.name ?? `#${s.entity_id}`)
@@ -511,7 +542,12 @@ export function ChannelsSettings() {
                     }}
                   />
                 ) : r.type === 'social' ? (
-                  <SocialAccountCard key={r.key} a={r.account} s={social} />
+                  <SocialAccountCard
+                    key={r.key}
+                    a={r.account}
+                    s={social}
+                    inbox={r.inbox && linkedInbox(r.inbox)}
+                  />
                 ) : (
                   <ShopCard key={r.key} shop={r.shop} health={shopHealth(r.shop)} outlet={shopOutlet(r.shop)} />
                 ),

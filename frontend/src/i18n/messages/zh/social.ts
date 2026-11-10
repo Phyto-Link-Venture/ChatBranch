@@ -58,6 +58,8 @@ export const social: Dict<typeof source> = {
     capComments: '评论',
     capReviews: '评价',
     capDm: '私信',
+    dmInbox: '私信收件箱',
+    dmInboxHint: '发给此账号的私信会像其他收件箱一样进入聊天。',
     disconnectTitle: '断开 {name}？',
     disconnectBody: '将不再接收它的评论、评价和私信，帖子也无法再发布到该账号。以往的对话仍保留在「聊天」中。',
     disconnected: '已断开 {name}。',

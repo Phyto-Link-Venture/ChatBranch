@@ -57,6 +57,8 @@ export const social = {
     capComments: 'Comments',
     capReviews: 'Reviews',
     capDm: 'Messages',
+    dmInbox: 'Messages inbox',
+    dmInboxHint: 'Direct messages to this account land in Chats like any other inbox.',
     disconnectTitle: 'Disconnect {name}?',
     disconnectBody: 'Its comments, reviews and messages stop arriving and posts can no longer go to it. Past conversations stay in Chats.',
     disconnected: '{name} disconnected.',
