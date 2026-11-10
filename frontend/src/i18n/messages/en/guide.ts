@@ -348,6 +348,40 @@ export const guide = {
         },
       },
     },
+    social: {
+      title: 'Social posts',
+      intro: 'Write a post once and publish it to your social accounts — now or later.',
+      steps: {
+        s1: {
+          title: 'Social posts',
+          body: 'Posts go out through Zernio to the social accounts connected on Channels → Social accounts.',
+        },
+        s2: {
+          title: 'Post to',
+          body: 'Pick the accounts the post goes to. They are grouped by network, and each network gets its own character counter under the text.',
+        },
+        s3: {
+          title: 'Draft with AI',
+          body: 'Describe the post in a line, pick a tone, and the AI writes a first version you can edit.',
+        },
+        s4: {
+          title: 'Photos and videos',
+          body: 'Add pictures or a video. They upload once and go out with the post.',
+        },
+        s5: {
+          title: 'Now or later',
+          body: 'Publish now sends it straight away. Schedule picks a date and time in your business time zone.',
+        },
+        s6: {
+          title: 'Your posts',
+          body: 'Every post with its status — scheduled, published, partly published or failed — and a link to each account’s copy. Retry a failed one, delete one you no longer want.',
+        },
+        s7: {
+          title: 'List or calendar',
+          body: 'Switch between a list and a week or month calendar.',
+        },
+      },
+    },
     automations: {
       title: 'Automations',
       intro: 'Simple “when this happens, do that” rules for conversations.',
@@ -734,6 +768,10 @@ export const guide = {
           title: 'Advanced',
           body: 'The Meta webhook address and the default mail settings. You rarely need this — your developer may ask for it once.',
         },
+        s8: {
+          title: 'Social accounts',
+          body: 'Instagram, Facebook, TikTok, LinkedIn, Google Business and more, connected through Zernio. Their comments, reviews and messages arrive in Chats; posts are written on the Social posts page.',
+        },
       },
     },
     integrations: {
@@ -759,6 +797,10 @@ export const guide = {
         s5: {
           title: 'Connected accounts',
           body: 'Every connection made so far, who uses it and its status, with buttons to manage it.',
+        },
+        s6: {
+          title: 'Zernio (social media)',
+          body: 'The one key that links ChatBranch to Zernio, its webhook and which entity owns which Zernio profile. A super admin sets it once.',
         },
       },
     },

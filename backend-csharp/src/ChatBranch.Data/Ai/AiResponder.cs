@@ -101,7 +101,10 @@ public class AiResponder
             if (thread.OptedOut) return Out(AiGateStatus.Skipped, "The contact opted out.");
             if (!_gate.AiAllowed(thread)) return Out(AiGateStatus.Skipped, "AI is off for this conversation.");
             // a group has no contact by design (Channels/GroupChats.cs) — its AI tick is the gate
+            // a social comment / review / DM has no contact either (Data/Social) — the inbox's
+            // AI default or the operator's tick is the consent
             if (thread.ContactId == null && thread.Channel != ChatBranch.Domain.Channels.Website
+                && thread.Channel != ChatBranch.Domain.Channels.Social
                 && !ChatBranch.Data.Channels.GroupChats.IsGroup(thread))
                 return Out(AiGateStatus.Skipped, "No linked contact.");
 

@@ -29,6 +29,7 @@ import { billing } from './billing'
 import { guide } from './guide'
 import { manual } from './manual'
 import { account } from './account'
+import { social } from './social'
 
 export const zh: Dict<Messages> = {
   common,
@@ -60,4 +61,5 @@ export const zh: Dict<Messages> = {
   guide,
   manual,
   account,
+  social,
 }

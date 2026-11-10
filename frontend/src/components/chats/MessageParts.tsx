@@ -34,6 +34,7 @@ export function Avatar({
   size = 36,
   strong = false,
   group = false,
+  logo,
 }: {
   name: string
   channel?: Channel
@@ -41,6 +42,8 @@ export function Avatar({
   strong?: boolean
   /** a group chat: a people icon instead of initials */
   group?: boolean
+  /** The badge's mark when it is not the channel's own (a social thread: its network). */
+  logo?: string
 }) {
   const t = useT()
   const badge = Math.max(14, Math.round(size * 0.44))
@@ -60,7 +63,7 @@ export function Avatar({
           className="absolute -bottom-0.5 -right-0.5 grid place-items-center rounded-full bg-card"
           style={{ width: badge, height: badge, boxShadow: '0 0 0 1.5px var(--card)' }}
         >
-          <ChannelLogo channel={logoKey(channel)} size={badge - 3} title={channelName(t, channel)} />
+          <ChannelLogo channel={logo ?? logoKey(channel)} size={badge - 3} title={logo ? undefined : channelName(t, channel)} />
         </span>
       )}
     </span>

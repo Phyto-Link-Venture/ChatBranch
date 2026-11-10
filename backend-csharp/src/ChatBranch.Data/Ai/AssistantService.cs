@@ -420,6 +420,11 @@ public partial class AssistantService
                 PromptParts.All with { EmojiStyle = policy.EmojiStyle, Touches = human.Guidance(), Reply = true });
             if (ChatBranch.Data.Channels.GroupChats.IsGroup(thread))
                 system += "\n\n" + ChatBranch.Data.Channels.GroupChats.AiSystemLine(thread);
+            // a public comment or review is answered IN PUBLIC: brief and safe (Data/Social)
+            if (ChatBranch.Data.Social.SocialChannels.IsSocial(thread))
+                system += "\n\n" + ChatBranch.Data.Social.SocialChannels.AiSystemLine(thread,
+                    _db.SocialThreads.AsNoTracking().Where(x => x.ThreadId == thread.Id)
+                        .Select(x => x.Platform).FirstOrDefault() ?? "");
             var messages = Transcript(history, human);
             AddQuotedContext(history, messages);
             AttachCustomerImages(thread, history, messages);

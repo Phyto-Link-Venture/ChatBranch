@@ -802,6 +802,9 @@ public static class VoiceMessagingEndpoints
         // Marketplace shops — listed and inbox-editable here, never credential-edited
         // (CommerceChannels): the seller service holds the grant.
         "shopee", "lazada", "tiktok_shop", "shopify",
+        // Social accounts through Zernio — inbox-editable here, connected in Channels →
+        // Social accounts (SocialChannels): Zernio holds the platform grant.
+        "social",
     };
 
     private static string CfgStr(Dictionary<string, object?> cfg, string key)
@@ -890,6 +893,8 @@ public static class VoiceMessagingEndpoints
             if (MoreChannelAccounts.Handles(a.Channel)) MoreChannelAccounts.AddPayload(outv, a);
             // a marketplace shop has no credential to mask: the seller service holds it
             else if (MoreChannelAccounts.Commerce(a.Channel)) ChatBranch.Data.Channels.CommerceChannels.AddPayload(outv, a);
+            // a Zernio social account: the grant is Zernio's, nothing to mask
+            else if (MoreChannelAccounts.Social(a.Channel)) SocialEndpoints.AddAccountPayload(outv, a);
         }
         return outv;
     }
@@ -1000,6 +1005,9 @@ public static class VoiceMessagingEndpoints
             if (MoreChannelAccounts.Commerce(channel))
                 return Results.Json(new { detail = ChatBranch.Data.Channels.CommerceChannels.NotEditable(channel) },
                     statusCode: 400);
+            // …and neither is a social account: it is connected through Zernio
+            if (MoreChannelAccounts.Social(channel))
+                return Results.Json(new { detail = ChatBranch.Data.Social.SocialChannels.NotEditable }, statusCode: 400);
 
             if (MoreChannelAccounts.Handles(channel))
             {
@@ -1085,11 +1093,15 @@ public static class VoiceMessagingEndpoints
             // A marketplace shop's inbox settings (team, AI default, kept recalls)
             // are edited like any other inbox — applied above — but its grant
             // belongs to the seller service, so there is nothing else to change.
-            if (MoreChannelAccounts.Commerce(account.Channel))
+            if (MoreChannelAccounts.Commerce(account.Channel) || MoreChannelAccounts.Social(account.Channel))
             {
                 if (!inboxTouched)
-                    return Results.Json(new { detail = ChatBranch.Data.Channels.CommerceChannels.NotEditable(account.Channel) },
-                        statusCode: 400);
+                    return Results.Json(new
+                    {
+                        detail = MoreChannelAccounts.Social(account.Channel)
+                            ? ChatBranch.Data.Social.SocialChannels.NotEditable
+                            : ChatBranch.Data.Channels.CommerceChannels.NotEditable(account.Channel),
+                    }, statusCode: 400);
                 await db.SaveChangesAsync();
                 Audit(db, me, ctx, "account.update", $"{account.Channel}:{account.Name}", "keys: inbox");
                 return Results.Ok(AccountPayload(account));

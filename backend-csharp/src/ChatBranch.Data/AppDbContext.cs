@@ -116,6 +116,11 @@ public class AppDbContext : DbContext
     // background AI tasks: silent AI workers that read inbound messages and act through tools
     public DbSet<AiTask> AiTasks => Set<AiTask>();
     public DbSet<AiTaskRun> AiTaskRuns => Set<AiTaskRun>();
+    // social media through Zernio (Data/Social)
+    public DbSet<SocialProfile> SocialProfiles => Set<SocialProfile>();
+    public DbSet<SocialThread> SocialThreads => Set<SocialThread>();
+    public DbSet<SocialPost> SocialPosts => Set<SocialPost>();
+    public DbSet<ZernioEvent> ZernioEvents => Set<ZernioEvent>();
 
     /// <summary>Every AuditLog row is stamped with its request/source provenance
     /// on save (Audit/AuditStampInterceptor), so the per-file audit helpers carry
@@ -438,6 +443,24 @@ public class AppDbContext : DbContext
             .IsUnique().HasDatabaseName("uniq_libraryentity");
         b.Entity<LibraryEntity>().HasIndex(l => new { l.Kind, l.EntityId })
             .HasDatabaseName("ix_libraryentity_entity");
+
+        // ---- social media through Zernio (Data/Social) ---------------------------
+        b.Entity<SocialProfile>().ToTable("crm_socialprofile");
+        b.Entity<SocialProfile>().HasIndex(p => p.ProfileId).IsUnique().HasDatabaseName("uniq_socialprofile_profile");
+        b.Entity<SocialProfile>().HasIndex(p => p.EntityId).HasDatabaseName("ix_socialprofile_entity");
+        b.Entity<SocialThread>().ToTable("crm_socialthread");
+        b.Entity<SocialThread>().HasIndex(t => t.ThreadId).IsUnique().HasDatabaseName("uniq_socialthread_thread");
+        b.Entity<SocialThread>().HasIndex(t => new { t.ZernioAccountId, t.RootCommentId })
+            .HasDatabaseName("ix_socialthread_root");
+        b.Entity<SocialPost>().ToTable("crm_socialpost");
+        b.Entity<SocialPost>().HasIndex(p => p.ZernioPostId).HasDatabaseName("ix_socialpost_zernio");
+        b.Entity<SocialPost>().HasIndex(p => new { p.EntityId, p.Status }).HasDatabaseName("ix_socialpost_entity_status");
+        Json<SocialPost, List<Dictionary<string, object?>>>(b, x => x.Media);
+        Json<SocialPost, List<string>>(b, x => x.AccountIds);
+        Json<SocialPost, List<string>>(b, x => x.Platforms);
+        Json<SocialPost, List<Dictionary<string, object?>>>(b, x => x.Results);
+        b.Entity<ZernioEvent>().ToTable("crm_zernioevent");
+        b.Entity<ZernioEvent>().HasIndex(e => e.EventId).IsUnique().HasDatabaseName("uniq_zernioevent_event");
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this

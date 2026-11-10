@@ -60,6 +60,11 @@ public class InboundProcessor
         if (group) return ProcessGroupInbound(channel, key, text, name, accountId, wamid, providerTs,
             replyToExternalId, sender, addressedToUs);
 
+        // a comment, a review or a DM through Zernio (Data/Social): never a contact link,
+        // never STOP / flows / "who are you?" — and a public comment is answered in public
+        if (channel == ChatBranch.Domain.Channels.Social)
+            return ProcessSocialInbound(key, text, name, accountId, wamid, providerTs, sender);
+
         // the conversation of the RECEIVING number's company: a customer writing to a
         // second company's number gets that company's own conversation (never another's)
         var thread = _threads.GetOrCreateThread(channel, key, name, accountId);
@@ -167,6 +172,60 @@ public class InboundProcessor
         return msg;
     }
 
+    /// <summary>
+    /// The inbound path of a SOCIAL conversation (<see cref="ChatBranch.Data.Social.SocialChannels"/>):
+    /// a public comment, a Google review or a DM from a platform ChatBranch has no
+    /// native channel for. The message keeps its author (<see cref="InboundSender"/>);
+    /// a brand-new thread starts with the AI OFF unless the inbox's own AI default is
+    /// on (a public reply written by a machine needs an operator's say-so); team routing,
+    /// automations, notifications and the AI (when on) run as usual. Nothing that
+    /// assumes a known customer runs: no contact link by phone, no invite binder,
+    /// background AI tasks, STOP/START, flow resumption or identity ask.
+    /// </summary>
+    private Message ProcessSocialInbound(string key, string text, string? name, int? accountId, string externalId,
+        DateTime? providerTs, InboundSender? sender)
+    {
+        var channel = ChatBranch.Domain.Channels.Social;
+        var thread = _threads.GetOrCreateThread(channel, key, name, accountId);
+        try { Reattribute(thread, accountId); } catch { }
+        try
+        {
+            if (!_db.Messages.Any(m => m.ThreadId == thread.Id))
+            {
+                var account = accountId is int aid ? _db.ChannelAccounts.Find(aid) : null;
+                var on = InboxSettings.AiDefault(account) == true;
+                if (thread.AiEnabled != on)
+                {
+                    thread.AiEnabled = on;
+                    _db.SaveChanges();
+                }
+            }
+        }
+        catch { /* a default never breaks a webhook */ }
+
+        var msg = _threads.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
+            text, status: "received", externalId: externalId, accountId: accountId, providerTs: providerTs,
+            sender: sender);
+
+        try { AutoAssignTeam(thread); } catch { }
+        try
+        {
+            var isFirst = _db.Messages.Count(m => m.ThreadId == thread.Id
+                                                  && m.Direction == MessageDirection.In) <= 1;
+            if (isFirst) _automation.Run("conversation_created", thread, text, isFirstMessage: true);
+            _automation.Run("message_created", thread, text, isFirst);
+        }
+        catch { }
+        NotificationService.NotifyInboundMessage(_db, thread, text);
+        _responder.OnCustomerMessage(thread);
+        try
+        {
+            if (!thread.OptedOut && AiEligibility.Decide(_db, _scoping, thread).Enabled) TryAiReply(thread);
+        }
+        catch { /* never breaks the webhook */ }
+        return msg;
+    }
+
     /// <summary>Apply a customer message to the conversation's STOP/START state (never throws).</summary>
     public string? ApplyOptOut(Thread thread, string? text) =>
         OptOut.Apply(_db, _scoping, _threads, thread, text);
@@ -240,7 +299,8 @@ public class InboundProcessor
     /// </summary>
     private void LinkContact(Thread thread, int? accountId)
     {
-        if (thread.ContactId != null || GroupChats.IsGroup(thread)) return;
+        if (thread.ContactId != null || GroupChats.IsGroup(thread)
+            || thread.Channel == ChatBranch.Domain.Channels.Social) return;
         try
         {
             var contact = MatchContact(thread.Channel, thread.Key, ReceivingEntity(thread, accountId));

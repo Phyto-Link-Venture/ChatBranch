@@ -97,6 +97,7 @@ export const ui: Dict<typeof source> = {
     website: '网站聊天',
     voice: '语音',
     chat: '聊天',
+    social: '社交媒体',
   },
   languages: {
     auto: '自动识别',

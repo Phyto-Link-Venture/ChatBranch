@@ -675,6 +675,9 @@ public static class InboxThreadsEndpoints
             .OfType<int>().Distinct().ToList();
         var companyNames = await db.Entities.AsNoTracking().Where(e => companyIds.Contains(e.Id))
             .ToDictionaryAsync(e => e.Id, e => e.Name);
+        // social comments / reviews / DMs (Data/Social): their `social` object
+        var socialMap = SocialEndpoints.SocialMap(db,
+            threads.Values.Where(x => x.Channel == ChatBranch.Domain.Channels.Social).Select(x => x.Id));
         var outv = new List<Dictionary<string, object?>>();
         foreach (var c in page)
         {
@@ -752,6 +755,7 @@ public static class InboxThreadsEndpoints
                 ["message_count"] = stat?.Count ?? 0,
                 ["created_at"] = DateTime.SpecifyKind(t.CreatedAt, DateTimeKind.Utc).ToString("o"),
             });
+            if (socialMap.TryGetValue(t.Id, out var social)) outv[^1]["social"] = social;
         }
         return outv;
     }

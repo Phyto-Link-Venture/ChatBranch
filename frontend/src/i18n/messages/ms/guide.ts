@@ -351,6 +351,40 @@ export const guide: Dict<typeof source> = {
         },
       },
     },
+    social: {
+      title: 'Siaran media sosial',
+      intro: 'Tulis siaran sekali dan terbitkan ke akaun media sosial anda — sekarang atau kemudian.',
+      steps: {
+        s1: {
+          title: 'Siaran media sosial',
+          body: 'Siaran dihantar melalui Zernio ke akaun media sosial yang disambungkan di Saluran → Akaun media sosial.',
+        },
+        s2: {
+          title: 'Siarkan ke',
+          body: 'Pilih akaun yang akan menerima siaran. Ia dikumpulkan mengikut rangkaian, dan setiap rangkaian ada pembilang aksara sendiri di bawah teks.',
+        },
+        s3: {
+          title: 'Draf dengan AI',
+          body: 'Terangkan siaran dalam satu baris, pilih nada, dan AI menulis versi pertama yang boleh anda sunting.',
+        },
+        s4: {
+          title: 'Foto dan video',
+          body: 'Tambah gambar atau video. Ia dimuat naik sekali dan dihantar bersama siaran.',
+        },
+        s5: {
+          title: 'Sekarang atau kemudian',
+          body: 'Terbitkan sekarang menghantarnya serta-merta. Jadualkan memilih tarikh dan masa dalam zon waktu perniagaan anda.',
+        },
+        s6: {
+          title: 'Siaran anda',
+          body: 'Setiap siaran dengan statusnya — dijadualkan, diterbitkan, sebahagian diterbitkan atau gagal — dan pautan ke salinan setiap akaun. Cuba semula yang gagal, padam yang tidak diperlukan lagi.',
+        },
+        s7: {
+          title: 'Senarai atau kalendar',
+          body: 'Tukar antara senarai dan kalendar minggu atau bulan.',
+        },
+      },
+    },
     automations: {
       title: 'Automasi',
       intro: 'Peraturan ringkas “apabila ini berlaku, lakukan itu” untuk perbualan.',
@@ -737,6 +771,10 @@ export const guide: Dict<typeof source> = {
           title: 'Lanjutan',
           body: 'Alamat webhook Meta dan tetapan mel lalai. Anda jarang memerlukannya — pembangun anda mungkin memintanya sekali.',
         },
+        s8: {
+          title: 'Akaun media sosial',
+          body: 'Instagram, Facebook, TikTok, LinkedIn, Google Business dan lain-lain, disambungkan melalui Zernio. Komen, ulasan dan mesejnya masuk ke Sembang; siaran ditulis di halaman Siaran media sosial.',
+        },
       },
     },
     integrations: {
@@ -762,6 +800,10 @@ export const guide: Dict<typeof source> = {
         s5: {
           title: 'Akaun yang disambungkan',
           body: 'Setiap sambungan yang telah dibuat, siapa yang menggunakannya dan statusnya, dengan butang untuk mengurusnya.',
+        },
+        s6: {
+          title: 'Zernio (media sosial)',
+          body: 'Satu kunci yang menghubungkan ChatBranch dengan Zernio, webhooknya dan entiti mana yang memiliki profil Zernio mana. Super admin menetapkannya sekali.',
         },
       },
     },

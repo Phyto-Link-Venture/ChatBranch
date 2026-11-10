@@ -17,7 +17,23 @@
  */
 
 import { useCallback, type CSSProperties } from 'react'
-import { Globe, Mail, MessageSquareText, Phone, ShoppingBag, Smartphone } from 'lucide-react'
+import {
+  AtSign,
+  Cloud,
+  Ghost,
+  Globe,
+  Linkedin,
+  Mail,
+  MessageCircle,
+  MessageSquareText,
+  MessagesSquare,
+  Phone,
+  Pin,
+  Share2,
+  ShoppingBag,
+  Smartphone,
+  Store,
+} from 'lucide-react'
 import { useT, type MessageKey, type TFunction } from '@/i18n'
 
 type BrandKey =
@@ -40,6 +56,8 @@ type BrandKey =
   | 'douyin'
   | 'zalo'
   | 'tiktokshop'
+  | 'youtube'
+  | 'x'
 
 const TIKTOK_PATH =
   'M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z'
@@ -65,11 +83,13 @@ const BRAND: Record<BrandKey, { label: string; hex: string; path: string; dark?:
   zalo: { label: 'Zalo', hex: '#0068FF', path: 'M12.49 10.2722v-.4496h1.3467v6.3218h-.7704a.576.576 0 01-.5763-.5729l-.0006.0005a3.273 3.273 0 01-1.9372.6321c-1.8138 0-3.2844-1.4697-3.2844-3.2823 0-1.8125 1.4706-3.2822 3.2844-3.2822a3.273 3.273 0 011.9372.6321l.0006.0005zM6.9188 7.7896v.205c0 .3823-.051.6944-.2995 1.0605l-.03.0343c-.0542.0615-.1815.206-.2421.2843L2.024 14.8h4.8948v.7682a.5764.5764 0 01-.5767.5761H0v-.3622c0-.4436.1102-.6414.2495-.8476L4.8582 9.23H.1922V7.7896h6.7266zm8.5513 8.3548a.4805.4805 0 01-.4803-.4798v-7.875h1.4416v8.3548H15.47zM20.6934 9.6C22.52 9.6 24 11.0807 24 12.9044c0 1.8252-1.4801 3.306-3.3066 3.306-1.8264 0-3.3066-1.4808-3.3066-3.306 0-1.8237 1.4802-3.3044 3.3066-3.3044zm-10.1412 5.253c1.0675 0 1.9324-.8645 1.9324-1.9312 0-1.065-.865-1.9295-1.9324-1.9295s-1.9324.8644-1.9324 1.9295c0 1.0667.865 1.9312 1.9324 1.9312zm10.1412-.0033c1.0737 0 1.945-.8707 1.945-1.9453 0-1.073-.8713-1.9436-1.945-1.9436-1.0753 0-1.945.8706-1.945 1.9436 0 1.0746.8697 1.9453 1.945 1.9453z' },
   stripe: { label: 'Stripe', hex: '#635BFF', path: 'M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.594-7.305h.003z' },
   // a video-camera glyph in Zoom blue (the integration card, the skill form)
+  youtube: { label: 'YouTube', hex: '#FF0000', path: 'M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z' },
+  x: { label: 'X', hex: '#000000', path: 'M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z', dark: true },
   zoom: { label: 'Zoom', hex: '#0B5CFF', path: 'M4 6h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm12 4.5 5.2-3a.5.5 0 0 1 .8.43v8.14a.5.5 0 0 1-.8.43L16 13.5z' },
 }
 
 /** Channel ids used across the app → the mark that represents them. */
-const ALIAS: Record<string, BrandKey | 'email' | 'website' | 'voice' | 'sms' | 'chat' | 'shopee' | 'lazada'> = {
+const ALIAS: Record<string, BrandKey | keyof typeof GLYPH> = {
   whatsapp: 'whatsapp',
   wa: 'whatsapp',
   baileys: 'whatsapp',
@@ -114,6 +134,22 @@ const ALIAS: Record<string, BrandKey | 'email' | 'website' | 'voice' | 'sms' | '
   lazada: 'lazada',
   tiktok_shop: 'tiktokshop',
   tiktokshop: 'tiktokshop',
+  // social networks reached through Zernio (lib/social.ts PLATFORMS). YouTube and X
+  // carry their real marks; the rest an accurate generic glyph in brand colour.
+  social: 'social',
+  zernio: 'social',
+  youtube: 'youtube',
+  twitter: 'x',
+  x: 'x',
+  linkedin: 'linkedin',
+  threads: 'threads',
+  pinterest: 'pinterest',
+  googlebusiness: 'googlebusiness',
+  google_business: 'googlebusiness',
+  bluesky: 'bluesky',
+  reddit: 'reddit',
+  discord: 'discord',
+  snapchat: 'snapchat',
 }
 
 const GLYPH = {
@@ -124,6 +160,15 @@ const GLYPH = {
   chat: MessageSquareText,
   shopee: ShoppingBag,
   lazada: ShoppingBag,
+  social: Share2,
+  linkedin: Linkedin,
+  threads: AtSign,
+  pinterest: Pin,
+  googlebusiness: Store,
+  bluesky: Cloud,
+  reddit: MessageCircle,
+  discord: MessagesSquare,
+  snapchat: Ghost,
 } as const
 
 /**
@@ -139,6 +184,15 @@ const GENERIC: Record<keyof typeof GLYPH, { lbl?: MessageKey; en: string; hex?: 
   chat: { lbl: 'ui.channel.chat', en: 'Chat' },
   shopee: { en: 'Shopee', hex: '#EE4D2D' },
   lazada: { en: 'Lazada', hex: '#0F156D' },
+  social: { lbl: 'ui.channel.social', en: 'Social' },
+  linkedin: { en: 'LinkedIn', hex: '#0A66C2' },
+  threads: { en: 'Threads' },
+  pinterest: { en: 'Pinterest', hex: '#E60023' },
+  googlebusiness: { en: 'Google Business', hex: '#4285F4' },
+  bluesky: { en: 'Bluesky', hex: '#0085FF' },
+  reddit: { en: 'Reddit', hex: '#FF4500' },
+  discord: { en: 'Discord', hex: '#5865F2' },
+  snapchat: { en: 'Snapchat', hex: '#C9A800' },
 }
 
 /**

@@ -123,6 +123,13 @@ export const TOURS: TourDef[] = [
     steps: steps('', 'journeys-new', 'journeys-list', 'journeys-view', 'journeys-canvas', 'journeys-live', 'journeys-runs'),
   },
   {
+    id: 'social',
+    href: '/social',
+    group: 'work',
+    match: exact('/social'),
+    steps: steps('page-header', 'social-accounts', 'social-ai', 'social-media', 'social-when', 'social-posts', 'social-view'),
+  },
+  {
     id: 'automations',
     href: '/automations',
     group: 'work',
@@ -242,6 +249,7 @@ export const TOURS: TourDef[] = [
       'channels-card-actions',
       'channels-catalog',
       'channels-advanced',
+      'channels-social',
     ),
   },
   {
@@ -249,7 +257,7 @@ export const TOURS: TourDef[] = [
     href: '/integrations',
     group: 'setup',
     match: exact('/integrations'),
-    steps: steps('page-header', 'integrations-reach', 'integrations-providers', 'integrations-connect', 'integrations-accounts'),
+    steps: steps('page-header', 'integrations-reach', 'integrations-providers', 'integrations-connect', 'integrations-accounts', 'integrations-zernio'),
   },
   {
     id: 'account',

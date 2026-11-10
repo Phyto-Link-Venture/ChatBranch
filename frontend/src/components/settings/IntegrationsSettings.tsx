@@ -30,6 +30,7 @@ import { useAccess } from '@/lib/useAccess'
 import { expireSessionOn401 } from '@/lib/auth'
 import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 import { useSettingsDirty } from './SettingsDirtyContext'
+import { ZernioCard } from './ZernioCard'
 
 /* ---------- types (mirror integrations/views.py `_payload` / `providers`) ---------- */
 
@@ -677,6 +678,9 @@ export function IntegrationsSettings() {
         </div>
 
       </section>
+
+      {/* ---- Zernio (social media): the deployment's key, webhook and entity profiles ---- */}
+      <ZernioCard />
 
       {/* ---- connected accounts (across every provider) ---- */}
       {accounts.length > 0 && (

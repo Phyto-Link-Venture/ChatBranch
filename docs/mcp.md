@@ -612,6 +612,23 @@ conversation route.
 | `voice_get_pronunciation` | Read the pronunciation list | read | signed in |
 | `voice_set_pronunciation` | Set the pronunciation list | write | `pronunciation.manage` |
 
+#### social (12)
+
+| Tool | What it does | Kind | Needs |
+|---|---|---|---|
+| `social_list_accounts` | List social accounts | read | `social.view` or `channels.view` |
+| `social_connect_url` | Get a social account connect link | write · open-world | `social.manage` |
+| `social_disconnect_account` | Disconnect a social account | write · **destructive** · open-world | `social.manage` |
+| `social_hide_comment` | Hide or unhide a social comment | write · open-world | `chats.send` |
+| `social_private_reply` | Reply privately to a commenter | write · open-world | `chats.send` |
+| `social_list_posts` | List social posts | read | `social.view` |
+| `social_get_post` | Get a social post | read | `social.view` |
+| `social_create_post` | Create, schedule or publish a social post | write · open-world | `social.publish` |
+| `social_update_post` | Edit a social post | write · open-world | `social.publish` |
+| `social_delete_post` | Delete a social post | write · **destructive** · open-world | `social.publish` |
+| `social_retry_post` | Retry a failed social post | write · open-world | `social.publish` |
+| `social_draft_post` | Draft a social post with AI | read | `social.publish` |
+
 #### search (1)
 
 | Tool | What it does | Kind | Needs |
@@ -644,6 +661,10 @@ conversation route.
 
 | Endpoint | Why there is no tool |
 |---|---|
+| `GET /api/zernio/status` | credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI |
+| `POST /api/zernio/test` | tests the deployment's Zernio API key (Settings → Integrations) — a credential check a person runs after saving the key |
+| `POST /api/zernio/webhook/register` | credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets (it generates and stores the Zernio webhook signing secret) |
+| `POST /api/social/media` | binary upload (multipart) of a post's photo or video — social_create_post takes public https media URLs instead |
 | `POST /api/media/library` | binary upload (multipart): a person drops a file in from the dashboard or their phone. An AI caller asks for an upload link with media_create_upload and PUTs to it, then sends by file_id |
 | `GET /api/media/library/{fileId}/file` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file — media_list returns each file's id, name and type |
 | `GET /api/oauth/authorize/{request}` | connecting an AI app: a person approves it in their browser and manages their own connections — an AI acting as them must not be able to grant, read or revoke its own access |

@@ -95,6 +95,7 @@ export const ui = {
     website: 'Website chat',
     voice: 'Voice',
     chat: 'Chat',
+    social: 'Social',
   },
   languages: {
     auto: 'Auto-detect',

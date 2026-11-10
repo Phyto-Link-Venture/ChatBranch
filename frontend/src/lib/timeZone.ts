@@ -128,6 +128,43 @@ export function dayStartIso(ymd: string, addDays = 0, zone: string | undefined =
   }
 }
 
+/**
+ * A wall-clock time ("2026-10-12T14:30", what a datetime-local input gives) in
+ * `zone` → the UTC instant (ISO). No zone = this device's clock. Undefined for a
+ * malformed value.
+ */
+export function wallTimeToIso(local: string, zone?: string): string | undefined {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(local)
+  if (!m) return undefined
+  const [y, mo, d, h, mi] = m.slice(1).map(Number)
+  if (!zone) return new Date(y, mo - 1, d, h, mi).toISOString()
+  const wall = Date.UTC(y, mo - 1, d, h, mi)
+  try {
+    let t = wall - offsetMs(zone, wall)
+    t = wall - offsetMs(zone, t) // across a DST change, measure at the answer itself
+    return new Date(t).toISOString()
+  } catch {
+    return new Date(y, mo - 1, d, h, mi).toISOString()
+  }
+}
+
+/** A UTC instant → the wall-clock "YYYY-MM-DDTHH:mm" it reads in `zone` (a datetime-local value). */
+export function isoToWallTime(iso: string, zone?: string): string {
+  const v = new Date(iso)
+  if (Number.isNaN(v.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    ...(zone ? { timeZone: zone } : {}),
+  }).formatToParts(v)
+  const p = (type: string) => parts.find((x) => x.type === type)?.value ?? ''
+  return `${p('year')}-${p('month')}-${p('day')}T${p('hour')}:${p('minute')}`
+}
+
 /** Today's calendar day ("2026-10-12") in the zone times are shown in. */
 export function todayKey(now: number = Date.now(), zone: string | undefined = zoneFor(getTimeZoneState())): string {
   const parts = new Intl.DateTimeFormat('en-CA', {

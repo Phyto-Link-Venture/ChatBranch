@@ -41,6 +41,8 @@ public static class WhatsAppSettingsEndpoints
         "chat_provider_pref", "quiet_start", "quiet_end",
         // the phone app's push credential: a Firebase service-account JSON
         PushSettings.FcmServiceAccountKey,
+        // the deployment's ONE Zernio API key (social media — Data/Social)
+        "zernio_api_key",
     };
 
     /// <summary>Setting key → the .env name that is its fallback (wa_config._GLOBAL_ENV).</summary>
@@ -58,6 +60,7 @@ public static class WhatsAppSettingsEndpoints
         ["quiet_start"] = "WHATSAPP_QUIET_START",
         ["quiet_end"] = "WHATSAPP_QUIET_END",
         [PushSettings.FcmServiceAccountKey] = "FCM_SERVICE_ACCOUNT",
+        ["zernio_api_key"] = "ZERNIO_API_KEY",
     };
 
     private static readonly string[] ChatProviders = ChatBranch.Data.Ai.LlmProviderCatalog.Ids;
@@ -1411,6 +1414,7 @@ public static class WhatsAppSettingsEndpoints
             openrouter_api_key_masked = Mask(Global(sc, "openrouter_api_key")),
             google_api_key_masked = Mask(Global(sc, "google_api_key")),
             ilmu_api_key_masked = Mask(Global(sc, "ilmu_api_key")),
+            zernio_api_key_masked = Mask(Global(sc, "zernio_api_key")),
             chat_provider_pref = Global(sc, "chat_provider_pref"),
             // quiet hours are not secrets — full values, "HH:MM" server-local time
             quiet_start = Global(sc, "quiet_start"),

@@ -12,6 +12,7 @@ export const shell = {
     aiPlayground: 'AI playground',
     aiTasks: 'Background AI tasks',
     automations: 'Automations',
+    social: 'Social posts',
     voice: 'Voice & calls',
     templates: 'Templates',
     knowledge: 'Knowledge base',

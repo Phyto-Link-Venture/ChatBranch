@@ -351,6 +351,40 @@ export const guide: Dict<typeof source> = {
         },
       },
     },
+    social: {
+      title: '社交媒体帖子',
+      intro: '写一次帖子，立即或定时发布到你的社交账号。',
+      steps: {
+        s1: {
+          title: '社交媒体帖子',
+          body: '帖子通过 Zernio 发布到在「渠道 → 社交账号」中连接的账号。',
+        },
+        s2: {
+          title: '发布到',
+          body: '选择要发布的账号，按平台分组；每个平台在正文下方都有自己的字数计数。',
+        },
+        s3: {
+          title: 'AI 起草',
+          body: '用一句话描述帖子、选择语气，AI 会写出可编辑的初稿。',
+        },
+        s4: {
+          title: '图片和视频',
+          body: '添加图片或视频，上传一次即随帖子发布。',
+        },
+        s5: {
+          title: '立即或定时',
+          body: '「立即发布」马上发出；「定时发布」按你的营业时区选择日期和时间。',
+        },
+        s6: {
+          title: '你的帖子',
+          body: '每条帖子及其状态——已排程、已发布、部分发布或失败——并附各账号的帖子链接。可重试失败的帖子，删除不再需要的帖子。',
+        },
+        s7: {
+          title: '列表或日历',
+          body: '在列表与周、月日历之间切换。',
+        },
+      },
+    },
     automations: {
       title: '自动化规则',
       intro: '针对对话的简单“当发生这件事，就做那件事”规则。',
@@ -737,6 +771,10 @@ export const guide: Dict<typeof source> = {
           title: '高级',
           body: 'Meta Webhook 地址和默认邮件设置。你很少需要用到——开发人员可能会找你要一次。',
         },
+        s8: {
+          title: '社交账号',
+          body: '通过 Zernio 连接的 Instagram、Facebook、TikTok、LinkedIn、Google 商家等。它们的评论、评价和私信会进入「聊天」；帖子在「社交媒体帖子」页面撰写。',
+        },
       },
     },
     integrations: {
@@ -762,6 +800,10 @@ export const guide: Dict<typeof source> = {
         s5: {
           title: '已连接的账号',
           body: '目前建立的所有连接、谁在使用以及状态，并提供管理按钮。',
+        },
+        s6: {
+          title: 'Zernio（社交媒体）',
+          body: '将 ChatBranch 连接到 Zernio 的唯一密钥、它的 Webhook，以及哪个实体拥有哪个 Zernio 资料。由超级管理员设置一次。',
         },
       },
     },

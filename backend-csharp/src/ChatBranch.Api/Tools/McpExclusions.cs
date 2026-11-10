@@ -59,6 +59,11 @@ public static class McpExclusions
 
     public static readonly IReadOnlyList<Rule> All = new Rule[]
     {
+        // social media through Zernio: the key, its webhook secret and file bytes stay with a person
+        new("GET", "/api/zernio/status", CredentialRead),
+        new("POST", "/api/zernio/test", "tests the deployment's Zernio API key (Settings → Integrations) — a credential check a person runs after saving the key"),
+        new("POST", "/api/zernio/webhook/register", Credentials + " (it generates and stores the Zernio webhook signing secret)"),
+        new("POST", "/api/social/media", "binary upload (multipart) of a post's photo or video — social_create_post takes public https media URLs instead"),
         // ---- the media library: the bytes themselves ---------------------------
         new("POST", "/api/media/library",
             "binary upload (multipart): a person drops a file in from the dashboard or their phone. " +

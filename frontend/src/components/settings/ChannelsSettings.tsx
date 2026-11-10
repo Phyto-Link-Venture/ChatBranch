@@ -33,6 +33,7 @@ import {
   type Step,
 } from '@/components/channels/InboxSetupDrawer'
 import { ChannelsAdvanced } from '@/components/channels/ChannelsAdvanced'
+import { SocialAccountsSection } from '@/components/channels/SocialAccountsSection'
 import {
   FILTERS,
   KINDS,
@@ -395,6 +396,9 @@ export function ChannelsSettings() {
             </div>
           )}
         </section>
+
+        {/* ── Social accounts (via Zernio) ─────────────────────────────── */}
+        <SocialAccountsSection />
 
         {/* ── Add a channel ─────────────────────────────────────────────── */}
         <section data-tour="channels-catalog" className="flex flex-col gap-3" aria-labelledby="add-channel-h">

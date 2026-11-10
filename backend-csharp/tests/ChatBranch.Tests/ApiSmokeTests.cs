@@ -149,6 +149,8 @@ public class ApiFactory : WebApplicationFactory<Program>
             // CommerceBridgeTests swaps in its own fake where it needs one.
             services.AddSingleton<ChatBranch.Data.Sidecars.ICommerceGateway,
                 ChatBranch.Data.Sidecars.NullCommerceGateway>();
+            // Zernio is never reached from the suite either (ZernioTests swap in a fake)
+            services.AddSingleton<ChatBranch.Data.Social.IZernioClient, ChatBranch.Data.Social.NullZernioClient>();
         });
 
     protected override IHost CreateHost(IHostBuilder builder)

@@ -82,6 +82,10 @@ public static class AdminEndpoints
         ("testlab.run", "Review", "Run the Test lab"),
         // Settings → Security: the organization's two-step sign-in policy (require_2fa)
         ("security.manage", "Settings", "Manage sign-in security"),
+        // Social media through Zernio (/social, Channels → Social accounts)
+        ("social.view", "Channels", "View social posts"),
+        ("social.publish", "Channels", "Publish & schedule social posts"),
+        ("social.manage", "Channels", "Connect social accounts"),
     };
 
     private static readonly string[] CapabilityIds =

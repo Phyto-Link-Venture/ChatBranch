@@ -97,6 +97,7 @@ export const ui: Dict<typeof source> = {
     website: 'Sembang laman web',
     voice: 'Suara',
     chat: 'Sembang',
+    social: 'Media sosial',
   },
   languages: {
     auto: 'Kesan automatik',

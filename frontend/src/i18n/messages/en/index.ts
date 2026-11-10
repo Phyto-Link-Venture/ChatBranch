@@ -28,6 +28,7 @@ import { billing } from './billing'
 import { guide } from './guide'
 import { manual } from './manual'
 import { account } from './account'
+import { social } from './social'
 
 export const en = {
   common,
@@ -59,6 +60,7 @@ export const en = {
   guide,
   manual,
   account,
+  social,
 }
 
 export type Messages = typeof en

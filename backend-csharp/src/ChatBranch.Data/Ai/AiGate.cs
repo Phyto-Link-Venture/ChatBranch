@@ -1017,7 +1017,9 @@ public class AiGate
     {
         if (thread.OptedOut) return "The contact opted out (STOP) — nothing was sent.";
         // a group has no contact by design: an operator switching its AI on is the consent
+        // a social comment / review / DM (Data/Social) is never a contact: the AI tick is the consent
         if (thread.ContactId == null && thread.Channel != ChatBranch.Domain.Channels.Website
+            && thread.Channel != ChatBranch.Domain.Channels.Social
             && !ChatBranch.Data.Channels.GroupChats.IsGroup(thread))
             return "This conversation isn't linked to a contact — the AI only writes to known contacts.";
         if (!humanDecision && !AiAllowed(thread))

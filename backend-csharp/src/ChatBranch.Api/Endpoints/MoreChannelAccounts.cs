@@ -102,10 +102,13 @@ public static class MoreChannelAccounts
     /// accounts API must not offer to create one (see <see cref="Commerce"/>).
     /// </summary>
     public static bool Handles(string? channel) =>
-        MoreChannels.Handles(channel) && !MoreChannels.IsCommerce(channel);
+        MoreChannels.Handles(channel) && !MoreChannels.IsExternallyConnected(channel);
 
     /// <summary>A marketplace shop: listed and editable as an inbox, never credential-edited.</summary>
     public static bool Commerce(string? channel) => MoreChannels.IsCommerce(channel);
+
+    /// <summary>A Zernio social account: listed and editable as an inbox, never credential-edited.</summary>
+    public static bool Social(string? channel) => MoreChannels.IsSocial(channel);
 
     public static bool CanSetWebhook(string channel) => channel is ChannelIds.Line or ChannelIds.Viber;
 
