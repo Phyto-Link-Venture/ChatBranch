@@ -160,6 +160,31 @@ public sealed class LineTransport : IChannelTransport
         return r.Is2xx ? r.Str("displayName") : "";
     }
 
+    /// <summary>A group's name (<c>GET /v2/bot/group/{groupId}/summary</c>); "" when LINE won't say.
+    /// A multi-person room has no name to ask for.</summary>
+    public async Task<string> GroupNameAsync(ChannelAccount a, string groupId, CancellationToken ct = default)
+    {
+        if (!groupId.StartsWith('C')) return "";
+        var r = await ProviderHttp.SendAsync(_http,
+            Req(HttpMethod.Get, $"{ApiBase}/v2/bot/group/{Uri.EscapeDataString(groupId)}/summary", a), ct, a.AccessToken);
+        return r.Is2xx ? r.Str("groupName") : "";
+    }
+
+    /// <summary>A group / room member's display name
+    /// (<c>GET /v2/bot/{group|room}/{id}/member/{userId}</c>); "" when LINE won't say.</summary>
+    public async Task<string> MemberNameAsync(ChannelAccount a, string chatKey, string userId,
+        CancellationToken ct = default)
+    {
+        if (userId.Length == 0 || chatKey.Length < 2) return "";
+        var kind = chatKey[0] == 'C' ? "group" : chatKey[0] == 'R' ? "room" : "";
+        if (kind.Length == 0) return "";
+        var r = await ProviderHttp.SendAsync(_http,
+            Req(HttpMethod.Get,
+                $"{ApiBase}/v2/bot/{kind}/{Uri.EscapeDataString(chatKey)}/member/{Uri.EscapeDataString(userId)}", a),
+            ct, a.AccessToken);
+        return r.Is2xx ? r.Str("displayName") : "";
+    }
+
     public Task<(byte[]? Content, string Detail)> DownloadAsync(ChannelAccount a, InboundMediaRef media,
         CancellationToken ct = default) =>
         ProviderHttp.DownloadAsync(_http,
@@ -183,9 +208,23 @@ public sealed class LineTransport : IChannelTransport
         Convert.ToBase64String(HMACSHA256.HashData(Encoding.UTF8.GetBytes(channelSecret), body));
 }
 
-/// <summary>One LINE webhook event the inbox cares about.</summary>
+/// <summary>One LINE webhook event the inbox cares about. <see cref="UserId"/> is the person who
+/// wrote; <see cref="ChatKey"/> the conversation — the same user id in a 1:1 chat, the groupId
+/// (<c>C…</c>) or roomId (<c>R…</c>) in a group (<see cref="GroupChats"/>).</summary>
 public sealed record LineEvent(string Type, string UserId, string ReplyToken, string MessageId, string Text,
-    DateTime? Timestamp, InboundMediaRef? Media);
+    DateTime? Timestamp, InboundMediaRef? Media)
+{
+    private readonly string? _chatKey;
+    /// <summary>The conversation's key: the user (1:1), the group or the room.</summary>
+    public string ChatKey { get => _chatKey ?? UserId; init => _chatKey = value; }
+    /// <summary>"user" | "group" | "room".</summary>
+    public string SourceType { get; init; } = "user";
+    public bool IsGroup => SourceType is "group" or "room";
+    /// <summary>A group message that @mentions the bot (<c>message.mention.mentionees[].isSelf</c>).</summary>
+    public bool Mentioned { get; init; }
+    /// <summary>The message this one quotes (<c>message.quotedMessageId</c>; "" = none).</summary>
+    public string QuotedMessageId { get; init; } = "";
+}
 
 public static class LineInbound
 {
@@ -199,19 +238,30 @@ public static class LineInbound
         foreach (var e in list.EnumerateArray())
         {
             var type = ProviderHttp.Str(e, "type");
-            // one-to-one chats only: a group / room has no single customer to answer
-            if (ProviderHttp.Str(e, "source", "type") != "user") continue;
+            // a 1:1 chat is keyed by the user; a group / multi-person room by its own id
+            // (Channels/GroupChats.cs) — the user is then the message's author
+            var sourceType = ProviderHttp.Str(e, "source", "type");
             var userId = ProviderHttp.Str(e, "source", "userId");
-            if (userId.Length == 0) continue;
+            var chatKey = sourceType switch
+            {
+                "user" => userId,
+                "group" => ProviderHttp.Str(e, "source", "groupId"),
+                "room" => ProviderHttp.Str(e, "source", "roomId"),
+                _ => "",
+            };
+            if (chatKey.Length == 0) continue;
+            var isGroup = sourceType is "group" or "room";
             var ts = ProviderHttp.Long(e, "timestamp") is var ms and > 0
                 ? DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime : (DateTime?)null;
             var replyToken = ProviderHttp.Str(e, "replyToken");
             if (type != "message")
             {
-                if (type is "follow" or "unfollow")
+                // following / blocking the account is a 1:1 matter
+                if (type is "follow" or "unfollow" && !isGroup)
                     events.Add(new LineEvent(type, userId, replyToken, "", "", ts, null));
                 else if (type == "unsend" && ProviderHttp.Str(e, "unsend", "messageId") is { Length: > 0 } gone)
-                    events.Add(new LineEvent("unsend", userId, "", gone, "", ts, null));   // the customer took it back
+                    events.Add(new LineEvent("unsend", userId, "", gone, "", ts, null)
+                        { ChatKey = chatKey, SourceType = sourceType });   // the customer took it back
                 continue;
             }
             var m = ProviderHttp.At(e, "message");
@@ -243,7 +293,16 @@ public static class LineInbound
                 media = new InboundMediaRef(id, kind == "file" ? MessagingMedia.TypeFor(name) : kind, name);
             }
             if (text.Length == 0) text = "[message]";
-            events.Add(new LineEvent("message", userId, replyToken, id, text, ts, media));
+            var mentioned = false;
+            if (isGroup && ProviderHttp.At(m, "mention") is { ValueKind: JsonValueKind.Object } mention
+                && mention.TryGetProperty("mentionees", out var mentionees) && mentionees.ValueKind == JsonValueKind.Array)
+                mentioned = mentionees.EnumerateArray().Any(x => x.ValueKind == JsonValueKind.Object
+                    && x.TryGetProperty("isSelf", out var self) && self.ValueKind == JsonValueKind.True);
+            events.Add(new LineEvent("message", userId, replyToken, id, text, ts, media)
+            {
+                ChatKey = chatKey, SourceType = sourceType, Mentioned = mentioned,
+                QuotedMessageId = ProviderHttp.Str(m, "quotedMessageId"),
+            });
         }
         return (destination, events);
     }

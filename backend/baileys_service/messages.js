@@ -17,6 +17,9 @@
  *   mediaKind(message)     -> which attachment an (unwrapped) message carries:
  *                             { key, type, ext, node } — image | video | audio | document
  *   postWithRetry(...)     -> POST to the API, checking res.ok, retrying with backoff
+ *   chatKind / groupSender / meJids / mentionsMe / targetJid
+ *                          -> group chats: which chats are filed, who wrote a group
+ *                             message, whether it addressed us, where a send goes
  *
  * Synchronous and dependency-free, so `node messages.js --selftest` (also run by
  * `node calls.js --selftest`) checks it offline.
@@ -193,6 +196,67 @@ export function parseInbound(message) {
   return { text: extractText(msg), replyTo: quotedId(msg), reaction: null }
 }
 
+// ---- group chats ----
+
+/** What kind of chat a jid is: 'direct' (a person — phone or lid), 'group' (@g.us),
+ *  or null for what ChatBranch never files (status updates, broadcast lists, channels). */
+export function chatKind(jid) {
+  const j = String(jid || '')
+  if (j === 'status@broadcast' || j.endsWith('@broadcast') || j.endsWith('@newsletter')) return null
+  if (j.endsWith('@g.us')) return 'group'
+  if (j.endsWith('@s.whatsapp.net') || j.endsWith('@lid')) return 'direct'
+  return null
+}
+
+/** Who wrote a group message: their full participant jid (phone or lid), the name
+ *  they show, and their phone digits when WhatsApp reveals them ('' otherwise). */
+export function groupSender(m) {
+  const key = m?.key || {}
+  const alt = String(key.participantAlt || key.participantPn || '')
+  return {
+    id: String(key.participant || ''),
+    name: String(m?.pushName || ''),
+    phone: alt.endsWith('@s.whatsapp.net') ? alt.split('@')[0].split(':')[0].replace(/\D/g, '') : '',
+  }
+}
+
+/** A jid without its device suffix: "6012:12@s.whatsapp.net" -> "6012@s.whatsapp.net". */
+export function bareJid(jid) {
+  const j = String(jid || '')
+  const at = j.indexOf('@')
+  if (at < 0) return j
+  return j.slice(0, at).split(':')[0] + j.slice(at)
+}
+
+/** Our own jids (phone + lid) from sock.user, device suffix stripped. */
+export function meJids(user) {
+  return [user?.id, user?.lid].filter((j) => typeof j === 'string' && j.includes('@')).map(bareJid)
+}
+
+/** Was this group message addressed to us — an @mention of our number, or a reply
+ *  quoting one of our messages? `me` = meJids(sock.user). */
+export function mentionsMe(message, me) {
+  const mine = new Set((me || []).map(bareJid))
+  if (!mine.size) return false
+  const msg = unwrap(message)
+  if (!msg || typeof msg !== 'object') return false
+  for (const node of Object.values(msg)) {
+    const ctx = node && typeof node === 'object' ? node.contextInfo : null
+    if (!ctx) continue
+    if (Array.isArray(ctx.mentionedJid) && ctx.mentionedJid.some((j) => mine.has(bareJid(j)))) return true
+    if (ctx.participant && mine.has(bareJid(ctx.participant))) return true
+  }
+  return false
+}
+
+/** The chat a send must target without a number lookup: the API's raw jid, else a
+ *  group jid given as `to`; null = a phone number, resolved the usual way. */
+export function targetJid(to, rawJid) {
+  if (rawJid) return rawJid
+  const t = String(to || '').trim()
+  return t.endsWith('@g.us') ? t : null
+}
+
 /** How far back a message sent from the phone is still synced (seconds); older = history, skipped. */
 export const PHONE_SYNC_WINDOW_S = 15 * 60
 
@@ -297,17 +361,25 @@ export class KeyStore {
  * else a minimal one rebuilt from what the API sent (id, direction, text) — the
  * recipient's app shows the quote either way.
  */
-export function buildQuoted({ jid, id, fromMe = false, text = '' }, store) {
+export function buildQuoted({ jid, id, fromMe = false, text = '', participant = '' }, store) {
   if (!id) return null
   const known = store?.get(id)
   if (known) return known
-  return { key: { remoteJid: jid, id, fromMe: !!fromMe }, message: { conversation: String(text || '').slice(0, 500) } }
+  return { key: messageKey(jid, id, fromMe, participant), message: { conversation: String(text || '').slice(0, 500) } }
+}
+
+/** A message key; in a group, someone else's message also names its author
+ *  (key.participant) — WhatsApp cannot resolve the quote / reaction without it. */
+function messageKey(jid, id, fromMe, participant) {
+  const key = { remoteJid: jid, id, fromMe: !!fromMe }
+  if (participant && !fromMe) key.participant = String(participant)
+  return key
 }
 
 /** `{ react }` content — an empty emoji removes our reaction. */
-export function buildReact({ jid, id, fromMe = false, emoji = '' }) {
+export function buildReact({ jid, id, fromMe = false, emoji = '', participant = '' }) {
   if (!id) throw new Error('msg_id is required')
-  return { react: { text: String(emoji || ''), key: { remoteJid: jid, id, fromMe: !!fromMe } } }
+  return { react: { text: String(emoji || ''), key: messageKey(jid, id, fromMe, participant) } }
 }
 
 /** `{ delete }` content — WhatsApp's "delete for everyone" on a message we sent. */
@@ -526,6 +598,32 @@ export function selftest() {
   check(recallOf({ ...revoke('customer'), key: { id: 'RV2', remoteJid: '1203@g.us' } }, 'notify', now) === null,
     'a group recall is not ours to file')
   check(recallOf(mine('P8'), 'notify', now) === null, 'an ordinary message is not a recall')
+  // group chats: kind, sender, mentions
+  check(chatKind('60123@s.whatsapp.net') === 'direct' && chatKind('9988@lid') === 'direct', 'a person is direct')
+  check(chatKind('120363000000@g.us') === 'group', 'a @g.us jid is a group')
+  for (const j of ['status@broadcast', '12345@broadcast', '1203@newsletter', '', null]) {
+    check(chatKind(j) === null, `${j} is never filed`)
+  }
+  const gm = { key: { remoteJid: '1203@g.us', participant: '9988@lid', participantAlt: '60123:3@s.whatsapp.net' }, pushName: 'Ana' }
+  const gs = groupSender(gm)
+  check(gs.id === '9988@lid' && gs.name === 'Ana' && gs.phone === '60123', 'group sender with a phone alt')
+  check(groupSender({ key: { participant: '9988@lid', participantPn: '60124@s.whatsapp.net' } }).phone === '60124',
+    'participantPn is read too')
+  const lidOnly = groupSender({ key: { participant: '9988@lid', participantAlt: '7777@lid' } })
+  check(lidOnly.phone === '' && lidOnly.name === '', 'a lid-only participant has no phone')
+  const me = meJids({ id: '60111:12@s.whatsapp.net', lid: '5555:12@lid' })
+  check(me.length === 2 && me[0] === '60111@s.whatsapp.net' && me[1] === '5555@lid', 'our jids lose the device suffix')
+  check(meJids({ id: '60111@s.whatsapp.net' }).length === 1 && meJids(null).length === 0, 'missing lid / no user')
+  check(mentionsMe({ extendedTextMessage: { text: '@60111 hi', contextInfo: { mentionedJid: ['60111@s.whatsapp.net'] } } }, me),
+    'an @mention of our number')
+  check(mentionsMe({ extendedTextMessage: { text: '@x', contextInfo: { mentionedJid: ['5555@lid'] } } }, me), 'an @mention of our lid')
+  check(mentionsMe({ ephemeralMessage: { message: { imageMessage: { caption: 'x', contextInfo: { mentionedJid: ['60111:12@s.whatsapp.net'] } } } } }, me),
+    'a mention inside a wrapper, with a device suffix')
+  check(mentionsMe({ extendedTextMessage: { text: 'yes', contextInfo: { stanzaId: 'Q', participant: '5555@lid' } } }, me),
+    'a reply quoting our message')
+  check(!mentionsMe({ extendedTextMessage: { text: 'hey', contextInfo: { mentionedJid: ['60999@s.whatsapp.net'], participant: '60998@s.whatsapp.net' } } }, me),
+    'mentioning / quoting someone else is not us')
+  check(!mentionsMe({ conversation: 'plain' }, me) && !mentionsMe({ conversation: 'x' }, []), 'no context, no mention')
   return true
 }
 
@@ -585,6 +683,19 @@ export function selftestOutbound() {
     try { buildPoll(bad) } catch { threw = true }
     check(threw, `poll ${JSON.stringify(bad).slice(0, 40)} is refused`)
   }
+  // groups: a jid as `to`, and the author of someone else's message on a quote / reaction
+  check(targetJid('1203@g.us', null) === '1203@g.us', 'a group jid is its own target')
+  check(targetJid('+60123', null) === null, 'a phone number is looked up')
+  check(targetJid('1203@g.us', '9988@lid') === '9988@lid', 'the raw jid wins')
+  const gq = buildQuoted({ jid: '1203@g.us', id: 'GQ', fromMe: false, text: 't', participant: '9988@lid' }, null)
+  check(gq.key.participant === '9988@lid' && gq.key.remoteJid === '1203@g.us', 'a group quote names its author')
+  check(!('participant' in buildQuoted({ jid: '1203@g.us', id: 'GQ2', fromMe: true, participant: '9988@lid' }, null).key),
+    'our own message carries no participant')
+  check(!('participant' in buildQuoted({ jid, id: 'Q', text: 't' }, null).key), '1:1 quotes unchanged')
+  const gr = buildReact({ jid: '1203@g.us', id: 'GM', emoji: '👍', participant: '9988@lid' })
+  check(gr.react.key.participant === '9988@lid', 'a group reaction names the author')
+  check(!('participant' in buildReact({ jid: '1203@g.us', id: 'GM', fromMe: true, participant: '9988@lid' }).react.key),
+    'reacting to our own group message carries no participant')
   return true
 }
 

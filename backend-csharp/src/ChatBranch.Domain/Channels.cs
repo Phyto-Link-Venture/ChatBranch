@@ -165,6 +165,18 @@ public class Message
     /// the trail still says what it used to say.
     /// </summary>
     public DateTime? EditedAt { get; set; }
+    /// <summary>
+    /// Who wrote an inbound message in a GROUP conversation (<c>Channels/GroupChats.cs</c>):
+    /// the participant's own id — WhatsApp's full participant jid (<c>…@s.whatsapp.net</c>
+    /// or <c>…@lid</c>), a Telegram user id, a LINE userId. "" = not a group message (a
+    /// 1:1 thread's author is the thread itself).
+    /// </summary>
+    public string SenderKey { get; set; } = "";
+    /// <summary>The participant's display name as the channel gave it ("" = unknown).</summary>
+    public string SenderName { get; set; } = "";
+    /// <summary>The participant's phone digits when the channel told us ("" = unknown — a
+    /// WhatsApp <c>@lid</c> participant often has none).</summary>
+    public string SenderPhone { get; set; } = "";
     public DateTime CreatedAt { get; set; }
 }
 

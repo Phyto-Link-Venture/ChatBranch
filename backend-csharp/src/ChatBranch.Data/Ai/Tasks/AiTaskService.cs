@@ -98,6 +98,8 @@ public class AiTaskService
         try
         {
             if (msg.Direction != MessageDirection.In || msg.Source != MessageSource.Customer) return 0;
+            // a group chat's members never consented to background AI reading them
+            if (ChatBranch.Data.Channels.GroupChats.IsGroup(thread)) return 0;
             var tasks = InScope(db, sc, thread.EntityId, thread.Channel);
             if (tasks.Count == 0) return 0;
             var queued = 0;

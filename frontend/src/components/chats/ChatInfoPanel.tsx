@@ -102,7 +102,7 @@ export default function ChatInfoPanel({
       }
     >
       <section className="flex flex-col items-center rounded-xl border border-line bg-card px-4 py-5 text-center">
-        <Avatar name={active.name} size={56} strong />
+        <Avatar name={active.name} size={56} strong group={!!active.is_group} />
         <div className="display mt-2.5 text-[20px] leading-tight text-text-heading">{active.name}</div>
         <div className="mt-1 flex items-center justify-center gap-1.5 text-[12px] text-text-muted">
           <ChannelLogo channel={logoKey(active.channel)} size={13} />
@@ -112,6 +112,11 @@ export default function ChatInfoPanel({
         <div className="mt-0.5 max-w-full truncate text-[12px] text-text-mid">{active.sub}</div>
       </section>
 
+      {active.is_group ? (
+        <InfoCard title={t('chats.info.contact')}>
+          <p className="text-[12px] leading-relaxed text-text-muted">{t('chats.group.contactNote')}</p>
+        </InfoCard>
+      ) : (
       <InfoCard
         title={t('chats.info.contact')}
         note={t(active.contact_id != null ? 'chats.info.contactNoteLinked' : 'chats.info.contactNoteUnlinked')}
@@ -162,6 +167,7 @@ export default function ChatInfoPanel({
           </>
         )}
       </InfoCard>
+      )}
 
       {active.contact_id != null && (
         <InfoCard title={t('chats.info.channels')}>

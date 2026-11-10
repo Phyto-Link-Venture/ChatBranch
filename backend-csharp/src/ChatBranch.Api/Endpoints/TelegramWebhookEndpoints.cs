@@ -62,7 +62,7 @@ public static class TelegramWebhookEndpoints
                 return Results.Ok(new { ok = true });
             }
 
-            var update = TelegramInbound.Parse(root);
+            var update = TelegramInbound.Parse(root, TelegramBot.Username(account), account.ExternalId);
             if (update == null) return Results.Ok(new { ok = true, ignored = true });
 
             try
@@ -77,7 +77,16 @@ public static class TelegramWebhookEndpoints
                 if (known) return Results.Ok(new { ok = true, duplicate = true });
 
                 var msg = processor.ProcessInbound(ChannelIds.Telegram, update.ChatId, update.Text,
-                    update.Name, account.Id, update.MessageId, update.Date, replyToExternalId: update.ReplyTo);
+                    update.Name, account.Id, update.MessageId, update.Date, replyToExternalId: update.ReplyTo,
+                    sender: update.Sender, addressedToUs: update.Mentioned);
+                // a group keeps its current title (Channels/GroupChats.cs)
+                if (update.IsGroup)
+                    try
+                    {
+                        var gt = await db.Threads.FirstOrDefaultAsync(t => t.Id == msg.ThreadId);
+                        if (gt != null) GroupChats.Rename(db, gt, update.Name);
+                    }
+                    catch { }
 
                 // an inbound update proves the bot (and its webhook) work
                 account.LastInboundAt = DateTime.UtcNow;

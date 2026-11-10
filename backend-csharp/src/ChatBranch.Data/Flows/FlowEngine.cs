@@ -1721,6 +1721,8 @@ public partial class FlowEngine
     /// </summary>
     public int OnInboundMessage(Thread thread, string text)
     {
+        // a group chat never starts or resumes a journey (Channels/GroupChats.cs)
+        if (ChatBranch.Data.Channels.GroupChats.IsGroup(thread)) return 0;
         var channel = thread.Channel;
         var key = thread.Key;
         var contact = ContactFor(thread);

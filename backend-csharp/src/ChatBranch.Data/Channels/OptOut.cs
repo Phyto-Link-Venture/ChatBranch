@@ -108,6 +108,8 @@ public static class OptOut
     {
         try
         {
+            // one member typing STOP in a group never opts the whole group out
+            if (GroupChats.IsGroup(thread)) return null;
             var kind = Classify(scoping, text);
             if (kind == null) return null;
             var word = Normalize(text);

@@ -121,6 +121,19 @@ public static class AiEligibility
             return new AiVerdict(false, AiRules.MasterOff, $"Off: AI is switched off for {p.Master.ScopeName}", true);
         if (p.Master.Mode == AiMasterModes.Schedule && !p.Master.AllowsAt(p.NowUtc, p.Zone))
             return new AiVerdict(false, AiRules.Schedule, "Off: outside the AI schedule", true);
+        // a group chat: off unless an operator ticked it on for THIS group — no inbox default,
+        // contact mode or role turns it on — and then it answers only when addressed
+        // (InboundProcessor's group path checks the mention)
+        if (GroupChats.IsGroup(t))
+        {
+            var tick = t.Channel == ChatBranch.Domain.Channels.WhatsApp && t.AccountId is int groupAccount
+                ? Override(t, groupAccount)
+                : HasThreadTick(t) ? t.AiEnabled : null;
+            if (tick != true)
+                return new AiVerdict(false, AiRules.Group,
+                    "Off: group chat — switch AI on for this group and it answers only when mentioned", false);
+            return new AiVerdict(true, AiRules.ChatTick, "On (when mentioned): switched on for this group", false);
+        }
         var mode = ContactAiModes.Normalize(p.ContactMode);
         if (mode == ContactAiModes.Never)
             return new AiVerdict(false, AiRules.ContactNever, "Off: this contact is set to never use AI", true);

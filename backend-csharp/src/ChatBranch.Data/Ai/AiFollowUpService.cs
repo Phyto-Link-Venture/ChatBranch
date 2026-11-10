@@ -78,6 +78,7 @@ public class AiFollowUpService
                 if (!policy.FollowUpEnabled || policy.FollowUpMax <= 0) continue;
                 if (!_gate.AiAllowed(t)) continue;   // the effective tick (AiEligibility)
                 if (t.ContactId == null && t.Channel != ChatBranch.Domain.Channels.Website) continue; // coverage gate
+                if (ChatBranch.Data.Channels.GroupChats.IsGroup(t)) continue; // a group is never chased
                 considered++;
                 if (Consider(t, policy)) submitted++;
             }

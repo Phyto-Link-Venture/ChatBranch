@@ -246,6 +246,12 @@ export const chats: Dict<typeof source> = {
     pickHint: '这位客户与不止一家公司有对话。请选择要打开的那一个——它们彼此分开保存。',
     none: '无公司',
   },
+  group: {
+    badge: '群组',
+    badgeHint: '群聊——多人在此发言，因此不关联到单个联系人',
+    member: '群成员',
+    contactNote: '群聊不关联联系人——每条消息都会显示发送者。',
+  },
   draft: {
     title: 'AI 回复等待审核',
     approveSend: '批准并发送',

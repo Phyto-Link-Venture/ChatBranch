@@ -166,6 +166,8 @@ public static class MessagingEndpoints
         }
         if (!string.IsNullOrEmpty(m.MediaPath))
             outv["media"] = MediaStreamLinks.Payload(m, channel);
+        // a group message's author {id, name, phone} (Channels/GroupChats.cs)
+        if (ChatBranch.Data.Channels.GroupChats.SenderPayload(m) is { } who) outv["sender"] = who;
         return outv;
     }
 
@@ -209,6 +211,8 @@ public static class MessagingEndpoints
             ["company"] = ThreadCompanyPayload(db, t),
             ["address"] = string.IsNullOrEmpty(t.Address) ? t.Key : t.Address,
             ["name"] = string.IsNullOrEmpty(t.Name) ? t.Key : t.Name,
+            // a group conversation (Channels/GroupChats.cs): several people, no contact
+            ["is_group"] = ChatBranch.Data.Channels.GroupChats.IsGroup(t),
             // ai_enabled (the EFFECTIVE rule the auto-reply gate applies), ai_reason,
             // ai_rule, ai_forced and handover are added by ThreadPayload
             ["opted_out"] = t.OptedOut,
@@ -521,6 +525,7 @@ public static class MessagingEndpoints
                     ["company"] = ThreadCompanyPayload(db, t),
                     ["address"] = string.IsNullOrEmpty(t.Address) ? t.Key : t.Address,
                     ["name"] = string.IsNullOrEmpty(t.Name) ? t.Key : t.Name,
+                    ["is_group"] = ChatBranch.Data.Channels.GroupChats.IsGroup(t),
                     ["ai_enabled"] = t.AiEnabled,
                     ["status"] = t.Status,
                     ["assignee"] = t.Assignee,

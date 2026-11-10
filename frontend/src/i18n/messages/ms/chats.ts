@@ -247,6 +247,12 @@ export const chats: Dict<typeof source> = {
       'Pelanggan ini mempunyai perbualan dengan lebih daripada satu syarikat. Pilih yang ingin dibuka — perbualan itu disimpan berasingan.',
     none: 'Tiada syarikat',
   },
+  group: {
+    badge: 'Kumpulan',
+    badgeHint: 'Sembang kumpulan — beberapa orang menulis di sini, jadi ia tidak dipautkan kepada satu kenalan',
+    member: 'Ahli kumpulan',
+    contactNote: 'Sembang kumpulan tidak dipautkan kepada kenalan — setiap mesej menunjukkan siapa yang menulisnya.',
+  },
   draft: {
     title: 'Balasan AI menunggu semakan',
     approveSend: 'Luluskan & hantar',

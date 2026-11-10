@@ -82,6 +82,8 @@ public static class AiRules
     public const string InboxDefault = "inbox_default";
     public const string RoleDefault = "role_default";
     public const string Thread = "thread";
+    /// <summary>A group chat the operator has not switched the AI on for (<c>Channels/GroupChats.cs</c>).</summary>
+    public const string Group = "group";
     public const string Error = "error";
 }
 

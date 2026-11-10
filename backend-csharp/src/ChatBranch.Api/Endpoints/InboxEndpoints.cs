@@ -613,6 +613,8 @@ public static class InboxEndpoints
                 company = MessagingEndpoints.ThreadCompanyPayload(db, t),
                 phone = t.Address != "" ? t.Address : $"+{t.Key}",
                 name = t.Name != "" ? t.Name : $"+{t.Key}",
+                // a group conversation (Channels/GroupChats.cs): several people, no contact
+                is_group = ChatBranch.Data.Channels.GroupChats.IsGroup(t),
                 channel = t.Channel,
                 status = t.Status,
                 account_id = t.AccountId?.ToString(),

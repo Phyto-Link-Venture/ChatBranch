@@ -14,14 +14,15 @@ const MEDIA = ['image', 'video', 'audio', 'document']
 /** Who wrote the quoted message, in the reader's words. */
 function useAuthor() {
   const t = useT()
-  return (q: { dir?: string; source?: string; missing?: boolean }, contactName: string) =>
+  return (q: { dir?: string; source?: string; missing?: boolean; sender_name?: string | null }, contactName: string) =>
     q.missing
       ? t('bubble.quote.missing')
       : q.dir === 'out'
         ? q.source === 'ai'
           ? t('bubble.quote.ai')
           : t('bubble.quote.you')
-        : contactName || t('bubble.quote.customer')
+        : // group chats name the member who wrote it
+          q.sender_name?.trim() || contactName || t('bubble.quote.customer')
 }
 
 function useSnippet() {
@@ -87,7 +88,7 @@ export function ReplyPreview({
   const t = useT()
   const author = useAuthor()
   const snippet = useSnippet()
-  const who = author(m, contactName)
+  const who = author({ ...m, sender_name: m.sender?.name }, contactName)
   return (
     <div className="mb-2 flex items-center gap-2 rounded-lg border border-line bg-card px-3 py-1.5" data-tour="reply-preview">
       <div className="cb-quote cb-quote-composer min-w-0 flex-1">

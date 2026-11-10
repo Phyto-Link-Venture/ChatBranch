@@ -119,7 +119,7 @@ public class MoreChannelsUnitTests
     // ---- parsing ------------------------------------------------------------------
 
     [Fact]
-    public void Line_parse_keeps_user_chats_and_media()
+    public void Line_parse_keeps_user_and_group_chats_and_media()
     {
         var (dest, events) = LineInbound.Parse(J("""
         {"destination":"Ubot","events":[
@@ -132,13 +132,16 @@ public class MoreChannelsUnitTests
           {"type":"unfollow","timestamp":1700000000000,"source":{"type":"user","userId":"U1"}}]}
         """));
         Assert.Equal("Ubot", dest);
-        Assert.Equal(3, events.Count);
+        Assert.Equal(4, events.Count);
         Assert.Equal("hello", events[0].Text);
         Assert.Equal("r1", events[0].ReplyToken);
         Assert.Equal(new DateTime(2023, 11, 14, 22, 13, 20, DateTimeKind.Utc), events[0].Timestamp);
-        Assert.Equal("[image]", events[1].Text);
-        Assert.Equal("m3", events[1].Media!.Ref);
-        Assert.Equal("unfollow", events[2].Type);
+        Assert.False(events[0].IsGroup);
+        // a group message is kept now, keyed by the group (GroupChatTests covers the rest)
+        Assert.Equal(("G", "U2", true), (events[1].ChatKey, events[1].UserId, events[1].IsGroup));
+        Assert.Equal("[image]", events[2].Text);
+        Assert.Equal("m3", events[2].Media!.Ref);
+        Assert.Equal("unfollow", events[3].Type);
     }
 
     [Fact]

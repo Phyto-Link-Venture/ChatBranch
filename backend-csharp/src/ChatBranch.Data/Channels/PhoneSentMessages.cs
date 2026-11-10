@@ -39,7 +39,8 @@ public static class PhoneSentMessages
     {
         try
         {
-            waId = new string((waId ?? "").Where(char.IsDigit).ToArray());
+            // a group's whole jid (a reply typed into the group on the phone), else the digits
+            waId = GroupChats.WhatsAppKey(waId);
             if (waId.Length == 0) return null;
             msgId = (msgId ?? "").Trim();
             if (msgId.Length > 0)
@@ -52,7 +53,9 @@ public static class PhoneSentMessages
 
             var thread = threads.FindForAccount(ChannelIds.WhatsApp, waId, account.Id);
             var started = thread == null;
-            thread ??= threads.GetOrCreateThread(ChannelIds.WhatsApp, waId, null, account.Id);
+            thread ??= threads.GetOrCreateThread(ChannelIds.WhatsApp, waId,
+                GroupChats.IsGroup(ChannelIds.WhatsApp, waId) ? GroupChats.DefaultName(ChannelIds.WhatsApp) : null,
+                account.Id);
             if (started) Started(db, scoping, inbound, thread, account);
 
             var msg = threads.AppendMessage(thread, MessageDirection.Out, MessageSource.ExternalClient, text ?? "",

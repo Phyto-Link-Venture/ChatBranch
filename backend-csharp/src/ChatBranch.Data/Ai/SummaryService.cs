@@ -99,7 +99,7 @@ public class SummaryService
             ? await _db.Contacts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == cid, ct)
             : null;
         var transcript = string.Join("\n", history.Select(m =>
-            $"{(m.Direction == MessageDirection.In ? "Customer" : "Us")}: {Trim(Voice.VoiceTranscriber.Display(m), 300)}"));
+            $"{(m.Direction != MessageDirection.In ? "Us" : m.SenderName.Length > 0 ? m.SenderName : "Customer")}: {Trim(Voice.VoiceTranscriber.Display(m), 300)}"));
 
         var (text, heuristic) = await SummariseAsync(transcript, contact, thread.Channel, ct);
         var (count, asOf) = Extent(thread);

@@ -77,14 +77,27 @@ in-process at 16 kHz mono. One call at a time per gateway (bandwidth + WASM
 sanity). Known library limits: outbound 1:1 audio only — no inbound calls, no
 groups, no video.
 
+## Group chats
+
+A message in a group the number belongs to is pushed to `/api/whatsapp/baileys/inbound`
+keyed by the group itself: `wa_id` = the full `…@g.us` jid (never digits), plus
+`group: {jid, subject}`, `sender: {id, name, phone}` (the participant jid, push name,
+and phone digits when WhatsApp reveals them) and `mentioned` (an @mention of our
+number / lid, or a reply quoting our message — `messages.js mentionsMe`). Group files
+add `sender_id` / `sender_name` to the `/media` form; reactions and delivery ticks
+use the group jid as `wa_id`. Group metadata is cached per number for 1 h (and handed
+to Baileys as `cachedGroupMetadata`), dropped on a membership change, renamed in place
+on `groups.update`. Status updates, broadcast lists and channels are never pushed
+(`chatKind`). History import, "sent from the phone", recalls and edits stay 1:1-only.
+
 ## HTTP API (all requests need `X-Baileys-Secret`)
 
 | Route | What |
 | --- | --- |
 | `GET  /accounts/:id/status` | `{state, qr?, pairing_code?, pairing_phone?, me?, error?}` — pairing state (`state` `qr` = a QR is waiting, `pairing_code` = a code is waiting) |
 | `POST /accounts/:id/start` | begin/refresh pairing. `{}` emits a QR (data URL); `{phone: "+60123456789"}` asks WhatsApp for an 8-character code to type on that phone instead (**400** for a number that cannot be one — no pairing attempt is spent, WhatsApp rate-limits them per number). A session that is already registered just reconnects, code or no code |
-| `POST /accounts/:id/send` | `{to, text, quoted_id?, quoted_from_me?, quoted_text?}` → `{id}` (`quoted_*` = a reply quoting that message — the real one from the gateway's recent-message map, else rebuilt from `quoted_text`) |
-| `POST /accounts/:id/react` | `{to, msg_id, from_me?, emoji}` → `{id}` (an emoji reaction; `""` removes ours) |
+| `POST /accounts/:id/send` | `{to, text, quoted_id?, quoted_from_me?, quoted_text?, quoted_participant?}` → `{id}` (`quoted_*` = a reply quoting that message — the real one from the gateway's recent-message map, else rebuilt from `quoted_text`; `quoted_participant` = in a group, the author jid of someone else's quoted message). `to` may be a group jid (`…@g.us`) — sent as is, no number lookup |
+| `POST /accounts/:id/react` | `{to, msg_id, from_me?, emoji, participant?}` → `{id}` (an emoji reaction; `""` removes ours; `participant` = in a group, the author jid of the message reacted to) |
 | `POST /accounts/:id/revoke` | `{to, msg_id, from_me?}` → `{id}` (“delete for everyone” on a message we sent; WhatsApp allows about two days) |
 | `POST /accounts/:id/edit` | `{to, msg_id, from_me?, text}` → `{id}` (re-word a message we sent; WhatsApp allows about 15 minutes) |
 | `POST /accounts/:id/forward` | `{to, msg_id}` → `{id}` (a true WhatsApp forward of a message the gateway still holds in its recent-message map — **409** once it doesn't, rather than re-sending the content unmarked) |

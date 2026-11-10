@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { AlertCircle, Check, CheckCheck, Clock, Loader2, PhoneCall } from 'lucide-react'
+import { AlertCircle, Check, CheckCheck, Clock, Loader2, PhoneCall, Users } from 'lucide-react'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { channelName, initials, logoKey, timeShort, type Channel } from './inboxTypes'
 import { useBlobUrl } from './MediaPlayers'
@@ -33,11 +33,14 @@ export function Avatar({
   channel,
   size = 36,
   strong = false,
+  group = false,
 }: {
   name: string
   channel?: Channel
   size?: number
   strong?: boolean
+  /** a group chat: a people icon instead of initials */
+  group?: boolean
 }) {
   const t = useT()
   const badge = Math.max(14, Math.round(size * 0.44))
@@ -50,7 +53,7 @@ export function Avatar({
         style={{ fontSize: Math.max(10, size * 0.34) }}
         aria-hidden
       >
-        {initials(name)}
+        {group ? <Users size={Math.round(size * 0.45)} /> : initials(name)}
       </span>
       {channel && (
         <span

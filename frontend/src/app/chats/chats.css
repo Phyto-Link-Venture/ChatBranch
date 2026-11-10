@@ -214,3 +214,35 @@
     transition: none !important;
   }
 }
+
+/* group chats: the member who wrote an inbound bubble — one colour per person
+   (slot from senderTone(sender.id)); the -ink tokens are retuned per theme */
+.cb-sender {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-bottom: 2px;
+}
+.cb-sender-0 {
+  color: var(--blue-ink);
+}
+.cb-sender-1 {
+  color: var(--purple-ink);
+}
+.cb-sender-2 {
+  color: var(--cyan-ink);
+}
+.cb-sender-3 {
+  color: var(--green-ink);
+}
+.cb-sender-4 {
+  color: var(--amber-ink);
+}
+.cb-sender-5 {
+  color: var(--brand-ink);
+}

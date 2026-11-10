@@ -141,7 +141,8 @@ public class OutboundSender
         {
             var quote = replyTo is { ExternalId.Length: > 0 }
                 ? new ChatBranch.Data.Sidecars.BaileysQuote(replyTo.ExternalId,
-                    replyTo.Direction == MessageDirection.Out, replyTo.Text)
+                    replyTo.Direction == MessageDirection.Out, replyTo.Text,
+                    replyTo.Direction == MessageDirection.In ? replyTo.SenderKey : "")
                 : null;
             var r = (quote == null
                     ? _baileys.SendTextAsync(account!.ExternalId, thread.Key, text)
@@ -216,7 +217,8 @@ public class OutboundSender
         if (baileys)
         {
             var r = _baileys.ReactAsync(account!.ExternalId, thread.Key,
-                new ChatBranch.Data.Sidecars.BaileysQuote(target.ExternalId, target.Direction == MessageDirection.Out),
+                new ChatBranch.Data.Sidecars.BaileysQuote(target.ExternalId, target.Direction == MessageDirection.Out,
+                    Participant: target.Direction == MessageDirection.In ? target.SenderKey : ""),
                 emoji).GetAwaiter().GetResult();
             return new ReactionSend(r.Ok, true, r.Ok ? "sent" : r.Detail);
         }

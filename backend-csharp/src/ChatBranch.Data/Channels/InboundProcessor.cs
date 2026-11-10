@@ -46,9 +46,20 @@ public class InboundProcessor
             new AiGate(db, scoping, threads, sender));
     }
 
+    /// <param name="sender">A GROUP message's author (<see cref="GroupChats"/>); ignored on a 1:1 chat.</param>
+    /// <param name="addressedToUs">A group message that mentions us, replies to us or is a bot
+    /// command — the only kind the AI may answer in a group, and the only kind that pages anyone.</param>
     public Message ProcessInbound(string channel, string key, string text, string? name = null,
-        int? accountId = null, string wamid = "", DateTime? providerTs = null, string replyToExternalId = "")
+        int? accountId = null, string wamid = "", DateTime? providerTs = null, string replyToExternalId = "",
+        InboundSender? sender = null, bool addressedToUs = false)
     {
+        // a group conversation (a WhatsApp group, a Telegram group, a LINE group / room):
+        // stored and shown, but it is no customer — no contact, no flows, no automations,
+        // no STOP, no "who are you?", and the AI only when switched on AND addressed
+        var group = GroupChats.IsGroup(channel, key);
+        if (group) return ProcessGroupInbound(channel, key, text, name, accountId, wamid, providerTs,
+            replyToExternalId, sender, addressedToUs);
+
         // the conversation of the RECEIVING number's company: a customer writing to a
         // second company's number gets that company's own conversation (never another's)
         var thread = _threads.GetOrCreateThread(channel, key, name, accountId);
@@ -110,6 +121,52 @@ public class InboundProcessor
         return msg;
     }
 
+    /// <summary>
+    /// The inbound path of a GROUP conversation (<see cref="GroupChats"/>): the thread
+    /// (named after the group, never after whoever wrote first), same-company
+    /// re-attribution, the inbox's AI default, the message with its author, team
+    /// routing, a notification only when we are addressed (or the group is new), and
+    /// the AI only when an operator switched it on for this group AND the message is
+    /// addressed to us. Nothing customer-shaped runs: no contact link, invite binder,
+    /// background AI tasks, STOP/START, flows, automations or identity ask.
+    /// </summary>
+    private Message ProcessGroupInbound(string channel, string key, string text, string? name,
+        int? accountId, string wamid, DateTime? providerTs, string replyToExternalId,
+        InboundSender? sender, bool addressedToUs)
+    {
+        var groupName = GroupChats.CleanName(name);
+        var thread = _threads.GetOrCreateThread(channel, key,
+            groupName.Length > 0 ? groupName : GroupChats.DefaultName(channel), accountId);
+        try { Reattribute(thread, accountId); } catch { }
+        InboxSettings.ApplyToNewThread(_db, thread);
+
+        var msg = _threads.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
+            text, status: "received", externalId: wamid, accountId: accountId, providerTs: providerTs,
+            replyToExternalId: replyToExternalId, sender: sender);
+
+        try { AutoAssignTeam(thread); } catch { }
+
+        // a busy group must not page the team on every message: only when it talks to
+        // us, or the very first time it appears
+        try
+        {
+            var isFirst = _db.Messages.Count(m => m.ThreadId == thread.Id
+                                                  && m.Direction == MessageDirection.In) <= 1;
+            if (addressedToUs || isFirst) NotificationService.NotifyInboundMessage(_db, thread, text);
+        }
+        catch { }
+
+        _responder.OnCustomerMessage(thread);
+
+        try
+        {
+            if (addressedToUs && !thread.OptedOut && AiEligibility.Decide(_db, _scoping, thread).Enabled)
+                TryAiReply(thread);
+        }
+        catch { /* never breaks the webhook */ }
+        return msg;
+    }
+
     /// <summary>Apply a customer message to the conversation's STOP/START state (never throws).</summary>
     public string? ApplyOptOut(Thread thread, string? text) =>
         OptOut.Apply(_db, _scoping, _threads, thread, text);
@@ -124,7 +181,8 @@ public class InboundProcessor
     {
         try
         {
-            if (thread.OptedOut) return;
+            // a group is answered only when addressed (ProcessGroupInbound), never here
+            if (thread.OptedOut || GroupChats.IsGroup(thread)) return;
             if (thread.ContactId != null)
             {
                 var verdict = AiEligibility.Decide(_db, _scoping, thread);
@@ -182,7 +240,7 @@ public class InboundProcessor
     /// </summary>
     private void LinkContact(Thread thread, int? accountId)
     {
-        if (thread.ContactId != null) return;
+        if (thread.ContactId != null || GroupChats.IsGroup(thread)) return;
         try
         {
             var contact = MatchContact(thread.Channel, thread.Key, ReceivingEntity(thread, accountId));
@@ -327,6 +385,8 @@ public class InboundProcessor
     /// </summary>
     public Contact? MatchContact(string channel, string key, int? entityId = null)
     {
+        // a group's id is no customer's phone — its digits would tail-match a stranger
+        if (GroupChats.IsGroup(channel, key)) return null;
         // Several contacts may share a phone / email (one per company): the one
         // in the receiving number's entity wins, never another company's
         // (ContactCompanies.Pick). No entity = the oldest match, as before.

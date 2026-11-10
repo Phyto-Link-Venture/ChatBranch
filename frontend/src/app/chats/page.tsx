@@ -23,6 +23,7 @@ import {
   Sparkles,
   StickyNote,
   UserRound,
+  Users,
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -69,6 +70,8 @@ import {
   logoKey,
   rowToSummary,
   sameThread,
+  senderLabel,
+  senderTone,
   threadApi,
   threadIdentity,
   threadPath,
@@ -504,6 +507,7 @@ function ChatsPage() {
           contact_id?: number | null
           contact_name?: string
           labels?: string[]
+          is_group?: boolean
           messages: UiMessage[]
         }>(withThreadId(`whatsapp/threads/${activeId.key}`, activeId.thread_id))
         settle(th.thread_id)
@@ -512,6 +516,7 @@ function ChatsPage() {
           key: th.wa_id,
           thread_id: th.thread_id ?? activeId.thread_id ?? null,
           company: th.company ?? null,
+          is_group: !!th.is_group,
           name: th.contact_name || th.name,
           // a WhatsApp id is bare digits — show it as the phone number it is
           sub: /^\d+$/.test(th.phone) ? `+${th.phone}` : th.phone,
@@ -556,6 +561,7 @@ function ChatsPage() {
           window_expires_at?: string | null
           human_window_open?: boolean
           human_window_expires_at?: string | null
+          is_group?: boolean
           messages: UiMessage[]
         }>(withThreadId(`messaging/threads/${activeId.channel}/${activeId.key}`, activeId.thread_id))
         settle(th.thread_id)
@@ -564,6 +570,7 @@ function ChatsPage() {
           key: th.key,
           thread_id: th.thread_id ?? activeId.thread_id ?? null,
           company: th.company ?? null,
+          is_group: !!th.is_group,
           name: th.contact_name || th.name,
           sub: th.address,
           ai_enabled: th.ai_enabled,
@@ -1382,6 +1389,10 @@ function ChatsPage() {
   const sipCallActive = !!sipCall && ['dialing', 'ringing', 'live'].includes(sipCall.status)
   const activeIsWa = active?.channel === 'whatsapp'
   const optedOut = activeIsWa && active?.opted_out === true
+  // a group chat: no contact behind it, each inbound message names its author
+  const isGroup = !!active?.is_group
+  // who a quote / reply "from them" is by — a group has no single contact
+  const quoteName = isGroup ? t('chats.group.member') : active ? active.contact_name || active.name : ''
 
   const callStatus = activeIsWa ? active?.call?.status : undefined
   const callPill =
@@ -1844,6 +1855,14 @@ function ChatsPage() {
                 <div className="min-w-[170px] flex-1">
                   <div className="flex items-center gap-2">
                     <h2 className="display truncate text-[21px] leading-tight text-text-heading">{active.name}</h2>
+                    {isGroup && (
+                      <span
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-line-strong px-2 py-px text-[10.5px] font-semibold text-text-high"
+                        title={t('chats.group.badgeHint')}
+                      >
+                        <Users size={10} aria-hidden /> {t('chats.group.badge')}
+                      </span>
+                    )}
                     {multiCompany && active.company && (
                       <span
                         className="inline-flex max-w-[180px] shrink-0 items-center gap-1 rounded-full border border-line-strong px-2 py-px text-[10.5px] font-semibold text-text-high"
@@ -1933,7 +1952,7 @@ function ChatsPage() {
                     </button>
                   )}
                   {/* the AI only answers chats linked to a contact — say so instead of looking broken */}
-                  {active.channel !== 'email' && active.ai_enabled && !optedOut && !active.contact_id && (
+                  {active.channel !== 'email' && active.ai_enabled && !optedOut && !active.contact_id && !isGroup && (
                     <span
                       title={t('chats.page.aiNeedsContactHint')}
                       className="inline-flex h-8 shrink-0 items-center rounded-full border border-line px-2.5 text-[11px] font-semibold text-[var(--amber-ink)]"
@@ -1972,7 +1991,8 @@ function ChatsPage() {
                       <RotateCcw size={13} aria-hidden /> {t('chats.page.reopen')}
                     </Button>
                   )}
-                  {active.channel === 'whatsapp' &&
+                  {/* a group has no one person to ring */}
+                  {active.channel === 'whatsapp' && !isGroup &&
                     (inCall ? (
                       <button
                         onClick={endCall}
@@ -1999,9 +2019,9 @@ function ChatsPage() {
                       </button>
                     ))}
                   {/* AI phone call (SIP) — any linked contact */}
-                  {active.contact_id != null && <VoiceCallButton contactId={active.contact_id} />}
+                  {active.contact_id != null && !isGroup && <VoiceCallButton contactId={active.contact_id} />}
                   {/* One-way script call: dial, read a fixed script, hang up */}
-                  {active.contact_id != null && <ScriptCallButton contactId={active.contact_id} />}
+                  {active.contact_id != null && !isGroup && <ScriptCallButton contactId={active.contact_id} />}
                   <button
                     onClick={() => setInfoOpen(!infoOpen)}
                     title={t('chats.page.details')}
@@ -2016,8 +2036,8 @@ function ChatsPage() {
                 </div>
               </div>
 
-              {/* unknown customer: "asking who they are" + the Create contact quick action */}
-              {active.contact_id == null && (
+              {/* unknown customer: "asking who they are" + the Create contact quick action (never a group) */}
+              {active.contact_id == null && !isGroup && (
                 <IdentityBanner
                   channel={active.channel}
                   threadKey={active.key}
@@ -2299,7 +2319,7 @@ function ChatsPage() {
                           <div className={`mb-2 flex ${m.dir === 'out' ? 'justify-end' : 'justify-start'}`}>
                             <MessageActions
                               m={m}
-                              contactName={active.contact_name || active.name}
+                              contactName={quoteName}
                               meName={meName}
                               canReply={!combinedOn && !m.recalled && access.can('chats.send') && REACTION_CHANNELS.includes(active.channel)}
                               canReact={!combinedOn && !m.recalled && access.can('chats.send') && REACTION_CHANNELS.includes(active.channel)}
@@ -2335,6 +2355,12 @@ function ChatsPage() {
                               }${m.email && !m.recalled ? ' cb-bubble-email' : ''}`}
                             >
                               {combinedOn && m.channel && <ChannelBadge channel={m.channel} />}
+                              {/* group chats: who wrote it, in a colour that stays with that person */}
+                              {isGroup && m.dir === 'in' && !m.private && (
+                                <span className={`cb-sender cb-sender-${m.sender?.id ? senderTone(m.sender.id) : 0}`}>
+                                  {senderLabel(t, m.sender)}
+                                </span>
+                              )}
                               {m.private && (
                                 <span className="cb-bubble-source">
                                   <Lock size={8} className="mr-0.5 inline" aria-hidden /> {t('chats.page.privateNote')}
@@ -2366,7 +2392,7 @@ function ChatsPage() {
                                 m.email ? (
                                   <EmailCard m={m} parts={(m.pk && emailParts.get(m.pk)) || []} />
                                 ) : (
-                                  <MessageContent m={m} contactName={active.contact_name || active.name} onJump={jumpToMessage} />
+                                  <MessageContent m={m} contactName={quoteName} onJump={jumpToMessage} />
                                 )
                               )}
                               <span className="cb-bubble-time">
@@ -2494,7 +2520,7 @@ function ChatsPage() {
                     </div>
                   )}
                   {replyTo && !noteMode && (
-                    <ReplyPreview m={replyTo} contactName={active.contact_name || active.name} onCancel={() => setReplyTo(null)} />
+                    <ReplyPreview m={replyTo} contactName={quoteName} onCancel={() => setReplyTo(null)} />
                   )}
                   {canAttach && pendingFile && (
                     <div className="mb-2 flex items-center gap-2 rounded-lg border border-line bg-card px-3 py-1.5 text-[12.5px] text-text-mid">

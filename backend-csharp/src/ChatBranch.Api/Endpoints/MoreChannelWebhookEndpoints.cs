@@ -114,7 +114,8 @@ public static class MoreChannelWebhookEndpoints
     /// Inbound proves the account works, so it heals.
     /// </summary>
     private static Message? Ingest(AppDbContext db, InboundProcessor processor, ChannelAccount account, string key,
-        string text, string? name, string externalId, DateTime? ts, string? refPayload = null)
+        string text, string? name, string externalId, DateTime? ts, string? refPayload = null,
+        ChatBranch.Data.Channels.InboundSender? sender = null, bool addressedToUs = false)
     {
         if (key.Length == 0) return null;
         var channel = account.Channel;
@@ -124,9 +125,12 @@ public static class MoreChannelWebhookEndpoints
             && new ThreadStore(db, new ScopingService(db)).FindForAccount(channel, key, account.Id) is { } mine
             && db.Messages.Any(m => m.ThreadId == mine.Id && m.ExternalId == externalId))
             return null;
-        var code = MoreChannels.CleanRef(refPayload) ?? PendingRef.Take(db, channel, key, account.Id);
+        // a group binds no invite (Channels/GroupChats.cs) — its words go in as written
+        var group = ChatBranch.Data.Channels.GroupChats.IsGroup(channel, key);
+        var code = group ? null : MoreChannels.CleanRef(refPayload) ?? PendingRef.Take(db, channel, key, account.Id);
         var body = code != null ? $"[ref:{code}] {text}" : text;
-        var msg = processor.ProcessInbound(channel, key, body, name, account.Id, externalId, ts);
+        var msg = processor.ProcessInbound(channel, key, body, name, account.Id, externalId, ts,
+            sender: group ? sender : null, addressedToUs: group && addressedToUs);
         account.LastInboundAt = DateTime.UtcNow;
         HealthRecorder.Ok(db, account);
         db.SaveChanges();
@@ -162,8 +166,10 @@ public static class MoreChannelWebhookEndpoints
     }
 
     /// <summary>Name a brand-new thread from the provider's profile API, off the ack.</summary>
+    /// <param name="placeholder">A stand-in name the lookup may also replace (a group's
+    /// "LINE group" before its real name is known).</param>
     private static void NameLater(IServiceScopeFactory scopes, int accountId, string channel, string key,
-        Func<IServiceProvider, ChannelAccount, Task<string>> lookup)
+        Func<IServiceProvider, ChannelAccount, Task<string>> lookup, string? placeholder = null)
     {
         _ = Task.Run(async () =>
         {
@@ -174,7 +180,8 @@ public static class MoreChannelWebhookEndpoints
                 var db = sp.GetRequiredService<AppDbContext>();
                 var thread = sp.GetRequiredService<ThreadStore>().FindForAccount(channel, key, accountId);
                 var account = await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Id == accountId);
-                if (thread == null || account == null || (thread.Name.Length > 0 && thread.Name != key)) return;
+                if (thread == null || account == null
+                    || (thread.Name.Length > 0 && thread.Name != key && thread.Name != placeholder)) return;
                 var name = (await lookup(sp, account)).Trim();
                 if (name.Length == 0) return;
                 thread.Name = name.Length > 120 ? name[..120] : name;
@@ -182,6 +189,30 @@ public static class MoreChannelWebhookEndpoints
                 await db.SaveChangesAsync();
             }
             catch { /* the id stays as the name */ }
+        });
+    }
+
+    /// <summary>Name a group message's author from the provider's member API, off the ack.</summary>
+    private static void SenderNameLater(IServiceScopeFactory scopes, int accountId, int messageId,
+        Func<IServiceProvider, ChannelAccount, Task<string>> lookup)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = scopes.CreateScope();
+                var sp = scope.ServiceProvider;
+                var db = sp.GetRequiredService<AppDbContext>();
+                var account = await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Id == accountId);
+                var msg = await db.Messages.Include(m => m.Thread).FirstOrDefaultAsync(m => m.Id == messageId);
+                if (account == null || msg == null || msg.SenderName.Length > 0) return;
+                var name = ChatBranch.Data.Channels.GroupChats.CleanName(await lookup(sp, account));
+                if (name.Length == 0) return;
+                msg.SenderName = name;
+                if (msg.Thread != null) msg.Thread.UpdatedAt = DateTime.UtcNow; // the /chats stream refreshes
+                await db.SaveChangesAsync();
+            }
+            catch { /* the bubble stays unnamed */ }
         });
     }
 
@@ -232,12 +263,33 @@ public static class MoreChannelWebhookEndpoints
                         OptState(db, threads, account, e.UserId, true, "blocked the account");
                         continue;
                     case "unsend":
-                        ChatBranch.Data.Channels.MessageRecalls.Record(db, threads, account, e.UserId, e.MessageId,
+                        ChatBranch.Data.Channels.MessageRecalls.Record(db, threads, account, e.ChatKey, e.MessageId,
                             ChatBranch.Data.Channels.MessageRecalls.ByCustomer, ctx.RequestServices.GetService<ChatBranch.Data.Ai.AiGate>());
                         continue;
                 }
-                // remembered first, so an instant AI answer replies for free
-                line?.RememberReplyToken(account.Id, e.UserId, e.ReplyToken);
+                // remembered first, so an instant AI answer replies for free (in a group the
+                // token answers the group — keyed by the conversation, not the person)
+                line?.RememberReplyToken(account.Id, e.ChatKey, e.ReplyToken);
+                if (e.IsGroup)
+                {
+                    // a reply to one of OUR messages talks to us as surely as a mention does
+                    var addressed = e.Mentioned || (e.QuotedMessageId.Length > 0 && await db.Messages.AnyAsync(m =>
+                        m.ExternalId == e.QuotedMessageId && m.Direction == MessageDirection.Out
+                        && m.Thread!.Channel == ChannelIds.Line && m.Thread.Key == e.ChatKey));
+                    var gm = Ingest(db, processor, account, e.ChatKey, e.Text, null, e.MessageId, e.Timestamp,
+                        sender: new ChatBranch.Data.Channels.InboundSender(e.UserId, ""), addressedToUs: addressed);
+                    if (gm == null) continue;
+                    if (e.Media is { } gmedia) AttachLater(scopes, account.Id, gm.Id, gmedia);
+                    if (line != null)
+                    {
+                        if (e.ChatKey.StartsWith('C'))
+                            NameLater(scopes, account.Id, ChannelIds.Line, e.ChatKey,
+                                (_, a) => line.GroupNameAsync(a, e.ChatKey),
+                                ChatBranch.Data.Channels.GroupChats.DefaultName(ChannelIds.Line));
+                        SenderNameLater(scopes, account.Id, gm.Id, (_, a) => line.MemberNameAsync(a, e.ChatKey, e.UserId));
+                    }
+                    continue;
+                }
                 var msg = Ingest(db, processor, account, e.UserId, e.Text, null, e.MessageId, e.Timestamp);
                 if (msg == null) continue;
                 if (e.Media is { } media) AttachLater(scopes, account.Id, msg.Id, media);

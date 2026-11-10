@@ -78,7 +78,8 @@ internal static class ThreadOpen
         var matched = channel == Channels.Email
             ? ContactCompanies.Pick(db, sc,
                 await visible.Where(c => c.Email.ToLower() == to.ToLower()).ToListAsync(), forEntity)
-            : PhoneKeyed(channel) && PhoneMatch.Tail(to) is string tail
+            // a group's jid is no phone: a group is never linked to a contact (GroupChats)
+            : PhoneKeyed(channel) && !ChatBranch.Data.Channels.GroupChats.IsGroup(channel, to) && PhoneMatch.Tail(to) is string tail
                 ? ContactCompanies.Pick(db, sc,
                     visible.Where(c => c.Phone != "").AsEnumerable()
                         .Where(c => PhoneMatch.Tail(c.Phone) == tail).ToList(), forEntity)

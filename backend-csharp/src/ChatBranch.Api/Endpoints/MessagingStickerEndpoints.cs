@@ -61,7 +61,7 @@ public static class MessagingStickerEndpoints
             var emojis = Emojis(body);
 
             // ---- the conversation -------------------------------------------
-            var opened = await ThreadOpen.FindOrOpenAsync(db, store, sc, me, channel, PhoneMatch.Digits(key),
+            var opened = await ThreadOpen.FindOrOpenAsync(db, store, sc, me, channel, GroupChats.WhatsAppKey(key),
                 Pk(body, "thread_id"), MessagingSendFileEndpoints.Str(body, "company"));
             if (!opened.Ok)
                 return opened.Pick == ThreadResolver.Outcome.Ambiguous

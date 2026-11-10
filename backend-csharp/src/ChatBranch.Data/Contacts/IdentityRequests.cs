@@ -234,6 +234,8 @@ public class IdentityRequestService
     /// </summary>
     public IdentityOutcome? OnInbound(Thread thread, Message? inbound)
     {
+        // a group is no one customer — nobody in it is asked who they are
+        if (ChatBranch.Data.Channels.GroupChats.IsGroup(thread)) return null;
         try { return Step(thread, inbound); }
         catch { return null; }
     }

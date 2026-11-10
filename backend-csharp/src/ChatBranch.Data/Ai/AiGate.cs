@@ -1016,7 +1016,9 @@ public class AiGate
     public string? SendTimeBlock(Thread thread, int? accountId, bool isTemplate = false, bool humanDecision = false)
     {
         if (thread.OptedOut) return "The contact opted out (STOP) — nothing was sent.";
-        if (thread.ContactId == null && thread.Channel != ChatBranch.Domain.Channels.Website)
+        // a group has no contact by design: an operator switching its AI on is the consent
+        if (thread.ContactId == null && thread.Channel != ChatBranch.Domain.Channels.Website
+            && !ChatBranch.Data.Channels.GroupChats.IsGroup(thread))
             return "This conversation isn't linked to a contact — the AI only writes to known contacts.";
         if (!humanDecision && !AiAllowed(thread))
             return "AI is turned off for this conversation.";

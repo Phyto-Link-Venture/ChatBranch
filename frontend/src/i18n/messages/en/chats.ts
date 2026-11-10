@@ -247,6 +247,12 @@ export const chats = {
       'This customer has a conversation with more than one company. Pick the one you want to open — they are kept apart.',
     none: 'No company',
   },
+  group: {
+    badge: 'Group',
+    badgeHint: 'A group chat — several people write here, so it is not linked to one contact',
+    member: 'Group member',
+    contactNote: 'Group chats are not linked to a contact — each message shows who wrote it.',
+  },
   draft: {
     title: 'AI reply waiting for review',
     approveSend: 'Approve & send',

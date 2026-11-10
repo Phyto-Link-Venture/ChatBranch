@@ -317,8 +317,10 @@ public class Routing
         }
         if (current != null && IsEligible(current) && Satisfies(current, need))
             return new RouteResult(current, "current");
-        // the conversation only exists on the account that received it
-        if (current != null && AccountBound(thread.Channel) && current.Channel == thread.Channel
+        // the conversation only exists on the account that received it — so does a group:
+        // only the number that is a MEMBER of it can write there (Channels/GroupChats.cs)
+        if (current != null && (AccountBound(thread.Channel) || GroupChats.IsGroup(thread))
+            && current.Channel == thread.Channel
             && IsConfigured(current))
             return new RouteResult(current, "bound", DownAccount: IsDown(current) ? current : null);
 

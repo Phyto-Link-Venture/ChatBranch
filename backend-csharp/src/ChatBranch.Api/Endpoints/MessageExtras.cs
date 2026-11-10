@@ -66,6 +66,8 @@ public static class MessageExtras
                         ["text"] = q.Text.Length > QuoteChars ? q.Text[..QuoteChars] + "…" : q.Text,
                         ["media_type"] = q.MediaPath.Length > 0 ? (q.MediaType.Length > 0 ? q.MediaType : "document") : null,
                         ["recalled"] = q.RecalledAt != null ? true : null,
+                        // a quoted group message names its author
+                        ["sender_name"] = q.SenderName.Length > 0 ? q.SenderName : null,
                     };
                 else if (m.ReplyToExternalId.Length > 0)
                     p["reply_to"] = new Dictionary<string, object?> { ["id"] = m.ReplyToExternalId, ["missing"] = true };

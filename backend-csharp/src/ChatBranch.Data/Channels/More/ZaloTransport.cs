@@ -223,7 +223,11 @@ public static class ZaloInbound
         if (ev is "follow" or "unfollow")
             return new ZaloEvent(ev, ProviderHttp.Str(root, "follower", "id"), "", "", ts, null, appId,
                 ProviderHttp.Str(root, "oa_id"));
-        if (!ev.StartsWith("user_send_", StringComparison.Ordinal))
+        // a Zalo GROUP message (user_send_group_text / _image …, the Group Message Framework)
+        // is not wired here — filing it under the member's 1:1 chat would answer the wrong
+        // conversation, so it is ignored until Zalo groups are supported
+        if (!ev.StartsWith("user_send_", StringComparison.Ordinal)
+            || ev.StartsWith("user_send_group_", StringComparison.Ordinal))
             return new ZaloEvent("ignore", "", "", "", ts, null, appId, "");
         var user = ProviderHttp.Str(root, "sender", "id");
         var m = ProviderHttp.At(root, "message");

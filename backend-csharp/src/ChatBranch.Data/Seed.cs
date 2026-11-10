@@ -410,6 +410,10 @@ public static class Seed
         AddColumnIfMissing(db, "crm_message", "recalled_at", "TEXT NULL");
         AddColumnIfMissing(db, "crm_message", "recalled_by", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "crm_message", "edited_at", "TEXT NULL");
+        // group chats: who wrote each inbound message of a group conversation (Channels/GroupChats.cs)
+        AddColumnIfMissing(db, "crm_message", "sender_key", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_message", "sender_name", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_message", "sender_phone", "TEXT NOT NULL DEFAULT ''");
         // two-way email: the IMAP sync's UID cursor per (mailbox, folder) — Channels/ImapSync.cs
         AddTableIfMissing(db, "crm_mailboxcursor",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_mailboxcursor\" PRIMARY KEY AUTOINCREMENT, "

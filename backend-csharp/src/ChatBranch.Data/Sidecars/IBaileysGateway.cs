@@ -38,8 +38,11 @@ public record BaileysCheck(bool? Exists, string? Jid, string Error = "");
 /// A message another one refers to (a quote or a reaction target): its WhatsApp
 /// id, whether WE sent it, and its text — enough for the gateway to rebuild the
 /// quoted message when its own key map no longer holds it (after a restart).
+/// <see cref="Participant"/> = in a GROUP, the member who wrote it (their full jid, the
+/// message's <c>SenderKey</c>) — WhatsApp needs it to address a quote or a reaction
+/// there; "" for a 1:1 chat or one of our own messages.
 /// </summary>
-public record BaileysQuote(string Id, bool FromMe, string Text = "");
+public record BaileysQuote(string Id, bool FromMe, string Text = "", string Participant = "");
 
 /// <summary>
 /// Per-number settings of a QR (Baileys) WhatsApp number, kept in
@@ -420,13 +423,19 @@ public class HttpBaileysGateway : IBaileysGateway
     public async Task<BaileysResult> SendTextAsync(string a, string toWaId, string text, BaileysQuote? quote,
         CancellationToken ct = default)
     {
-        object payload = quote is { Id.Length: > 0 }
-            ? new
+        object payload;
+        if (quote is { Id.Length: > 0 })
+        {
+            var p = new Dictionary<string, object?>
             {
-                to = toWaId, text, quoted_id = quote.Id, quoted_from_me = quote.FromMe,
-                quoted_text = quote.Text.Length > 500 ? quote.Text[..500] : quote.Text,
-            }
-            : new { to = toWaId, text };
+                ["to"] = toWaId, ["text"] = text, ["quoted_id"] = quote.Id, ["quoted_from_me"] = quote.FromMe,
+                ["quoted_text"] = quote.Text.Length > 500 ? quote.Text[..500] : quote.Text,
+            };
+            // a group member's message: WhatsApp addresses the quote by its author
+            if (quote.Participant.Length > 0) p["quoted_participant"] = quote.Participant;
+            payload = p;
+        }
+        else payload = new { to = toWaId, text };
         var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/send",
             payload, ct);
         if (!ok) return new BaileysResult(false, err);
@@ -437,8 +446,13 @@ public class HttpBaileysGateway : IBaileysGateway
     public async Task<BaileysResult> ReactAsync(string a, string toWaId, BaileysQuote target, string emoji,
         CancellationToken ct = default)
     {
+        var payload = new Dictionary<string, object?>
+        {
+            ["to"] = toWaId, ["msg_id"] = target.Id, ["from_me"] = target.FromMe, ["emoji"] = emoji ?? "",
+        };
+        if (target.Participant.Length > 0) payload["participant"] = target.Participant;
         var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/react",
-            new { to = toWaId, msg_id = target.Id, from_me = target.FromMe, emoji = emoji ?? "" }, ct);
+            payload, ct);
         if (!ok) return new BaileysResult(false, err);
         var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
         return new BaileysResult(true, "sent", id);

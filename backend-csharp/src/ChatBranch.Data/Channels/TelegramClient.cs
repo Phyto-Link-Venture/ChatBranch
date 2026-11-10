@@ -185,6 +185,23 @@ public static class TelegramBot
     public static bool Configured(ChannelAccount a) =>
         a.Channel == ChannelIds.Telegram && !string.IsNullOrWhiteSpace(a.AccessToken);
 
+    /// <summary>The <c>Config</c> key holding the bot's @username (learned from getMe on Test).</summary>
+    public const string UsernameKey = "username";
+
+    /// <summary>The bot's username without the "@" — <c>Config["username"]</c>, else an account
+    /// name written as "@name" — or "" when unknown. A group message mentioning it is addressed to us.</summary>
+    public static string Username(ChannelAccount a)
+    {
+        if (a.Config != null && a.Config.TryGetValue(UsernameKey, out var v) && v != null)
+        {
+            var s = (v is JsonElement { ValueKind: JsonValueKind.String } e ? e.GetString() : v.ToString()) ?? "";
+            s = s.Trim().TrimStart('@');
+            if (s.Length > 0) return s;
+        }
+        var n = (a.Name ?? "").Trim();
+        return n.StartsWith('@') && n.Length > 1 && !n.Contains(' ') ? n[1..] : "";
+    }
+
     public static Task<TelegramResult> GetMeAsync(this ITelegramClient c, ChannelAccount a, CancellationToken ct = default) =>
         c.CallAsync(a.AccessToken, "getMe", null, ct);
 
@@ -403,6 +420,14 @@ public sealed record TelegramUpdate(string ChatId, string MessageId, string Name
 {
     /// <summary>The message_id this message replies to ("" = not a reply).</summary>
     public string ReplyTo { get; init; } = "";
+    /// <summary>A group / supergroup message (<see cref="GroupChats"/>): <see cref="Name"/> is
+    /// then the group's title and the author is <see cref="Sender"/>.</summary>
+    public bool IsGroup { get; init; }
+    /// <summary>A group message's author (the Telegram user id + name); null in a private chat.</summary>
+    public InboundSender? Sender { get; init; }
+    /// <summary>A group message addressed to the bot: an @mention of it, a text mention of
+    /// it, a bot command (bare or <c>/cmd@thisbot</c>) or a reply to one of its messages.</summary>
+    public bool Mentioned { get; init; }
 }
 
 /// <summary>A downloadable attachment on an inbound Telegram message.</summary>
@@ -414,7 +439,9 @@ public static class TelegramInbound
         { "photo", "document", "sticker", "voice", "audio", "video", "video_note", "animation", "location", "contact" };
 
     /// <summary>Parse a webhook body. Null = nothing for the inbox (not a message, a bot echo, garbage).</summary>
-    public static TelegramUpdate? Parse(JsonElement root)
+    /// <param name="botUsername">The receiving bot's @username (without the @; "" = unknown) and
+    /// <paramref name="botId"/> its user id — how a group message addressed to it is recognised.</param>
+    public static TelegramUpdate? Parse(JsonElement root, string botUsername = "", string botId = "")
     {
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("message", out var m)
             || m.ValueKind != JsonValueKind.Object) return null;
@@ -433,8 +460,20 @@ public static class TelegramInbound
         var name = string.Join(" ", new[] { S(from, "first_name"), S(from, "last_name") }
             .Where(x => x.Length > 0)).Trim();
         if (name.Length == 0) name = S(from, "username");
+        // a group / supergroup: the conversation is the group (named after its title), the
+        // person who wrote is the message's sender
+        var chatType = S(chat, "type");
+        var isGroup = chatType is "group" or "supergroup" || (chatType.Length == 0 && chatId.StartsWith('-'));
+        InboundSender? sender = null;
+        if (isGroup)
+        {
+            var fromId = from.ValueKind == JsonValueKind.Object && from.TryGetProperty("id", out var fid)
+                ? fid.ToString() : "";
+            sender = new InboundSender(fromId, name.Length > 0 ? name : fromId);
+            name = S(chat, "title");
+        }
         if (name.Length == 0) name = S(chat, "title");
-        if (name.Length == 0) name = chatId;
+        if (name.Length == 0) name = isGroup ? GroupChats.DefaultName(ChannelIds.Telegram) : chatId;
 
         var text = S(m, "text");
         if (text.Length == 0) text = S(m, "caption");
@@ -455,7 +494,69 @@ public static class TelegramInbound
         var msgId = m.TryGetProperty("message_id", out var mid) ? mid.ToString() : "";
         var replyTo = m.TryGetProperty("reply_to_message", out var rt) && rt.ValueKind == JsonValueKind.Object
                       && rt.TryGetProperty("message_id", out var rid) ? rid.ToString() : "";
-        return new TelegramUpdate(chatId, msgId, name, text, date, Media(m)) { ReplyTo = replyTo };
+        return new TelegramUpdate(chatId, msgId, name, text, date, Media(m))
+        {
+            ReplyTo = replyTo, IsGroup = isGroup, Sender = sender,
+            Mentioned = isGroup && AddressedToBot(m, botUsername, botId),
+        };
+    }
+
+    /// <summary>
+    /// Is this group message talking to the bot? An <c>@botname</c> mention, a text mention of
+    /// the bot's user, a bot command (bare, or <c>/cmd@botname</c> naming THIS bot) or a reply
+    /// to one of the bot's messages. With the bot's username unknown, any @mention of a bot
+    /// account name ending in "bot" and any reply to a bot counts — a bot in privacy mode only
+    /// receives those anyway.
+    /// </summary>
+    public static bool AddressedToBot(JsonElement m, string botUsername, string botId)
+    {
+        var user = (botUsername ?? "").Trim().TrimStart('@');
+        var id = (botId ?? "").Trim();
+        var text = m.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? ""
+            : m.TryGetProperty("caption", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() ?? "" : "";
+        foreach (var key in new[] { "entities", "caption_entities" })
+        {
+            if (!m.TryGetProperty(key, out var ents) || ents.ValueKind != JsonValueKind.Array) continue;
+            foreach (var e in ents.EnumerateArray())
+            {
+                if (e.ValueKind != JsonValueKind.Object) continue;
+                var type = e.TryGetProperty("type", out var ty) ? ty.GetString() ?? "" : "";
+                var piece = Slice(text, e);
+                switch (type)
+                {
+                    case "mention":
+                        var named = piece.TrimStart('@');
+                        if (user.Length > 0 ? named.Equals(user, StringComparison.OrdinalIgnoreCase)
+                                : named.EndsWith("bot", StringComparison.OrdinalIgnoreCase)) return true;
+                        break;
+                    case "text_mention":
+                        if (id.Length > 0 && e.TryGetProperty("user", out var u) && u.ValueKind == JsonValueKind.Object
+                            && u.TryGetProperty("id", out var uid) && uid.ToString() == id) return true;
+                        break;
+                    case "bot_command":
+                        var at = piece.IndexOf('@');
+                        if (at < 0 || user.Length == 0
+                            || piece[(at + 1)..].Equals(user, StringComparison.OrdinalIgnoreCase)) return true;
+                        break;
+                }
+            }
+        }
+        if (m.TryGetProperty("reply_to_message", out var rt) && rt.ValueKind == JsonValueKind.Object
+            && rt.TryGetProperty("from", out var rf) && rf.ValueKind == JsonValueKind.Object)
+        {
+            if (id.Length > 0) return rf.TryGetProperty("id", out var rid) && rid.ToString() == id;
+            return rf.TryGetProperty("is_bot", out var rb) && rb.ValueKind == JsonValueKind.True;
+        }
+        return false;
+    }
+
+    /// <summary>The text an entity covers (Telegram counts UTF-16 code units, as .NET strings do).</summary>
+    private static string Slice(string text, JsonElement entity)
+    {
+        if (!entity.TryGetProperty("offset", out var o) || !o.TryGetInt32(out var off)
+            || !entity.TryGetProperty("length", out var l) || !l.TryGetInt32(out var len)) return "";
+        if (off < 0 || len <= 0 || off + len > text.Length) return "";
+        return text.Substring(off, len);
     }
 
     /// <summary>

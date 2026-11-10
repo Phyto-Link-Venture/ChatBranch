@@ -175,8 +175,12 @@ public partial class AssistantService
         history.Select(m => new LlmMessage(
             m.Direction == MessageDirection.In ? "user" : "assistant",
             human is { TagsMessages: true } && m.Direction == MessageDirection.In && human.Known.ContainsKey(m.Id)
-                ? HumanTouch.Tag(m.Id) + m.Text
-                : m.Text)).ToList();
+                ? HumanTouch.Tag(m.Id) + Authored(m)
+                : Authored(m))).ToList();
+
+    /// <summary>A group message reads "Name: text", so the model knows who said what.</summary>
+    private static string Authored(Message m) =>
+        m.Direction == MessageDirection.In && m.SenderName.Length > 0 ? $"{m.SenderName}: {m.Text}" : m.Text;
 
     private (ChannelAccount? Account, AiBehaviour Policy) PolicyFor(Thread thread)
     {
@@ -414,6 +418,8 @@ public partial class AssistantService
             var human = TurnFor(thread.Channel, account, policy, history);
             var system = BuildSystemPrompt(thread.EntityId, thread.Channel, contact, RetrievalQuery.FromHistory(history),
                 PromptParts.All with { EmojiStyle = policy.EmojiStyle, Touches = human.Guidance(), Reply = true });
+            if (ChatBranch.Data.Channels.GroupChats.IsGroup(thread))
+                system += "\n\n" + ChatBranch.Data.Channels.GroupChats.AiSystemLine(thread);
             var messages = Transcript(history, human);
             AddQuotedContext(history, messages);
             AttachCustomerImages(thread, history, messages);

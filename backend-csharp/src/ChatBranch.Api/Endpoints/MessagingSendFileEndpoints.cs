@@ -276,7 +276,8 @@ public static class MessagingSendFileEndpoints
         };
 
         var opened = await ThreadOpen.FindOrOpenAsync(db, store, sc, me, target.Channel,
-            target.Channel is ChannelIds.WhatsApp or ChannelIds.Sms ? PhoneMatch.Digits(target.Key) : target.Key,
+            target.Channel == ChannelIds.WhatsApp ? GroupChats.WhatsAppKey(target.Key)
+                : target.Channel == ChannelIds.Sms ? PhoneMatch.Digits(target.Key) : target.Key,
             target.ThreadId, target.Company);
         if (!opened.Ok)
             return new Outcome(false, Refused(

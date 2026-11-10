@@ -287,6 +287,7 @@ public static class InboxThreadsEndpoints
     {
         public int Id;
         public string Channel = "";
+        public string Key = "";
         public int? AccountId;
         public int? EntityId;
         public bool AiEnabled;
@@ -403,6 +404,7 @@ public static class InboxThreadsEndpoints
         {
             t.Id,
             t.Channel,
+            t.Key,
             t.AccountId,
             t.EntityId,
             t.AiEnabled,
@@ -428,6 +430,7 @@ public static class InboxThreadsEndpoints
         {
             Id = r.Id,
             Channel = r.Channel,
+            Key = r.Key,
             AccountId = r.AccountId,
             EntityId = r.EntityId,
             AiEnabled = r.AiEnabled,
@@ -605,6 +608,7 @@ public static class InboxThreadsEndpoints
             {
                 Id = c.Id,
                 Channel = c.Channel,
+                Key = c.Key,
                 AccountId = c.AccountId,
                 EntityId = c.EntityId,
                 AiEnabled = c.AiEnabled,
@@ -652,6 +656,10 @@ public static class InboxThreadsEndpoints
                 Last = t.Messages.OrderByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id)
                     .Select(m => new { m.Text, m.Direction, m.Status, m.Source, m.Private, m.MediaType, m.MediaPath, m.RecalledAt })
                     .FirstOrDefault(),
+                // who wrote the newest inbound message — named only in a group (sender_name)
+                LastSender = t.Messages.Where(m => m.Direction == MessageDirection.In)
+                    .OrderByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id)
+                    .Select(m => m.SenderName).FirstOrDefault(),
             }).ToDictionaryAsync(x => x.Id);
         var contactIds = threads.Values.Where(t => t.ContactId != null).Select(t => t.ContactId!.Value)
             .Distinct().ToList();
@@ -700,6 +708,9 @@ public static class InboxThreadsEndpoints
                     : null,
                 ["name"] = t.Name.Length > 0 ? t.Name : address,
                 ["address"] = address,
+                // a group conversation (Channels/GroupChats.cs) + who spoke last in it
+                ["is_group"] = ChatBranch.Data.Channels.GroupChats.IsGroup(t),
+                ["last_sender"] = stat?.LastSender is { Length: > 0 } lastSender ? lastSender : null,
                 ["status"] = string.IsNullOrEmpty(t.Status) ? ThreadStatus.Open : t.Status,
                 ["ai_enabled"] = wa.Ai(c),
                 ["ai_reason"] = wa.Verdict(c).Reason,

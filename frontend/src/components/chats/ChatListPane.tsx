@@ -1,7 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { Bot, Building2, CheckSquare, Hand, Loader2, MoreHorizontal, PhoneCall, Search, SlidersHorizontal, Square, X } from 'lucide-react'
+import { Bot, Building2, CheckSquare, Hand, Loader2, MoreHorizontal, PhoneCall, Search, SlidersHorizontal, Square, Users, X } from 'lucide-react'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { tagMeta } from '@/lib/tags'
 import { handoverKindLabel } from '@/lib/aiControls'
@@ -304,11 +304,21 @@ export default function ChatListPane({
                   {picked ? <CheckSquare size={16} className="text-text-heading" /> : <Square size={16} />}
                 </span>
               )}
-              <Avatar name={row.name} channel={merged ? undefined : row.channel} strong={selected} />
+              <Avatar name={row.name} channel={merged ? undefined : row.channel} strong={selected} group={!!row.is_group} />
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline justify-between gap-2">
-                  <span className={`truncate text-[13.5px] text-text-heading ${row.waiting || selected ? 'font-bold' : 'font-semibold'}`}>
-                    {row.name}
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className={`truncate text-[13.5px] text-text-heading ${row.waiting || selected ? 'font-bold' : 'font-semibold'}`}>
+                      {row.name}
+                    </span>
+                    {row.is_group && (
+                      <span
+                        className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-line-strong px-1.5 text-[10px] font-semibold leading-[16px] text-text-mid"
+                        title={t('chats.group.badgeHint')}
+                      >
+                        <Users size={9} aria-hidden /> {t('chats.group.badge')}
+                      </span>
+                    )}
                   </span>
                   <span
                     className={`shrink-0 text-[11.5px] ${row.waiting ? 'font-semibold text-[color:var(--brand-ink)]' : 'text-text-muted'}`}
@@ -324,6 +334,10 @@ export default function ChatListPane({
                     </span>
                   )}
                   <span className={`truncate ${row.pending ? 'italic text-text-muted' : ''}`}>
+                    {/* group chats: who wrote the newest inbound message */}
+                    {!row.pending && row.is_group && row.last_dir === 'in' && row.last_sender && (
+                      <span className="font-semibold text-text-high">{row.last_sender}: </span>
+                    )}
                     {row.pending
                       ? t('chats.list.noConversationYet')
                       : row.last_message === '[deleted]'
@@ -391,7 +405,7 @@ export default function ChatListPane({
                     {(row.labels ?? []).length > 3 && (
                       <span className="text-[10.5px] text-text-muted">+{(row.labels ?? []).length - 3}</span>
                     )}
-                    {row.ai_enabled && !row.opted_out && !row.pending && row.channel !== 'email' && !row.contact_id ? (
+                    {row.ai_enabled && !row.opted_out && !row.pending && row.channel !== 'email' && !row.contact_id && !row.is_group ? (
                       // same state as the chat header: the AI only answers a chat linked to a contact
                       <span
                         title={t('chats.page.aiNeedsContactHint')}

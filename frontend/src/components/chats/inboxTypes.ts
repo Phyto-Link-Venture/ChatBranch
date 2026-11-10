@@ -149,6 +149,15 @@ export interface UiMessage {
   email?: UiEmail | null
   /** One of an email's extra attachments: the pk of the mail whose card shows it. */
   email_part_of?: number | null
+  /** Group chats: who wrote this inbound message (absent on 1:1 chats and outbound). */
+  sender?: UiSender | null
+}
+
+/** The author of an inbound group message. */
+export interface UiSender {
+  id: string
+  name: string
+  phone: string | null
 }
 
 export interface UiEmail {
@@ -176,6 +185,8 @@ export interface UiQuote {
   missing?: boolean
   /** The quoted message was deleted on the channel. */
   recalled?: boolean
+  /** Group chats: who wrote the quoted message. */
+  sender_name?: string | null
 }
 
 /** One reaction: `actor` is `contact`, `user:<username>` or `ai` (the AI's own, made with its reply). */
@@ -220,6 +231,10 @@ export interface UiThreadSummary {
   thread_id?: number | null
   /** Its company (null = unattributed). */
   company?: UiCompany | null
+  /** A group chat (no contact; `name` is the group's subject). */
+  is_group?: boolean
+  /** Group chats: the name of the newest inbound message's author. */
+  last_sender?: string | null
   name: string
   /** address line: phone / email / handle */
   sub: string
@@ -277,6 +292,9 @@ export interface InboxRow {
   key: string
   thread_id?: number | null
   company?: UiCompany | null
+  is_group?: boolean
+  /** group chats: the newest inbound message's author */
+  last_sender?: string | null
   name: string
   address: string
   status: ThreadStatus
@@ -316,6 +334,8 @@ export const rowToSummary = (t: InboxRow): UiThreadSummary => ({
   key: t.key,
   thread_id: t.thread_id ?? null,
   company: t.company ?? null,
+  is_group: !!t.is_group,
+  last_sender: t.last_sender ?? null,
   // prefer the CRM name — a thread created by phone stores the number as its
   // name, but once matched to a contact the list should say who it is
   name: t.contact_name || t.name,
@@ -466,3 +486,17 @@ export const initials = (name: string) =>
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? '')
     .join('') || '#'
+
+/** Bubble name colours for group senders (classes in chats.css, theme-aware ink tokens). */
+const SENDER_TONES = 6
+
+/** A stable colour slot for a group sender: the same person always gets the same colour. */
+export const senderTone = (id: string) => {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0
+  return Math.abs(h) % SENDER_TONES
+}
+
+/** How a group sender is labelled: their name, else +phone, else "Group member". */
+export const senderLabel = (t: TFunction, s: UiSender | null | undefined) =>
+  s?.name?.trim() || (s?.phone ? (s.phone.startsWith('+') ? s.phone : `+${s.phone}`) : t('chats.group.member'))

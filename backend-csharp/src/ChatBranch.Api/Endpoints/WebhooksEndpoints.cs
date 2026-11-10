@@ -144,6 +144,10 @@ public static class WebhooksEndpoints
             catch { return Results.Ok(new { ok = true }); } // never NACK on garbage
             var waId = Str(body, "wa_id");
             var text = Str(body, "text");
+            // a GROUP keeps its whole jid as the conversation key ("1203…@g.us") — its digits
+            // alone would look like a phone number (Channels/GroupChats.cs)
+            var isGroup = GroupChats.IsGroup(Domain.Channels.WhatsApp, waId);
+            if (isGroup) waId = GroupChats.WhatsAppKey(waId);
             if (string.IsNullOrEmpty(waId)) return Results.Ok(new { ok = true });
             // a reaction ({reaction: {msg_id, emoji}}) lands on the message it targets —
             // no bubble, no AI, no flows, no reopen (MessageReactions)
@@ -162,8 +166,30 @@ public static class WebhooksEndpoints
             var account = await BaileysAccountByKey(db, Str(body, "account_id"));
             // Baileys pushes only text here (media arrives on /media afterwards);
             // an empty text is a media-only message — still record the touch.
-            processor.ProcessInbound("whatsapp", waId, text ?? "", Str(body, "name"),
-                account?.Id, Str(body, "msg_id") ?? "", replyToExternalId: Str(body, "reply_to") ?? "");
+            if (isGroup)
+            {
+                // {group: {jid, subject}, sender: {id, name, phone}, mentioned}: the conversation is
+                // named after the group (never after whoever wrote), each message after its author
+                var subject = body.TryGetProperty("group", out var g) ? Str(g, "subject") : null;
+                InboundSender? sender = body.TryGetProperty("sender", out var s) && s.ValueKind == JsonValueKind.Object
+                    ? new InboundSender(Str(s, "id") ?? "", Str(s, "name") ?? "", Str(s, "phone") ?? "")
+                    : null;
+                var mentioned = body.TryGetProperty("mentioned", out var mn)
+                                && (mn.ValueKind == JsonValueKind.True
+                                    || (mn.ValueKind == JsonValueKind.String && mn.GetString() is "1" or "true"));
+                var gm = processor.ProcessInbound("whatsapp", waId, text ?? "", subject, account?.Id,
+                    Str(body, "msg_id") ?? "", replyToExternalId: Str(body, "reply_to") ?? "",
+                    sender: sender, addressedToUs: mentioned);
+                try
+                {
+                    var gt = await db.Threads.FirstOrDefaultAsync(t => t.Id == gm.ThreadId);
+                    if (gt != null) GroupChats.Rename(db, gt, subject);
+                }
+                catch { /* a name is cosmetic */ }
+            }
+            else
+                processor.ProcessInbound("whatsapp", waId, text ?? "", Str(body, "name"),
+                    account?.Id, Str(body, "msg_id") ?? "", replyToExternalId: Str(body, "reply_to") ?? "");
             if (account != null && account.HealthStatus != Domain.Health.Healthy)
             {
                 // Inbound traffic proves the session is alive — heal like Django does.
@@ -262,7 +288,7 @@ public static class WebhooksEndpoints
             var fromMe = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("from_me", out var fm)
                          && (fm.ValueKind == JsonValueKind.True || (fm.ValueKind == JsonValueKind.String && fm.GetString() is "1" or "true"));
             var rows = ChatBranch.Data.Channels.MessageRecalls.Record(db, store, account,
-                new string((Str(body, "wa_id") ?? "").Where(char.IsDigit).ToArray()), Str(body, "msg_id") ?? "",
+                GroupChats.WhatsAppKey(Str(body, "wa_id")), Str(body, "msg_id") ?? "",
                 fromMe ? ChatBranch.Data.Channels.MessageRecalls.ByBusiness : ChatBranch.Data.Channels.MessageRecalls.ByCustomer,
                 gate);
             return Results.Ok(new { ok = true, recalled = rows.Count });
@@ -285,7 +311,7 @@ public static class WebhooksEndpoints
             var fromMe = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("from_me", out var fm)
                          && (fm.ValueKind == JsonValueKind.True || (fm.ValueKind == JsonValueKind.String && fm.GetString() is "1" or "true"));
             var rows = ChatBranch.Data.Channels.MessageEdits.RecordExternal(db, store, account,
-                new string((Str(body, "wa_id") ?? "").Where(char.IsDigit).ToArray()), Str(body, "msg_id") ?? "",
+                GroupChats.WhatsAppKey(Str(body, "wa_id")), Str(body, "msg_id") ?? "",
                 Str(body, "text") ?? "",
                 fromMe ? ChatBranch.Data.Channels.MessageEdits.ByBusiness
                        : ChatBranch.Data.Channels.MessageEdits.ByCustomer,
@@ -369,7 +395,8 @@ public static class WebhooksEndpoints
                     ? NotStored(413, "file too large")
                     : NotStored(400, "unreadable form");
             }
-            var waId = new string(form["wa_id"].ToString().Where(char.IsDigit).ToArray());
+            // a group's whole jid, else the number's digits (Channels/GroupChats.cs)
+            var waId = GroupChats.WhatsAppKey(form["wa_id"].ToString());
             var msgId = form["msg_id"].ToString().Trim();
             var declared = form["media_type"].ToString().Trim().ToLowerInvariant();
             var file = form.Files["file"];
@@ -397,7 +424,14 @@ public static class WebhooksEndpoints
                 if (msg == null) return NotStored(500, "could not record the message");
             }
             if (msg == null)
-                msg = processor.ProcessInbound("whatsapp", waId, $"[{type}]", null, account?.Id, msgId);
+            {
+                // the text push never landed: a group file still carries its author
+                var senderId = form["sender_id"].ToString().Trim();
+                var senderName = form["sender_name"].ToString().Trim();
+                msg = processor.ProcessInbound("whatsapp", waId, $"[{type}]", null, account?.Id, msgId,
+                    sender: senderId.Length > 0 || senderName.Length > 0
+                        ? new InboundSender(senderId, senderName) : null);
+            }
             var thread = await db.Threads.FirstAsync(t => t.Id == msg.ThreadId);
             if (msg.MediaPath.Length > 0) return Results.Ok(new { ok = true, stored = true }); // redelivery
 

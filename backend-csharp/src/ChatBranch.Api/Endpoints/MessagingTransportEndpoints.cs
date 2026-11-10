@@ -215,11 +215,17 @@ public static class MessagingAccountTransport
             var username = me.Str("username");
             var name = username.Length > 0 ? $"@{username}" : me.Str("first_name");
             var botId = me.Str("id");
-            if (account.ExternalId.Length == 0 && botId.Length > 0)
+            var learnId = account.ExternalId.Length == 0 && botId.Length > 0;
+            var learnName = username.Length > 0 && TelegramBot.Username(account) != username;
+            if (learnId || learnName)
             {
-                // learn the bot id (Django filled it at link time)
+                // learn the bot id (Django filled it at link time) and its @username — how a
+                // group message that mentions the bot is recognised (TelegramInbound.AddressedToBot)
                 var db = sp.GetRequiredService<AppDbContext>();
-                account.ExternalId = botId;
+                if (learnId) account.ExternalId = botId;
+                if (learnName)
+                    account.Config = new Dictionary<string, object?>(account.Config ?? new())
+                        { [TelegramBot.UsernameKey] = username };
                 await db.SaveChangesAsync();
             }
             var hook = await client.GetWebhookInfoAsync(account, ctx.RequestAborted);

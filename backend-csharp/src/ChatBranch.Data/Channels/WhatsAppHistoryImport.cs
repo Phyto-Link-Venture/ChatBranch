@@ -124,6 +124,8 @@ public static class WhatsAppHistoryImport
     private static Thread? Thread(AppDbContext db, ScopingService scoping, ThreadStore threads,
         InboundProcessor? inbound, ChannelAccount account, HistoryMessage m)
     {
+        // 1:1 chats only: a group's history carries no authors, and its jid's digits are no phone
+        if (GroupChats.IsGroup(ChannelIds.WhatsApp, (m.WaId ?? "").Trim())) return null;
         var waId = new string((m.WaId ?? "").Where(char.IsDigit).ToArray());
         if (waId.Length == 0) return null;
 

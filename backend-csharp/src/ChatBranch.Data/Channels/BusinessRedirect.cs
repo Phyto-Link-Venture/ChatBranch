@@ -54,6 +54,7 @@ public static class BusinessRedirect
         try
         {
             if (thread.Channel != ChatBranch.Domain.Channels.WhatsApp || receivingAccountId is not int rid) return null;
+            if (GroupChats.IsGroup(thread)) return null;
             if (thread.OptedOut || thread.ContactId is not int contactId) return null;   // coverage gate
             var receiving = db.ChannelAccounts.AsNoTracking().FirstOrDefault(a => a.Id == rid);
             if (receiving == null || AccountRoles.Of(receiving) != AccountRoles.Reminder) return null;

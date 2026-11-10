@@ -784,6 +784,9 @@ public static class WhatsAppThreadsEndpoints
             var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             await Audit(db, ctx, me, "call.start", $"whatsapp:{thread.Key}");
+            // WhatsApp Web places no group calls through a linked number
+            if (GroupChats.IsGroup(thread))
+                return Results.Json(new { detail = "Calls aren't available in group chats." }, statusCode: 400);
 
             // Opt-out is absolute — not overridable by force, same as Django.
             if (thread.OptedOut)
@@ -1023,6 +1026,8 @@ public static class WhatsAppThreadsEndpoints
             company = MessagingEndpoints.ThreadCompanyPayload(db, thread),
             phone = thread.Address.Length > 0 ? thread.Address : $"+{thread.Key}",
             name = thread.Name.Length > 0 ? thread.Name : $"+{thread.Key}",
+            // a group conversation (Channels/GroupChats.cs): several people, no contact
+            is_group = GroupChats.IsGroup(thread),
             account_id = thread.AccountId?.ToString(),
             provider = account != null ? WhatsAppProviders.Of(account) : Providers.Cloud,
             ai_enabled = aiVerdict.Enabled,
@@ -1093,6 +1098,8 @@ public static class WhatsAppThreadsEndpoints
         }
         if (m.MediaPath.Length > 0)
             payload["media"] = MediaStreamLinks.Payload(m, ChatBranch.Domain.Channels.WhatsApp);
+        // a group message's author {id, name, phone} (Channels/GroupChats.cs)
+        if (GroupChats.SenderPayload(m) is { } who) payload["sender"] = who;
         return payload;
     }
 

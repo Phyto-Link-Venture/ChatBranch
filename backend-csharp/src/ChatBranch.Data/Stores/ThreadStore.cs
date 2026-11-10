@@ -239,6 +239,8 @@ public class ThreadStore
             accountId = null;
         if (contactId is int cid && !ContactCompanies.MayLink(_db, _scoping, cid, company))
             contactId = null;
+        // a group conversation never belongs to one contact (Channels/GroupChats.cs)
+        if (ChatBranch.Data.Channels.GroupChats.IsGroup(channel, key)) contactId = null;
         if (thread == null)
         {
             thread = new Thread
@@ -339,7 +341,8 @@ public class ThreadStore
 
     public Message AppendMessage(Thread thread, string direction, string source, string text,
         string status = "sent", string externalId = "", int? accountId = null,
-        bool priv = false, DateTime? providerTs = null, string replyToExternalId = "")
+        bool priv = false, DateTime? providerTs = null, string replyToExternalId = "",
+        ChatBranch.Data.Channels.InboundSender? sender = null)
     {
         if (!string.IsNullOrEmpty(externalId))
         {
@@ -362,6 +365,13 @@ public class ThreadStore
             // a transactional send's key, when one is claimed around this write
             IdempotencyKey = direction == MessageDirection.Out ? TakeIdempotencyKey() : "",
         };
+        // a group message's author (Channels/GroupChats.cs) — clipped to what the columns keep
+        if (ChatBranch.Data.Channels.GroupChats.Clean(sender) is { } who)
+        {
+            msg.SenderKey = who.Key;
+            msg.SenderName = who.Name;
+            msg.SenderPhone = who.Phone;
+        }
         // a quoted reply: keep the provider's id, and link our own row when we hold it
         if (!string.IsNullOrWhiteSpace(replyToExternalId))
         {

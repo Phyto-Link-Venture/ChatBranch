@@ -44,7 +44,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import pino from 'pino'
 import { buildMediaMessage, MediaRequestError, MAX_SEND_MEDIA_BODY, readJsonBodyCapped } from './media.js'
-import { buildContact, buildDelete, buildEdit, buildLocation, buildPoll, buildQuoted, buildReact, editOf, KeyStore, mediaKind, messageSeconds, parseInbound, phoneSent, postWithRetry, recallOf, setNormalizer, unwrap } from './messages.js'
+import { buildContact, buildDelete, buildEdit, buildLocation, buildPoll, buildQuoted, buildReact, chatKind, editOf, groupSender, KeyStore, mediaKind, meJids, mentionsMe, messageSeconds, parseInbound, phoneSent, postWithRetry, recallOf, setNormalizer, targetJid, unwrap } from './messages.js'
 import { createPresence, DEFAULT_IDLE_MS } from './presence.js'
 import { normalizePairingCode, pairingPhone } from './pairing.js'
 import { chunk as historyChunks, HISTORY_CHOICES, historyRows, historyWindowDays, wantsFullSync } from './history.js'
@@ -207,13 +207,47 @@ const ownSends = new KeyStore(5000)
 // sticker) live in messages.js (MEDIA_KINDS, mediaKind) so the selftest covers them.
 const MAX_MEDIA_BYTES = 20 * 1024 * 1024
 
+// ---- group metadata (subject + participants) ----
+// Fetched once per group per hour per number: the inbound push names the group,
+// and Baileys reads the participant list on every group send (cachedGroupMetadata)
+// — without a cache each send would be a metadata query, a rate-limit/ban risk.
+// A membership change drops the entry; a rename updates the subject in place.
+const GROUP_META_TTL_MS = 60 * 60 * 1000
+const groupCache = new Map() // `${account}|${jid}` -> { meta, at }
+const groupKey = (id, jid) => `${id}|${jid}`
+
+function cachedGroup(id, jid, fresh = true) {
+  const hit = groupCache.get(groupKey(id, jid))
+  if (!hit) return undefined
+  if (fresh && Date.now() - hit.at > GROUP_META_TTL_MS) return undefined
+  return hit.meta
+}
+
+/** The group's metadata — cached, else asked of WhatsApp; a failed query falls
+ *  back to whatever we last knew (possibly stale), else null. */
+async function groupInfo(id, jid) {
+  const fresh = cachedGroup(id, jid)
+  if (fresh) return fresh
+  const sock = accounts.get(id)?.sock
+  try {
+    const meta = sock ? await sock.groupMetadata(jid) : null
+    if (meta) {
+      groupCache.set(groupKey(id, jid), { meta, at: Date.now() })
+      return meta
+    }
+  } catch (e) {
+    logEvent('groupMetaFailed', { acct: id, jid, error: String(e?.message || e) })
+  }
+  return cachedGroup(id, jid, false) || null
+}
+
 /** Decrypt+download an inbound attachment (only this process holds the Signal
  *  session keys) and hand the bytes to the API, which stores them next to the
  *  Cloud downloads and attaches them to the just-pushed message. The API's answer
  *  is checked: a non-2xx is retried (up to 3 tries with backoff — the push can
  *  race the /inbound one) and a final failure is logged as mediaPushFailed with
  *  its status; the chat then shows "not available" for the attachment. */
-async function pushInboundMedia(id, m, waId, media, fromMe = false) {
+async function pushInboundMedia(id, m, waId, media, fromMe = false, sender = null) {
   try {
     const declared = Number(media.node?.fileLength || 0)
     if (declared > MAX_MEDIA_BYTES) {
@@ -242,6 +276,11 @@ async function pushInboundMedia(id, m, waId, media, fromMe = false) {
       form.append('file_name', String(media.node?.fileName || ''))
       // a file the person sent from the phone: the API files it as their outbound message
       if (fromMe) form.append('from_me', '1')
+      // a group: who in the group sent the file (the thread itself is the group)
+      if (sender) {
+        form.append('sender_id', sender.id || '')
+        form.append('sender_name', sender.name || '')
+      }
       form.append('file', new Blob([buffer], { type: mime || 'application/octet-stream' }), filename)
       // no explicit Content-Type header — fetch sets the multipart boundary
       return fetch(`${API_URL}/api/whatsapp/baileys/media`, {
@@ -266,6 +305,8 @@ async function pushInbound(id, m) {
   const parsed = parseInbound(m.message)
   if (!parsed.reaction && !hasContent(unwrap(m.message))) return // session-setup / protocol-only envelope
   const jid = m.key?.remoteJid || ''
+  const kind = chatKind(jid)
+  if (kind === 'group') return pushGroupInbound(id, m, jid, parsed)
   let waId = ''
   if (jid.endsWith('@s.whatsapp.net')) {
     waId = digits(jid.split('@')[0])
@@ -281,7 +322,7 @@ async function pushInbound(id, m) {
       : phoneForLid(jid) || digits(jid.split('@')[0])
     rememberLid(waId, jid)
   } else {
-    return // groups/broadcast/status
+    return // broadcast / status / channels
   }
   // a reaction lands on the message it targets — the API never makes a bubble of it
   const body = parsed.reaction
@@ -312,6 +353,46 @@ async function pushInbound(id, m) {
   // so the message row exists to hang the media on; fire-and-forget
   const media = mediaKind(unwrap(m.message))
   if (media) pushInboundMedia(id, m, waId, media)
+}
+
+/**
+ * A message in a GROUP the number belongs to. The thread is the group itself
+ * (wa_id = the full …@g.us jid, never digits — a digits key would match a random
+ * contact by phone tail); who wrote it rides in `sender`, the group's name in
+ * `group.subject`, and `mentioned` says whether it was addressed to us (an
+ * @mention or a reply to one of our messages) — the API answers only then.
+ */
+async function pushGroupInbound(id, m, jid, parsed) {
+  const sock = accounts.get(id)?.sock
+  const sender = groupSender(m)
+  const meta = await groupInfo(id, jid)
+  const subject = String(meta?.subject || '')
+  const body = parsed.reaction
+    ? { account_id: id, wa_id: jid, reaction: parsed.reaction, sender }
+    : {
+        account_id: id,
+        wa_id: jid,
+        name: subject,
+        text: parsed.text,
+        msg_id: m.key?.id || '',
+        reply_to: parsed.replyTo,
+        group: { jid, subject },
+        sender,
+        mentioned: mentionsMe(m.message, meJids(sock?.user)),
+      }
+  if (!parsed.reaction) recentMessages.remember(m)
+  const r = await postWithRetry(() => fetch(`${API_URL}/api/whatsapp/baileys/inbound`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+    body: JSON.stringify(body),
+  }), { attempts: 3, baseDelayMs: 500 })
+  if (!r.ok) {
+    logEvent('inboundPushFailed', { acct: id, id: m.key?.id, group: jid, status: r.status, attempts: r.attempts, error: r.error })
+    console.error(`[${id}] group inbound push failed (HTTP ${r.status || 'network'}): ${r.error}`)
+  }
+  if (parsed.reaction) return
+  const media = mediaKind(unwrap(m.message))
+  if (media) pushInboundMedia(id, m, jid, media, false, sender)
 }
 
 /**
@@ -498,6 +579,8 @@ async function startAccount(id, phone = null) {
     syncFullHistory: wantsFullSync(historyDays),
     // "Keep phone notifications": never announce online on connect (presence.js)
     markOnlineOnConnect: !keepPhone,
+    // group sends read the participant list from here instead of querying it each time
+    cachedGroupMetadata: async (jid) => cachedGroup(id, jid),
   })
   a.sock = sock
   a.presence?.stop()
@@ -514,6 +597,18 @@ async function startAccount(id, phone = null) {
   }, 30000)
 
   sock.ev.on('creds.update', saveCreds)
+
+  // group membership changed: the cached participant list is wrong — drop it
+  sock.ev.on('group-participants.update', ({ id: gid }) => {
+    if (gid) groupCache.delete(groupKey(id, gid))
+  })
+  // a rename (or other setting change): keep the cached entry, take the new subject
+  sock.ev.on('groups.update', (updates) => {
+    for (const u of updates || []) {
+      const hit = u?.id ? groupCache.get(groupKey(id, u.id)) : null
+      if (hit && typeof u.subject === 'string') hit.meta = { ...hit.meta, subject: u.subject }
+    }
+  })
 
   // The chats this number already had. WhatsApp replays them on connect (and in
   // further batches as it catches up); each batch is filtered and pushed as a
@@ -624,6 +719,8 @@ async function startAccount(id, phone = null) {
     // lid chat: the receipt belongs to the phone-keyed thread the send
     // originated from; without a learned mapping there is no such thread
     else if (jid.endsWith('@lid')) waId = phoneForLid(jid) || ''
+    // a group: the thread is keyed by the group jid itself
+    else if (chatKind(jid) === 'group') waId = jid
     if (!key?.fromMe || !key?.id || !waId) return
     try {
       await fetch(`${API_URL}/api/whatsapp/baileys/message-status`, {
@@ -740,8 +837,12 @@ async function checkNumber(id, to) {
 async function resolveTarget(id, to, rawJid = null) {
   const a = accounts.get(id)
   if (!a || a.state !== 'connected') throw new Error(`account ${id} is not connected (state: ${a?.state || 'stopped'})`)
-  const d = digits(to)
-  let jid = rawJid
+  // a group jid needs no lookup (and has no phone to look up)
+  let jid = targetJid(to, rawJid)
+  const group = chatKind(jid) === 'group'
+  const d = group ? jid : digits(to)
+  // warm the metadata cache: Baileys reads the participant list from it for the send
+  if (group) await groupInfo(id, jid)
   if (!jid) {
     const check = await checkNumber(id, d)
     if (check.exists === false) throw new Error(`+${d} is not on WhatsApp — check the number`)
@@ -774,10 +875,10 @@ async function sendText(id, to, text, rawJid = null, quote = null) {
 
 /** An emoji reaction on a message of the chat ("" removes ours). No typing pause:
  *  a reaction is a tap, not a message. */
-async function sendReaction(id, to, msgId, fromMe, emoji, rawJid = null) {
+async function sendReaction(id, to, msgId, fromMe, emoji, rawJid = null, participant = '') {
   const { a, d, jid } = await resolveTarget(id, to, rawJid)
   await a.presence?.active()
-  const result = await a.sock.sendMessage(jid, buildReact({ jid, id: msgId, fromMe, emoji }))
+  const result = await a.sock.sendMessage(jid, buildReact({ jid, id: msgId, fromMe, emoji, participant }))
   if (result) ownSends.remember(result)
   logEvent('react', { acct: id, to: d, jid, target: msgId, emoji: emoji || '(removed)' })
   return result?.key?.id || ''
@@ -862,7 +963,7 @@ async function sendPresence(id, to, state) {
   const a = accounts.get(id)
   if (!a || a.state !== 'connected') throw new Error(`account ${id} is not connected (state: ${a?.state || 'stopped'})`)
   const d = digits(to)
-  const jid = lidHints.get(d) || `${d}@s.whatsapp.net`
+  const jid = targetJid(to, null) || lidHints.get(d) || `${d}@s.whatsapp.net`
   const kind = ['composing', 'paused', 'available'].includes(state) ? state : 'composing'
   await a.presence?.active()
   try { await a.sock.presenceSubscribe(jid) } catch { /* optional */ }
@@ -1024,18 +1125,25 @@ http
         return json(res, 200, { ok: true, state: a.state, pairing_code: a.pairingCode, pairing_phone: a.pairPhone })
       }
       if (action === 'send') {
-        const { to, text, raw_jid, quoted_id, quoted_from_me, quoted_text } = await readBody(req)
+        const { to, text, raw_jid, quoted_id, quoted_from_me, quoted_text, quoted_participant } = await readBody(req)
         if (!to || !text) return json(res, 400, { detail: 'to and text are required' })
+        // in a group, quoting someone else's message also names its author (quoted_participant)
         const quote = typeof quoted_id === 'string' && quoted_id
-          ? { id: quoted_id, fromMe: !!quoted_from_me, text: typeof quoted_text === 'string' ? quoted_text : '' }
+          ? {
+              id: quoted_id,
+              fromMe: !!quoted_from_me,
+              text: typeof quoted_text === 'string' ? quoted_text : '',
+              participant: typeof quoted_participant === 'string' ? quoted_participant : '',
+            }
           : null
         return json(res, 200, { id: await sendText(id, to, text, raw_jid || null, quote) })
       }
       if (action === 'react') {
-        const { to, msg_id, from_me, emoji, raw_jid } = await readBody(req)
+        const { to, msg_id, from_me, emoji, raw_jid, participant } = await readBody(req)
         if (!to || !msg_id) return json(res, 400, { detail: 'to and msg_id are required' })
         if (emoji != null && typeof emoji !== 'string') return json(res, 400, { detail: 'emoji must be a string' })
-        return json(res, 200, { id: await sendReaction(id, to, msg_id, !!from_me, emoji || '', raw_jid || null) })
+        return json(res, 200, { id: await sendReaction(id, to, msg_id, !!from_me, emoji || '', raw_jid || null,
+          typeof participant === 'string' ? participant : '') })
       }
       if (action === 'revoke') {
         const { to, msg_id, from_me, raw_jid } = await readBody(req)

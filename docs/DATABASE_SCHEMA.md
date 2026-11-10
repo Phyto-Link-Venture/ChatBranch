@@ -247,7 +247,7 @@ cache) live in `ChatBranch.Data/Tags/TagService.cs`.
 ### `crm_thread` — one conversation per customer PER COMPANY: `(channel, key, company)`
 | Column | Notes |
 |---|---|
-| `channel` + `key` + `company_entity_id` | **unique** — two partial unique indexes (NULLs are distinct in SQL): `uniq_thread_channel_key_company` `(channel, key, company_entity_id) WHERE company_entity_id IS NOT NULL` and `uniq_thread_channel_key_unattributed` `(channel, key) WHERE company_entity_id IS NULL`. key = wa_id digits / email / PSID / IGSID / TG chat id / widget session. The old `uniq_thread_channel_key` (`(channel, key)` for the whole tenant — incident 2026-10-11) is dropped on boot |
+| `channel` + `key` + `company_entity_id` | **unique** — two partial unique indexes (NULLs are distinct in SQL): `uniq_thread_channel_key_company` `(channel, key, company_entity_id) WHERE company_entity_id IS NOT NULL` and `uniq_thread_channel_key_unattributed` `(channel, key) WHERE company_entity_id IS NULL`. key = wa_id digits / email / PSID / IGSID / TG chat id / widget session — or a GROUP's own id: WhatsApp's whole `…@g.us` jid, a negative Telegram chat id, a LINE groupId `C…` / roomId `R…` (group-ness is derived from channel + key, `Channels/GroupChats.IsGroup`; a group thread never has a `contact_id`). The old `uniq_thread_channel_key` (`(channel, key)` for the whole tenant — incident 2026-10-11) is dropped on boot |
 | `company_entity_id` | the COMPANY (top-level entity) the conversation belongs to — part of its identity. Set at creation from the receiving account's entity (else the thread's entity); null = unattributed (no account, no entity — the organization-wide bucket). Never changed afterwards: a contact link, a same-company number taking over or an account re-binding never moves a thread into another company (an unattributed thread adopts a company once, when it first gets one and the slot is free). Backfilled on boot by `Stores/ThreadCompanies.Upgrade` (SQLite `Seed.UpgradeSchema`; PostgreSQL adds the column + indexes from the model in `PostgresSchema.Sync`, the same backfill then runs): the account's company, else the entity's; the new indexes are created BEFORE the old one is dropped |
 | `address`, `name` | |
 | `status` | `open` \| `pending` \| `snoozed` \| `resolved` (an inbound message reopens resolved/snoozed) |
@@ -284,6 +284,11 @@ resolved from `reply_to_external_id` when we hold it) · `reply_to_external_id`
 the inbox's `keep_recalled` decides whether `text` / the file were kept or erased) ·
 `idempotency_key` (the caller's own key for a transactional send,
 `POST /api/messaging/notify`; `''` = not one, which is nearly every row) ·
+`sender_key` / `sender_name` / `sender_phone` (who wrote an inbound message of a
+GROUP conversation — WhatsApp's full participant jid `…@s.whatsapp.net` / `…@lid`,
+a Telegram user id, a LINE userId; the name the channel showed; the phone digits
+when known. `''` on every 1:1 message — a 1:1 thread's author is the thread itself.
+`Channels/GroupChats.cs`; payload `sender: {id, name, phone|null}`) ·
 `created_at` (provider timestamp for inbound). **Unique**
 `(thread_id, external_id)` where `external_id <> ''`
 (`uniq_message_thread_external_id`) — the webhook-redelivery guarantee — and
