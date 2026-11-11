@@ -3,6 +3,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
+using ChatBranch.Data.Contacts;
+using FieldDef = ChatBranch.Data.Contacts.ContactFieldDef;
 
 namespace ChatBranch.Api.Endpoints;
 
@@ -15,24 +17,20 @@ namespace ChatBranch.Api.Endpoints;
 /// model stays generic. (Per-relationship fields — a driver's licence number,
 /// an outside company's contract end — ride on registry TAGS instead.)
 ///
-/// Field kinds: text · select (one option) · multiselect · number · boolean.
+/// Field kinds: text · select (one option) · multiselect · number · boolean ·
+/// date (canonical YYYY-MM-DD) · json (an object, for API-driven syncs) — see
+/// <see cref="ContactCustomFields"/>, which owns the kinds, the value rules and
+/// what the AI may see. Each field also carries <c>show_to_ai</c> (off by default:
+/// an internal field never reaches a customer-facing prompt) and an optional
+/// <c>entity_id</c> (null = organization-wide, else only that entity's company
+/// sees it — like a registry tag's scope).
 /// Reads are open to any authed role (forms render them); writes are admin+.
 /// </summary>
 public static class CustomFieldsEndpoints
 {
     private const string Key = "custom_fields";
     private static readonly string[] Targets = { "customer" };
-    private static readonly string[] Kinds = { "text", "select", "multiselect", "number", "boolean" };
-
-    public class FieldDef
-    {
-        [JsonPropertyName("key")] public string Key { get; set; } = "";
-        [JsonPropertyName("label")] public string Label { get; set; } = "";
-        [JsonPropertyName("kind")] public string Kind { get; set; } = "text";
-        [JsonPropertyName("options")] public List<string> Options { get; set; } = new();
-        [JsonPropertyName("required")] public bool Required { get; set; }
-        [JsonPropertyName("position")] public int Position { get; set; }
-    }
+    private static readonly string[] Kinds = ContactCustomFields.Kinds;
 
     public class Schema
     {
@@ -68,7 +66,7 @@ public static class CustomFieldsEndpoints
         return s.Trim('_');
     }
 
-    private static string? Validate(List<FieldDef> fields, string target)
+    private static string? Validate(List<FieldDef> fields, string target, Func<int, bool> entityExists)
     {
         var seen = new HashSet<string>();
         for (var i = 0; i < fields.Count; i++)
@@ -82,8 +80,12 @@ public static class CustomFieldsEndpoints
             f.Kind = (f.Kind ?? "text").Trim().ToLowerInvariant();
             if (!Kinds.Contains(f.Kind)) return $"{target}: '{f.Label}' has unknown kind '{f.Kind}'.";
             f.Options = (f.Options ?? new()).Select(o => o.Trim()).Where(o => o.Length > 0).Distinct().ToList();
-            if (f.Kind is "select" or "multiselect" && f.Options.Count == 0)
+            if (ContactCustomFields.OptionKinds.Contains(f.Kind) && f.Options.Count == 0)
                 return $"{target}: '{f.Label}' is a {f.Kind} and needs at least one option.";
+            if (!ContactCustomFields.OptionKinds.Contains(f.Kind)) f.Options = new();
+            // a field may belong to one entity (only its company's AI sees it) — but a real one
+            if (f.EntityId is int eid && !entityExists(eid))
+                return $"{target}: '{f.Label}' points at entity {eid}, which doesn't exist.";
             f.Position = i;
         }
         return null;
@@ -120,7 +122,7 @@ public static class CustomFieldsEndpoints
                 List<FieldDef> fields;
                 try { fields = JsonSerializer.Deserialize<List<FieldDef>>(arr.GetRawText()) ?? new(); }
                 catch { return Results.Json(new { detail = $"{target}: malformed field list" }, statusCode: 400); }
-                var err = Validate(fields, target);
+                var err = Validate(fields, target, id => db.Entities.Any(e => e.Id == id));
                 if (err != null) return Results.Json(new { detail = err }, statusCode: 400);
                 schema.Customer = fields;
             }
@@ -128,7 +130,8 @@ public static class CustomFieldsEndpoints
             db.AuditLogs.Add(new ChatBranch.Domain.AuditLog
             {
                 Actor = me.Identity?.Name ?? "system", Action = "settings.custom_fields",
-                Target = Key, Detail = $"{schema.Customer.Count} customer field(s)", CreatedAt = DateTime.UtcNow,
+                Target = Key, Detail = $"{schema.Customer.Count} customer field(s), "
+                          + $"{schema.Customer.Count(f => f.ShowToAi)} shown to the AI", CreatedAt = DateTime.UtcNow,
             });
             await db.SaveChangesAsync();
             return Results.Ok(Payload(schema));

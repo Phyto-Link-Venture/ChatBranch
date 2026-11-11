@@ -171,6 +171,89 @@ export const contacts = {
     errorsCsv: 'Errors (.csv)',
     warningsCsv: 'Warnings (.csv)',
   },
+  // "Link existing conversations" (LinkConversationsModal) — the backfill for
+  // chats that were already here when their contact was created. The
+  // otherCompany line is not an error: this installation holds several
+  // unrelated client companies, and a number that matches one company's
+  // contact must never link another company's conversation.
+  linkChats: {
+    title: 'Link existing conversations',
+    subtitle: 'Put the right contact on chats that were already here.',
+    explain:
+      'A conversation gets its contact when a message arrives, so chats that were already here when you imported your phone book still show a bare number. This goes through them and links the ones whose number or email belongs to one of your contacts — in the same company only, and never over a contact that is already set.',
+    scope: 'Conversations of',
+    everyEntity: 'Every entity',
+    scopeAria: 'Which entity’s conversations to link',
+    check: 'Check first',
+    link: 'Link them',
+    checking: 'Checking which conversations match…',
+    linking: 'Linking…',
+    willLink_one: '{count} conversation will be linked',
+    willLink_other: '{count} conversations will be linked',
+    linked_one: '{count} conversation linked',
+    linked_other: '{count} conversations linked',
+    alreadyLinked_one: '{count} already had a contact',
+    alreadyLinked_other: '{count} already had a contact',
+    noMatch_one: '{count} with nobody on file',
+    noMatch_other: '{count} with nobody on file',
+    skipped_one: '{count} skipped (group or broadcast)',
+    skipped_other: '{count} skipped (groups, broadcasts)',
+    otherCompany_one: '{count} left alone — that number belongs to another company’s contact.',
+    otherCompany_other: '{count} left alone — those numbers belong to another company’s contacts.',
+    more: 'There are more conversations to go through — run it again to continue.',
+    nothingToLink: 'Nothing to link: every conversation here already has its contact, or no contact holds its number.',
+    scannedCount_one: '{count} conversation examined.',
+    scannedCount_other: '{count} conversations examined.',
+  },
+  // The phone app's contact picker (DeviceContactsPicker). The disclosure copy
+  // here is what Google Play's Prominent Disclosure rule asks for and what an
+  // App Store reviewer reads before the system prompt: it has to say what is
+  // read, what is uploaded and what never happens — in that order, in plain
+  // words. Change it with care; the store notes in mobile/README.md quote it.
+  device: {
+    title: 'Contacts on this phone',
+    hint: 'Pick people from this phone’s address book — only the ones you tick.',
+    disclosureTitle: 'Before we open your contacts',
+    disclosureLead:
+      'Your phone will ask whether ChatBranch may see your contacts. This is exactly what happens if you allow it.',
+    readsTitle: 'What ChatBranch reads',
+    readsBody:
+      'Names, phone numbers, email addresses and company names — read on this phone, to draw the list you choose from. No photos, notes or addresses.',
+    uploadsTitle: 'What is uploaded',
+    uploadsBody:
+      'Only the contacts you tick, and only when you tap Import. They are saved as customer contacts in this organization.',
+    neverTitle: 'What never happens',
+    neverBody:
+      'Your address book is never uploaded whole, never kept in sync in the background, and nothing leaves this phone while you are only looking at the list.',
+    consentNote:
+      'Import only the people you may hold for business use. These are their personal details, not yours: under Malaysia’s PDPA your organization becomes responsible for them.',
+    webNote: 'Your browser shows its own contact picker — only what you choose there reaches this page.',
+    webCancelled: 'No contacts were chosen.',
+    choose: 'Choose contacts',
+    reading: 'Reading this phone’s contacts…',
+    blockedTitle: 'Contacts access is off',
+    blockedBody:
+      'Your phone is not letting ChatBranch see your contacts, and it will not ask again. Turn it on in your phone’s settings — or export a vCard (.vcf) and upload that instead.',
+    blockedIos: 'On iPhone: Settings › Privacy & Security › Contacts › ChatBranch.',
+    blockedAndroid: 'On Android: Settings › Apps › ChatBranch › Permissions › Contacts › Allow.',
+    retry: 'I’ve allowed it — try again',
+    limited:
+      'Your phone is sharing only some of your contacts. To pick from more, allow full contacts access in Settings.',
+    searchPlaceholder: 'Search name, number or email',
+    selectedOf: '{count} of {total} selected',
+    selectVisible_one: 'Select {count}',
+    selectVisible_other: 'Select all {count}',
+    clearVisible_one: 'Unselect {count}',
+    clearVisible_other: 'Unselect these {count}',
+    clearAll: 'Clear selection',
+    empty: 'There are no contacts on this phone.',
+    noMatch: 'No contact matches “{query}”.',
+    noReach: 'No phone or email — can’t be imported',
+    tooMany: 'You can import {count} contacts at a time. Untick some and bring in the rest afterwards.',
+    useSelected_one: 'Use {count} contact',
+    useSelected_other: 'Use {count} contacts',
+    nextHint: 'You will see what will be imported before anything is saved.',
+  },
   invite: {
     title: 'Invite to another app',
     subtitle: 'Links that connect {name}’s other apps to this contact. One code, 30 days, once per app.',

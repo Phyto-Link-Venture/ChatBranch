@@ -220,7 +220,7 @@ public static class BuiltinTools
           "id":{"type":"integer"},"name":{"type":"string"},"phone":{"type":"string"},
           "email":{"type":"string"},"company":{"type":"string"},"language":{"type":"string"},
           "tags":{"type":"array","items":{"type":"string"}},
-          "attributes":{"type":"object","description":"Custom field values by key."}},
+          "attributes":{"type":"object","description":"Custom field values by key (a date field takes YYYY-MM-DD; a json field takes an object)."}},
          "required":["id"]}
         """;
         public override string Summarize(JsonElement a)

@@ -81,39 +81,60 @@ public static partial class ToolCatalog
         yield return T(g, "ai_get_behaviour", "Read AI behaviour settings",
             "The AI review policy and human-like behaviour for the organisation or one entity: ai_review_mode " +
             "(auto | review_flagged | review_all | shadow), autosend minutes, first-N review, risky keywords, " +
-            "reply wait/debounce, typing pauses, follow-ups, learning mode — each with its inherited value.",
-            "GET", "/api/ai/behaviour", monitorOrBehaviour, new[] { A.Entity("Entity slug; omit for the organisation.") });
+            "reply wait/debounce, typing pauses, follow-ups, learning mode — each with its inherited value. "
+            + "Pass account to read ONE inbox's own overrides instead (the level below the entity).",
+            "GET", "/api/ai/behaviour", monitorOrBehaviour,
+            new[] { A.Entity("Entity slug; omit for the organisation."), A.Int("account", "Inbox (channel account) id — its own overrides, below the entity level. channels_list_accounts and channels_list_widgets list them.", @in: ArgIn.Query) });
 
         yield return T(g, "ai_update_behaviour", "Change AI behaviour settings",
-            "Set AI behaviour values for the organisation or an entity override — keys exactly as ai_get_behaviour " +
-            "lists them, e.g. {\"ai_review_mode\":\"review_all\",\"ai_learning_mode\":\"review\"}.",
+            "Set AI behaviour values for the organisation, an entity override, or ONE inbox (account) — keys " +
+            "exactly as ai_get_behaviour lists them, e.g. {\"ai_review_mode\":\"review_all\",\"ai_learning_mode\":\"review\"}. " +
+            "With account set, a blank value clears that key so the inbox inherits again.",
             "PUT", "/api/ai/behaviour", behaviour,
-            new[] { A.Entity("Entity slug; omit for the organisation.", ArgIn.Query), A.Obj("values", "{setting key: value}.", req: true) });
+            new[] { A.Entity("Entity slug; omit for the organisation.", ArgIn.Query), A.Int("account", "Inbox (channel account) id — its own overrides, below the entity level. channels_list_accounts and channels_list_widgets list them.", @in: ArgIn.Query),
+                A.Obj("values", "{setting key: value}.", req: true) });
 
         yield return T(g, "ai_reset_behaviour", "Reset an AI behaviour override",
-            "Remove one behaviour value at this level so it inherits again (entity → organisation → default).",
+            "Remove one behaviour value at this level so it inherits again (inbox → entity → organisation → default).",
             "DELETE", "/api/ai/behaviour", behaviour,
-            new[] { A.Entity("Entity slug; omit for the organisation."), A.Str("key", "The setting key to reset.", req: true) },
+            new[] { A.Entity("Entity slug; omit for the organisation."), A.Int("account", "Inbox (channel account) id — its own overrides, below the entity level. channels_list_accounts and channels_list_widgets list them.", @in: ArgIn.Query),
+                A.Str("key", "The setting key to reset.", req: true) },
             destructive: true);
 
         yield return T(g, "ai_get_controls", "Read the AI master switch",
             "The AI master switch for the organisation or an entity: on | off | schedule (per-weekday windows, " +
-            "inside/outside), the never-AI tags, and what is inherited from the level above.",
+            "inside/outside), the never-AI tags, and what is inherited from the level above. "
+            + "Pass account to read ONE inbox's own switch instead (the level below the entity).",
             "GET", "/api/ai/controls", C("ai.monitor", "ai.behaviour.manage", "chats.view"),
-            new[] { A.Entity("Entity slug; omit for the organisation.") });
+            new[] { A.Entity("Entity slug; omit for the organisation."), A.Int("account", "Inbox (channel account) id — ITS own master switch, the level below the entity. An inbox can only switch the AI OFF or narrow its hours, never answer against a level above that is off. channels_list_accounts and channels_list_widgets list them.", @in: ArgIn.Query) });
 
         yield return T(g, "ai_set_controls", "Set the AI master switch",
-            "Switch the AI on/off or onto a schedule for the organisation or an entity (inherit = follow the level " +
-            "above; off anywhere up the tree wins). schedule: {mon:[[\"09:00\",\"18:00\"]], …} in the org timezone.",
+            "Switch the AI on/off or onto a schedule for the organisation, an entity, or ONE inbox (account) " +
+            "(inherit = follow the level above; off anywhere up the tree wins). schedule: " +
+            "{mon:[[\"09:00\",\"18:00\"]], …} in the org timezone. An inbox can only ever switch ITSELF off or " +
+            "narrow its hours: its \"on\" never answers while the entity or the organisation is off or out of hours. " +
+            "Not to be confused with an inbox's ai_default (channels_list_inbox_settings), which is stamped on a " +
+            "conversation when it starts and loses to an operator's per-chat switch — this one is a live gate on " +
+            "every message.",
             "PUT", "/api/ai/controls", behaviour,
             new[]
             {
                 A.Entity("Entity slug; omit for the organisation.", ArgIn.Query),
+                A.Int("account", "Inbox (channel account) id — ITS own master switch, the level below the entity. An inbox can only switch the AI OFF or narrow its hours, never answer against a level above that is off. channels_list_accounts and channels_list_widgets list them.", @in: ArgIn.Query),
                 A.Str("mode", "on | off | schedule | inherit.", oneOf: new[] { "on", "off", "schedule", "inherit" }),
                 A.Obj("schedule", "Per-weekday windows."),
                 A.Str("schedule_mode", "AI on inside or outside the windows.", oneOf: new[] { "inside", "outside", "inherit" }),
-                A.StrList("never_tags", "Contact tags the AI never answers (they add up across levels)."),
+                A.StrList("never_tags", "Contact tags the AI never answers (they add up across levels, so an inbox's add to the ones above it)."),
             });
+
+        yield return T(g, "ai_reset_controls", "Reset an AI master-switch override",
+            "Drop this level's own master switch so it follows the level above again (inbox → entity → "
+            + "organisation → on). Needs an entity or an account — the organisation level is edited, not reset.",
+            "DELETE", "/api/ai/controls", behaviour,
+            new[] { A.Entity("Entity slug whose own switch to drop."), A.Int("account", "Inbox (channel account) id — ITS own master switch, the level below the entity. An inbox can only switch the AI OFF or narrow its hours, never answer against a level above that is off. channels_list_accounts and channels_list_widgets list them.", @in: ArgIn.Query),
+                A.Str("key", "One of ai_enabled, ai_schedule, ai_schedule_mode, ai_never_tags; omit for all of them.",
+                    oneOf: new[] { "ai_enabled", "ai_schedule", "ai_schedule_mode", "ai_never_tags" }) },
+            destructive: true);
 
         yield return T(g, "ai_get_persona", "Read the AI persona and house rules",
             "The chat persona (voice, tone, what the business is) for the organisation or an entity — the nearest " +

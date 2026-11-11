@@ -1,5 +1,5 @@
 /**
- * The Inboxes model behind /channels (Chatwoot's "inboxes"): every number,
+ * The Inboxes model behind /channels: every number,
  * mailbox, bot, page, widget and the SIP trunk the team answers from, read
  * from the EXISTING account endpoints and folded into one card shape.
  *
@@ -40,6 +40,7 @@ export const txt = (m: string | Msg, t: TFunction): string => (typeof m === 'str
 export type InboxKind =
   | 'wa_cloud'
   | 'wa_qr'
+  | 'wa_waha'
   | 'wa_ycloud'
   | 'wa_twilio'
   | 'email'
@@ -66,8 +67,8 @@ export type MoreKind = (typeof MORE_KINDS)[number]
 export const isMoreKind = (k: InboxKind | null | undefined): k is MoreKind =>
   !!k && (MORE_KINDS as readonly string[]).includes(k)
 
-/** Every WhatsApp kind: Meta's Cloud API, a QR-paired number, and the two official BSPs. */
-export const WA_KINDS = ['wa_cloud', 'wa_qr', 'wa_ycloud', 'wa_twilio'] as const
+/** Every WhatsApp kind: Meta's Cloud API, a QR-paired number, WAHA, and the two official BSPs. */
+export const WA_KINDS = ['wa_cloud', 'wa_qr', 'wa_waha', 'wa_ycloud', 'wa_twilio'] as const
 export type WaKind = (typeof WA_KINDS)[number]
 export const isWaKind = (k: InboxKind | null | undefined): k is WaKind =>
   !!k && (WA_KINDS as readonly string[]).includes(k)
@@ -76,10 +77,17 @@ export const isWaKind = (k: InboxKind | null | undefined): k is WaKind =>
 export const isBspKind = (k: InboxKind | null | undefined): k is 'wa_ycloud' | 'wa_twilio' =>
   k === 'wa_ycloud' || k === 'wa_twilio'
 
+/** The UNOFFICIAL WhatsApp kinds: WhatsApp Web, not a Meta business number — no templates,
+ *  no 24-hour window, and a ToS warning the operator has to acknowledge. */
+export const UNOFFICIAL_WA_KINDS: readonly InboxKind[] = ['wa_qr', 'wa_waha']
+export const isUnofficialWaKind = (k: InboxKind | null | undefined): k is 'wa_qr' | 'wa_waha' =>
+  !!k && (UNOFFICIAL_WA_KINDS as readonly string[]).includes(k)
+
 /** The API's `provider` for each WhatsApp kind. */
 export const WA_PROVIDER: Record<WaKind, WaProvider> = {
   wa_cloud: 'cloud',
   wa_qr: 'baileys',
+  wa_waha: 'waha',
   wa_ycloud: 'ycloud',
   wa_twilio: 'twilio',
 }
@@ -153,6 +161,7 @@ export const KINDS: KindMeta[] = [
   { kind: 'wa_ycloud', logo: 'whatsapp', ...texts('waYcloud'), filter: 'whatsapp', group: 'messaging' },
   { kind: 'wa_twilio', logo: 'whatsapp', ...texts('waTwilio'), filter: 'whatsapp', group: 'messaging' },
   { kind: 'wa_qr', logo: 'whatsapp', ...texts('waQr'), filter: 'whatsapp', badge: 'Demo', group: 'messaging' },
+  { kind: 'wa_waha', logo: 'whatsapp', ...texts('waWaha'), filter: 'whatsapp', badge: 'Demo', group: 'messaging' },
   { kind: 'email', logo: 'email', ...texts('email'), filter: 'email', group: 'sms_voice' },
   { kind: 'telegram', logo: 'telegram', ...texts('telegram'), filter: 'telegram', group: 'messaging' },
   { kind: 'line', logo: 'line', ...texts('line'), filter: 'line', group: 'messaging' },
@@ -249,9 +258,37 @@ export const EMPTY_DELIVERY: AccountDelivery = {
 
 export type AiDefault = '' | 'on' | 'off'
 
-/** cloud = Meta's Cloud API · baileys = QR-paired (unofficial) · ycloud / twilio = official BSPs ·
- *  zernio = connected through Zernio (the provider "zernio" on the native channel). */
-export type WaProvider = 'cloud' | 'baileys' | 'ycloud' | 'twilio' | 'zernio'
+/** cloud = Meta's Cloud API · baileys = QR-paired through our own gateway (unofficial) ·
+ *  waha = the operator's own self-hosted WAHA server (unofficial) · ycloud / twilio = official
+ *  BSPs · zernio = connected through Zernio (the provider "zernio" on the native channel). */
+export type WaProvider = 'cloud' | 'baileys' | 'waha' | 'ycloud' | 'twilio' | 'zernio'
+
+/**
+ * A WAHA session as `GET /api/whatsapp/accounts/{id}/waha/status` reports it. `status` is
+ * WAHA's OWN word (STOPPED · STARTING · SCAN_QR_CODE · PASSKEY_REQUIRED ·
+ * PASSKEY_CONFIRMATION_REQUIRED · WORKING · FAILED, or UNKNOWN when we could not read one),
+ * and `transient` says that word is the pairing flow working — not a fault to shout about.
+ */
+export interface WahaState {
+  status: string
+  transient: boolean
+  working: boolean
+  reachable: boolean
+  qr?: string | null
+  pairing_code?: string | null
+  pairing_phone?: string | null
+  /** PASSKEY_CONFIRMATION_REQUIRED: a number to CONFIRM on the phone, not a code to type. */
+  confirm_code?: string | null
+  me?: string | null
+  me_name?: string | null
+  detail?: string | null
+  session: string
+  engine?: string | null
+  base_url?: string | null
+  webhook_url?: string | null
+  webhook_configured: boolean
+  api_key_set?: boolean
+}
 
 /** A YCloud / Twilio account's own settings (secrets come back masked). */
 export interface WaBspSettings {
@@ -496,6 +533,7 @@ function moreAddress(a: MessagingAccount): string | Msg {
 const WA_KIND_OF: Record<WaProvider, WaKind> = {
   cloud: 'wa_cloud',
   baileys: 'wa_qr',
+  waha: 'wa_waha',
   ycloud: 'wa_ycloud',
   twilio: 'wa_twilio',
   // an official, template-capable number — its card says "via Zernio"
@@ -511,6 +549,9 @@ function waAddress(a: WaAccount): string | Msg {
       return a.display_phone_number || a.managed?.address || a.managed?.username || a.bsp?.phone_number || msg('channels.address.viaZernio')
     case 'baileys':
       return msg(a.configured ? 'channels.address.qrPaired' : 'channels.address.notPaired')
+    case 'waha':
+      // WAHA tells us the number once its session is WORKING; before that it is unpaired
+      return a.phone_number_id ? `+${a.phone_number_id}` : msg('channels.address.notPaired')
     case 'ycloud':
       return a.bsp?.phone_number || msg('channels.address.numberNotSet')
     case 'twilio':
@@ -766,6 +807,8 @@ export async function deleteInbox(inbox: Inbox): Promise<void> {
     // best-effort unpair first — the account row goes regardless
     if (inbox.kind === 'wa_qr')
       await api(`whatsapp/accounts/${inbox.id}/baileys/logout`, { method: 'POST' }).catch(() => {})
+    if (inbox.kind === 'wa_waha')
+      await api(`whatsapp/accounts/${inbox.id}/waha/logout`, { method: 'POST' }).catch(() => {})
     await api(`whatsapp/accounts/${inbox.id}`, { method: 'DELETE' })
     return
   }

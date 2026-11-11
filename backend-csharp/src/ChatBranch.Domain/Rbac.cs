@@ -152,7 +152,7 @@ public class RolePermission
 }
 
 /// <summary>
-/// A group of agents conversations can be routed to — Chatwoot's "team".
+/// A group of agents conversations can be routed to — a "team".
 /// Assignment is two-level: a thread belongs to a TEAM (who owns it) and
 /// optionally to one agent within it (who is working it right now).
 /// </summary>
@@ -193,7 +193,7 @@ public class TeamMember
 
 /// <summary>
 /// An event-driven automation: when something happens to a conversation, check
-/// conditions and apply actions. Chatwoot's "automation rules".
+/// conditions and apply actions — an "automation rule".
 ///
 /// Distinct from the flow builder, which is CONTACT-centric and time-triggered
 /// (a reminder sequence over days). A rule is CONVERSATION-centric and fires on

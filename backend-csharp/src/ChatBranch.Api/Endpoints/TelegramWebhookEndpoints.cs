@@ -8,8 +8,8 @@ using ChannelIds = ChatBranch.Domain.Channels;
 namespace ChatBranch.Api.Endpoints;
 
 /// <summary>
-/// Telegram Bot API updates (port of messaging/views.telegram_webhook), the
-/// Chatwoot-style path <c>POST /api/messaging/webhook/telegram/{bot-token}</c>.
+/// Telegram Bot API updates (port of messaging/views.telegram_webhook), served
+/// at <c>POST /api/messaging/webhook/telegram/{bot-token}</c>.
 ///
 /// Authentication, two layers:
 ///  * the bot token in the path routes to the account — compared in constant

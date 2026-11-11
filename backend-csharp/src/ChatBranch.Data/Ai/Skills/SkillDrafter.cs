@@ -116,7 +116,11 @@ public class SkillDrafter
           ctx.now (ISO date-time in the business timezone), ctx.timezone, ctx.today ("YYYY-MM-DD"),
           ctx.time ("HH:mm"), ctx.weekday ("Monday"…), ctx.isoWeekday (1-7), ctx.hour, ctx.minute,
           ctx.channel, ctx.lastMessage (the customer's latest message),
-          ctx.contact { name, firstName, language, tags[], company, fields{} }.
+          ctx.contact { name, firstName, language, tags[], company, fields{}, internalFields{} }.
+          ctx.contact.fields holds ONLY the custom fields the operator opted in to the AI
+          ("Show to AI"); ctx.contact.internalFields holds the rest of what this company keeps on
+          the contact. Prefer fields{}; read internalFields{} only when the rule genuinely needs an
+          internal value, and never copy one into the returned result.
         Helpers on plain "YYYY-MM-DD" strings: dates.addDays(d,n), dates.addBusinessDays(d,n),
           dates.daysBetween(a,b), dates.isoWeek(d) -> {year, week}, dates.isoWeekday(d),
           dates.weekday(d), dates.weekStart(d), dates.weekEnd(d), dates.isWeekend(d),

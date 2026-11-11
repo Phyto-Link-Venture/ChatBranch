@@ -25,6 +25,8 @@ public class AppDbContext : DbContext
     public const string ThreadUnattributedIndex = "uniq_thread_channel_key_unattributed";
     /// <summary>The pre-company index: (channel, key) unique for the whole tenant — dropped on upgrade.</summary>
     public const string LegacyThreadIndex = "uniq_thread_channel_key";
+    /// <summary>One WhatsApp CLOUD account per number: unique external_id (phone_number_id).</summary>
+    public const string WhatsAppNumberIndex = "uniq_channelaccount_wa_pnid";
 
     // ingest
     public DbSet<Tenant> Tenants => Set<Tenant>();
@@ -84,6 +86,12 @@ public class AppDbContext : DbContext
     public DbSet<LlmUsage> LlmUsage => Set<LlmUsage>();
     public DbSet<PendingToolAction> PendingToolActions => Set<PendingToolAction>();
     public DbSet<ConversationSummary> ConversationSummaries => Set<ConversationSummary>();
+    // crm — prepaid AI credit: the append-only ledger and its cached balances
+    public DbSet<AiCreditAccount> AiCreditAccounts => Set<AiCreditAccount>();
+    public DbSet<AiCreditEntry> AiCreditEntries => Set<AiCreditEntry>();
+    // crm — AI price books: named plans and the entities each one prices
+    public DbSet<AiPriceBook> AiPriceBooks => Set<AiPriceBook>();
+    public DbSet<AiPriceBookAssignment> AiPriceBookAssignments => Set<AiPriceBookAssignment>();
     // crm — ai ops (monitor + follow-ups)
     public DbSet<AiDraft> AiDrafts => Set<AiDraft>();
     public DbSet<AiConversationState> AiConversationStates => Set<AiConversationState>();
@@ -238,6 +246,35 @@ public class AppDbContext : DbContext
             .HasDatabaseName("ix_flowstepevent_run");
         b.Entity<CallRecord>().ToTable("crm_callrecord");
         b.Entity<LlmUsage>().ToTable("crm_llmusage");
+        // ---- prepaid AI credit: the ledger is the truth, the account caches its sum ----
+        b.Entity<AiCreditAccount>().ToTable("crm_aicreditaccount");
+        // one balance per company (a top-level entity)…
+        b.Entity<AiCreditAccount>().HasIndex(a => a.EntityId).IsUnique()
+            .HasFilter("\"entity_id\" IS NOT NULL")
+            .HasDatabaseName("uniq_aicreditaccount_entity");
+        // …and one per login, for the optional per-person balance
+        b.Entity<AiCreditAccount>().HasIndex(a => a.UserName).IsUnique()
+            .HasFilter("\"user_name\" <> ''")
+            .HasDatabaseName("uniq_aicreditaccount_user");
+        b.Entity<AiCreditEntry>().ToTable("crm_aicreditentry");
+        // the replay guard (the crm_message.idempotency_key precedent): a repeated
+        // grant or webhook delivery with the same key credits exactly once
+        b.Entity<AiCreditEntry>().HasIndex(e => e.IdempotencyKey).IsUnique()
+            .HasFilter("\"idempotency_key\" <> ''")
+            .HasDatabaseName("uniq_aicreditentry_idem");
+        b.Entity<AiCreditEntry>().HasIndex(e => new { e.EntityId, e.CreatedAt })
+            .HasDatabaseName("ix_aicreditentry_entity_created");
+        // ---- AI price books: the editing surface behind the month's terms snapshot ----
+        b.Entity<AiPriceBook>().ToTable("crm_aipricebook");
+        // the slug is what a month's terms snapshot refers to, so it must be unique
+        b.Entity<AiPriceBook>().HasIndex(p => p.Slug).IsUnique()
+            .HasFilter("\"slug\" <> ''").HasDatabaseName("uniq_aipricebook_slug");
+        b.Entity<AiPriceBookAssignment>().ToTable("crm_aipricebookassignment");
+        // one plan per entity (a branch with none inherits its nearest assigned ancestor's)
+        b.Entity<AiPriceBookAssignment>().HasIndex(a => a.EntityId).IsUnique()
+            .HasFilter("\"entity_id\" > 0").HasDatabaseName("uniq_aipricebookassignment_entity");
+        b.Entity<AiPriceBookAssignment>().HasIndex(a => a.PriceBookId)
+            .HasDatabaseName("ix_aipricebookassignment_book");
         b.Entity<PendingToolAction>().ToTable("crm_pendingtoolaction");
         b.Entity<ConversationSummary>().ToTable("crm_conversationsummary");
         b.Entity<AiDraft>().ToTable("crm_aidraft");
@@ -356,6 +393,18 @@ public class AppDbContext : DbContext
         // the inbox's "Needs human" filter (handover open = at set, not resolved)
         b.Entity<Thread>().HasIndex(t => new { t.HandoverAt, t.HandoverResolvedAt })
             .HasDatabaseName("ix_thread_handover");
+        // ONE WhatsApp Cloud account per number: the Cloud webhook matches inbound
+        // traffic by external_id (phone_number_id), so two rows holding the same
+        // number made routing a coin flip between their companies
+        // (Endpoints/WebhooksEndpoints, Channels/CloudInboxRouting). The filter is
+        // the webhook's own match — channel whatsapp, provider cloud (or the legacy
+        // blank), a number actually set. Deliberately NOT the other WhatsApp
+        // providers: a BSP or QR row is addressed by its own webhook URL / gateway
+        // key, never by a shared number lookup, and the same business number may
+        // legitimately sit on two of them while one is being migrated.
+        b.Entity<ChannelAccount>().HasIndex(a => a.ExternalId).IsUnique()
+            .HasFilter("\"channel\" = 'whatsapp' AND \"provider\" IN ('cloud', '') AND \"external_id\" <> ''")
+            .HasDatabaseName(WhatsAppNumberIndex);
         b.Entity<AuthToken>().HasIndex(t => t.Token).IsUnique();
         b.Entity<CallRecord>().HasIndex(c => c.CallId).IsUnique();
         b.Entity<AccountAssignment>()

@@ -30,7 +30,10 @@ public static partial class ToolCatalog
             "purpose \"inbox\" makes WhatsApp, Messenger (facebook), Instagram, Telegram or SMS an inbox of that channel; " +
             "\"social\" connects a social account for comments and posts. The answer says what comes next: flow " +
             "\"hosted\" = a sign-in link (url) to give the person; Telegram = an access code with steps (status_url " +
-            "polls it — social_telegram_status); SMS = the outlet's numbers to choose from (social_connect_sms).",
+            "polls it — social_telegram_status); SMS = the outlet's numbers to choose from (social_connect_sms). " +
+            "WhatsApp also needs onboarding: it decides whether the number keeps working in the WhatsApp Business " +
+            "app, so ask the person and never choose for them — without it the answer is a 400 listing both " +
+            "options with their consequences.",
             "POST", "/api/social/connect", C("social.manage", "channels.manage"),
             new[]
             {
@@ -38,8 +41,27 @@ public static partial class ToolCatalog
                                   "linkedin, twitter (x), threads, pinterest, googlebusiness, bluesky, reddit, discord, " +
                                   "slack, snapchat.", req: true),
                 A.Str("purpose", "inbox (DMs into the channel's inbox) or social (comments / posts)."),
+                A.Str("onboarding", "WhatsApp only, and the person must choose: \"api\" = WhatsApp Business Platform " +
+                                    "only (the number STOPS working in the WhatsApp Business app and the phone's " +
+                                    "history does not come across), or \"business_app\" = coexistence (it keeps " +
+                                    "working there, someone scans a QR code, and the API side is capped at 20 " +
+                                    "messages/second with no groups, calls, disappearing or view-once messages)."),
+                A.Str("signup", "WhatsApp only: \"hosted\" (the default — the connect page picks the number the " +
+                                "person chose) or \"meta\" (Meta's own dialog)."),
                 A.Entity("The entity slug that gets the account; omit for the organization."),
             }, outside: true);
+
+        yield return T(g, "social_list_phone_numbers", "List managed phone numbers and prices",
+            "The phone numbers an outlet's managed connection owns — id, number, country, status and " +
+            "monthly_cents, the recurring monthly cost — plus the live per-country price of a NEW number, so the " +
+            "cost is known before anyone buys. Buying a number and releasing one are deliberately NOT tools: both " +
+            "spend the owner's money (a release cannot be undone), so a person does them in the dashboard.",
+            "GET", "/api/social/phone-numbers", C("social.manage", "channels.manage"),
+            new[]
+            {
+                A.Entity("The outlet whose numbers to list; omit for the organization."),
+                A.Str("country", "Quote one country only (two-letter code, US / MY)."),
+            });
 
         yield return T(g, "social_telegram_status", "Check a Telegram connection code",
             "Whether the access code from social_connect_url (platform telegram) has been sent to the bot yet: " +

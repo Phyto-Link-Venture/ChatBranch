@@ -353,7 +353,9 @@ public static class WhatsAppThreadsEndpoints
                 }, statusCode: 409);
             // Without a live number only the known (demo + custom) set exists; a
             // live number lets Meta be the judge of the name.
-            if (!(account != null && wa.IsConfigured(account))
+            // "live" here means a REGISTRY to validate against: an unofficial number
+            // (Baileys, WAHA) has none, so only the demo + custom names exist for it
+            if (!(account != null && WhatsAppProviders.IsOfficial(account) && wa.IsConfigured(account))
                 && await catalog.FindAsync(account, name, body.Language) == null)
                 return Results.BadRequest(new { detail = $"Unknown sandbox template '{name}'." });
 
@@ -535,8 +537,8 @@ public static class WhatsAppThreadsEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // ---- conversation status (open / resolved / …) ------------------------
-        // Chatwoot-style management, shared with the messaging channels because
-        // every conversation is one crm.Thread row.
+        // Shared with the messaging channels because every conversation is one
+        // crm.Thread row.
         app.MapPost("/api/whatsapp/threads/{key}/status", async (string key, SetStatusRequest body,
             AppDbContext db, ScopingService sc, IWhatsAppCloudClient wa,
             ClaimsPrincipal me, HttpContext ctx) =>
@@ -626,7 +628,8 @@ public static class WhatsAppThreadsEndpoints
                     code = "other_company",
                 }, statusCode: 409);
 
-            var isBaileys = (row.Provider.Length > 0 ? row.Provider : Providers.Cloud) == Providers.Baileys;
+            // an unofficial personal line (Baileys, WAHA): no template, no 24h window
+            var unofficial = ChatBranch.Data.Channels.WhatsAppProviders.IsUnofficial(row);
             var priorContact = await db.Messages.AnyAsync(
                 m => m.ThreadId == thread.Id && m.AccountId == row.Id);
             var windowStart = DateTime.UtcNow.AddHours(-WindowHours);
@@ -641,12 +644,13 @@ public static class WhatsAppThreadsEndpoints
             await db.SaveChangesAsync();
 
             string note;
-            if (isBaileys)
+            if (unofficial)
             {
+                var how = ChatBranch.Data.Channels.WhatsAppProviders.Label(row.Provider);
                 note = priorContact
-                    ? $"[Sender account switched to {row.Name} (personal number via Baileys) — "
+                    ? $"[Sender account switched to {row.Name} (personal number, {how}) — "
                       + "this number has messaged the contact before; no template needed.]"
-                    : $"[Sender account switched to {row.Name} (personal number via Baileys) — "
+                    : $"[Sender account switched to {row.Name} (personal number, {how}) — "
                       + "first contact from this number: cold messages from an unknown personal "
                       + "number carry ban risk. Safest is to have the contact message this "
                       + "number first.]";
@@ -703,7 +707,7 @@ public static class WhatsAppThreadsEndpoints
                 account_name = row.Name,
                 provider = row.Provider.Length > 0 ? row.Provider : Providers.Cloud,
                 prior_contact = priorContact,
-                window_open_with_new_account = isBaileys || recentReply,
+                window_open_with_new_account = unofficial || recentReply,
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(AssignmentsEndpoints.Capability)
           .RequireThreadAccess("chats.send");
@@ -979,7 +983,7 @@ public static class WhatsAppThreadsEndpoints
     {
         var account = await EffectiveAccount(db, wa, thread);
         var live = account != null && wa.IsConfigured(account);
-        var isBaileys = account != null && account.Provider == Providers.Baileys;
+        var unofficialLine = account != null && ChatBranch.Data.Channels.WhatsAppProviders.IsUnofficial(account);
 
         IQueryable<Message> q = db.Messages.AsNoTracking().Where(m => m.ThreadId == thread.Id);
         if (before is int b) q = q.Where(m => m.Id < b);
@@ -1000,7 +1004,7 @@ public static class WhatsAppThreadsEndpoints
         // demo never dead-ends.
         var windowOpen = true;
         string? windowExpires = null;
-        if (live && !isBaileys)
+        if (live && !unofficialLine)
         {
             var lastIn = await db.Messages.AsNoTracking()
                 .Where(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In)
@@ -1164,7 +1168,8 @@ public static class WhatsAppThreadsEndpoints
     /// <summary>The 24h window as of now, without rebuilding the whole payload.</summary>
     private static bool WindowOpen(AppDbContext db, Thread thread, ChannelAccount? account)
     {
-        if (account == null || account.Provider == Providers.Baileys) return true;
+        // only an OFFICIAL number is bound by Meta's window (Baileys / WAHA are WhatsApp Web)
+        if (!WhatsAppProviders.WindowApplies(account)) return true;
         var lastIn = db.Messages.AsNoTracking()
             .Where(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In)
             .Max(m => (DateTime?)m.CreatedAt);

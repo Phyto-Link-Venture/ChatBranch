@@ -65,6 +65,12 @@ public static class McpExclusions
         new("POST", "/api/zernio/webhook/register", Credentials + " (it generates and stores the Zernio webhook signing secret)"),
         new("POST", "/api/social/connect/whatsapp", Credentials + " (a business's own Meta System User token for a managed WhatsApp connection — typed by a person, never by an assistant)"),
         new("POST", "/api/social/media", "binary upload (multipart) of a post's photo or video — social_create_post takes public https media URLs instead"),
+        new("POST", "/api/social/phone-numbers/purchase",
+            "spends the owner's money: buying a number starts a recurring monthly charge on their bill. A person " +
+            "decides that in the dashboard with the price in front of them (social_list_phone_numbers quotes it)"),
+        new("DELETE", "/api/social/phone-numbers/{id}",
+            "irreversible: releasing a number returns it to the carrier pool and it cannot be taken back (any " +
+            "inbox on it stops working). A person confirms it in the dashboard by typing the number out"),
         // ---- the media library: the bytes themselves ---------------------------
         new("POST", "/api/media/library",
             "binary upload (multipart): a person drops a file in from the dashboard or their phone. " +
@@ -117,6 +123,13 @@ public static class McpExclusions
         new("POST", "/api/whatsapp/accounts/{id:int}/baileys/start", Pairing),
         new("POST", "/api/whatsapp/accounts/{id:int}/baileys/logout", Pairing),
         new("GET", "/api/whatsapp/accounts/{id:int}/baileys/status", Pairing + " (the status carries the pairing QR / code)"),
+        new("POST", "/api/whatsapp/accounts/waha", "WhatsApp number create through the operator's own WAHA server "
+            + "(its base URL + API key + webhook HMAC key) — " + Credentials),
+        new("PUT", "/api/whatsapp/accounts/{id:int}/waha", "WAHA connection settings (base URL, API key, webhook "
+            + "HMAC key) — " + Credentials),
+        new("POST", "/api/whatsapp/accounts/{id:int}/waha/start", Pairing),
+        new("POST", "/api/whatsapp/accounts/{id:int}/waha/logout", Pairing),
+        new("GET", "/api/whatsapp/accounts/{id:int}/waha/status", Pairing + " (the status carries the pairing QR / code)"),
 
         // ---- RBAC, keys, sessions -------------------------------------------
         new("PUT", "/api/auth/permissions", Rbac),

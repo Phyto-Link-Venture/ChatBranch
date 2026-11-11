@@ -39,7 +39,16 @@ public static class MetaWebhook
     /// <summary>Message types the Cloud API delivers as downloadable media.</summary>
     private static readonly HashSet<string> CloudMediaTypes = new() { "image", "video", "audio", "document", "sticker" };
 
-    private static IEnumerable<JsonElement> Changes(JsonElement root)
+    /// <summary>
+    /// <c>entry[] → changes[] → value</c> WITH the entry's own id. For a
+    /// <c>messages</c> webhook that id is the WhatsApp Business Account the number
+    /// belongs to — Meta documents it as the Messaging-account id only for
+    /// <c>account_update</c> / <c>account_review_update</c>, so it is a
+    /// DEFENCE-IN-DEPTH hint, never the only thing a payload is matched on: it can
+    /// be missing or blank and the payload still routes (see
+    /// <c>Endpoints/WebhooksEndpoints</c>).
+    /// </summary>
+    private static IEnumerable<(string EntryId, JsonElement Value)> EntryChanges(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("entry", out var entries)
             || entries.ValueKind != JsonValueKind.Array) yield break;
@@ -47,12 +56,16 @@ public static class MetaWebhook
         {
             if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("changes", out var changes)
                 || changes.ValueKind != JsonValueKind.Array) continue;
+            var entryId = MetaGraph.Str(entry, "id");
             foreach (var ch in changes.EnumerateArray())
                 if (ch.ValueKind == JsonValueKind.Object && ch.TryGetProperty("value", out var val)
                     && val.ValueKind == JsonValueKind.Object)
-                    yield return val;
+                    yield return (entryId, val);
         }
     }
+
+    private static IEnumerable<JsonElement> Changes(JsonElement root) =>
+        EntryChanges(root).Select(x => x.Value);
 
     private static string PhoneNumberId(JsonElement value) =>
         value.TryGetProperty("metadata", out var meta) ? MetaGraph.Str(meta, "phone_number_id") : "";
@@ -60,6 +73,18 @@ public static class MetaWebhook
     /// <summary>Every phone_number_id a Cloud payload addresses (a batch can span numbers).</summary>
     public static List<string> PhoneNumberIds(JsonElement root) =>
         Changes(root).Select(PhoneNumberId).Where(p => p.Length > 0).Distinct().ToList();
+
+    /// <summary>
+    /// Every (phone_number_id, waba_id) a Cloud payload addresses — the WABA being
+    /// <c>entry[].id</c>, "" when the payload carries none. Distinct by the pair, so a
+    /// batch spanning numbers (or the same number under two entries) lists each once.
+    /// </summary>
+    public static List<(string PhoneNumberId, string WabaId)> CloudNumbers(JsonElement root) =>
+        EntryChanges(root)
+            .Select(x => (PhoneNumberId: PhoneNumberId(x.Value), WabaId: x.EntryId.Trim()))
+            .Where(x => x.PhoneNumberId.Length > 0)
+            .Distinct()
+            .ToList();
 
     private static DateTime? UnixSeconds(JsonElement e, string key)
     {

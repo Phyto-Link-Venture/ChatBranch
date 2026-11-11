@@ -31,7 +31,10 @@ namespace ChatBranch.Data.Ai;
 ///
 /// Above and around that tick sit the AI controls (<see cref="Decide(Thread, ChannelAccount?, bool, AiPolicyInputs)"/>),
 /// in this order: opted out → the AI usage quota (<see cref="AiQuota"/>: the
-/// conversation's entity or any ancestor at its monthly cap) → the master switch / schedule (<c>off</c> wins) →
+/// conversation's entity or any ancestor at its monthly cap) → the master switch / schedule
+/// (<c>off</c> anywhere up the tree wins, and the conversation's own inbox may
+/// switch itself off or narrow its hours on top of that — never back on,
+/// <see cref="AiInboxMaster"/>) →
 /// the contact's <c>never</c> mode / a never-AI tag → the per-chat tick → the
 /// contact's <c>always</c> mode → the inbox's <c>ai_default</c> → the role default.
 /// Every verdict carries the reason the dashboard shows (<c>ai_reason</c>).
@@ -83,8 +86,12 @@ public static class AiEligibility
     {
         try
         {
+            // the thread's inbox, on every channel: the per-account TICK is a
+            // WhatsApp-only rule (TickLayer ignores it elsewhere), but an inbox's
+            // own master switch, schedule and never-tags apply to a widget, a bot
+            // or a mailbox just the same
             ChannelAccount? account = null;
-            if (t.Channel == ChatBranch.Domain.Channels.WhatsApp && t.AccountId is int accountId)
+            if (t.AccountId is int accountId)
                 account = t.Account?.Id == accountId ? t.Account : db.ChannelAccounts.Find(accountId);
             var (mode, tags) = ContactInputs(db, t);
             return new AiControls(db, scoping, nowUtc) { IgnoreQuota = ignoreQuota }.Decide(t, account, mode, tags);
@@ -117,10 +124,18 @@ public static class AiEligibility
             return new AiVerdict(false, AiRules.OptedOut, "Off: this contact opted out (STOP)", true);
         if (!string.IsNullOrEmpty(p.QuotaBlock))
             return new AiVerdict(false, AiRules.Quota, p.QuotaBlock, true);
+        // the master switch / schedule, in ONE step: the entity tree first, then
+        // the conversation's own inbox. An inbox can only ever SUBTRACT — its
+        // "on" is not consulted here at all (AiControls.InboxMaster drops it), so
+        // no inbox can answer while a level above is off or out of hours.
         if (p.Master.Mode == AiMasterModes.Off)
             return new AiVerdict(false, AiRules.MasterOff, $"Off: AI is switched off for {p.Master.ScopeName}", true);
-        if (p.Master.Mode == AiMasterModes.Schedule && !p.Master.AllowsAt(p.NowUtc, p.Zone))
+        if (p.Master.Mode == AiMasterModes.Schedule && !p.Master.TreeAllowsAt(p.NowUtc, p.Zone))
             return new AiVerdict(false, AiRules.Schedule, "Off: outside the AI schedule", true);
+        if (p.Master.Inbox is { } own && !own.AllowsAt(p.NowUtc, p.Zone))
+            return own.Mode == AiMasterModes.Off
+                ? new AiVerdict(false, AiRules.MasterOff, $"Off: AI is switched off for {own.Label}", true)
+                : new AiVerdict(false, AiRules.Schedule, $"Off: outside the AI schedule for {own.Label}", true);
         // a group chat: off unless an operator ticked it on for THIS group — no inbox default,
         // contact mode or role turns it on — and then it answers only when addressed
         // (InboundProcessor's group path checks the mention)
@@ -154,7 +169,8 @@ public static class AiEligibility
         };
         if (!on && rule == AiRules.ChatTick && Handover.IsOpen(t))
             reason = "Off: handed to a person — waiting for a human";
-        if (on && p.Master.Mode == AiMasterModes.Schedule) reason += " (inside the AI schedule)";
+        if (on && (p.Master.Mode == AiMasterModes.Schedule || p.Master.Inbox?.Mode == AiMasterModes.Schedule))
+            reason += " (inside the AI schedule)";
         return new AiVerdict(on, rule, reason, false);
     }
 

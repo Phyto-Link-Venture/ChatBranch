@@ -19,6 +19,9 @@
  *                                     (≤16 MB, base64 in the body — never a path/URL; media.js.
  *                                     media_type sticker = a 512x512 image/webp, no caption)
  *   POST /accounts/:id/logout      -> unpair + wipe local auth state
+ *   GET  /accounts/:id/history-fetch      -> progress of the on-demand history run
+ *   POST /accounts/:id/history-fetch      -> { depth?, wa_id?, chats?[] } start one
+ *   POST /accounts/:id/history-fetch-stop -> stop the run in progress
  *   POST /accounts/:id/call        -> { to, room, livekit_url, token, max_seconds }
  *                                     place a voice call bridged to LiveKit (calls.js)
  *   POST /accounts/:id/call-end    -> hang up the active call
@@ -27,6 +30,13 @@
  * On a fresh pair the number's existing 1:1 chats are replayed by WhatsApp and
  * pushed to POST /api/whatsapp/baileys/history (text and placeholders only — see
  * history.js), as far back as the inbox's import_history_days setting asks.
+ *
+ * That replay is SHALLOW (WhatsApp sends the chat list and a message or two each),
+ * so /history-fetch lets an OPERATOR ask for older messages per chat — one paced,
+ * capped, resumable, abortable run at a time (history.js's second half). Nothing
+ * here ever starts one by itself: no run on pair, no run on a timer. The ceiling is
+ * WhatsApp's own — it serves what the paired phone still holds, and that phone must
+ * be online for any of it to arrive.
  *
  * Every request needs the X-Baileys-Secret header (BAILEYS_SECRET, shared
  * with Django). Inbound messages are pushed to Django at
@@ -47,7 +57,10 @@ import { buildMediaMessage, MediaRequestError, MAX_SEND_MEDIA_BODY, readJsonBody
 import { buildContact, buildDelete, buildEdit, buildLocation, buildPoll, buildQuoted, buildReact, chatKind, editOf, groupSender, KeyStore, mediaKind, meJids, mentionsMe, messageSeconds, parseInbound, phoneSent, postWithRetry, recallOf, setNormalizer, targetJid, unwrap } from './messages.js'
 import { createPresence, DEFAULT_IDLE_MS } from './presence.js'
 import { normalizePairingCode, pairingPhone } from './pairing.js'
-import { chunk as historyChunks, HISTORY_CHOICES, historyRows, historyWindowDays, wantsFullSync } from './history.js'
+import { abortRun, chunk as historyChunks, dailyBudget, endedJids, fetchCaps, fetchDepth, finishRun,
+         HISTORY_CHOICES, historyRows, historyWindowDays, mergeCursors, newRun, nextGapS, noteBatch, noteError,
+         noteSent, noteTimeout, oldestCursors, ON_DEMAND_SYNC_TYPE, pickNext, recentRequests, runReport,
+         TS_UNITS, TS_UNITS_DEFAULT, wantsFullSync } from './history.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -480,24 +493,470 @@ async function pushRecall(id, m, recall) {
  * rather than lost, because nothing replays a history replay.
  */
 async function pushHistory(id, messages, days, detail = {}) {
+  const replayed = (messages || []).length
   const rows = historyRows(messages, { parse: parseInbound, unwrap, phoneForLid, days })
-  logEvent('history', { acct: id, replayed: (messages || []).length, importable: rows.length, ...detail })
-  if (!rows.length) return
+  logEvent('history', { acct: id, replayed, importable: rows.length, ...detail })
+  if (!rows.length) return { replayed, importable: 0, pushed: 0, stored: 0 }
+  let pushed = 0
+  // what the API says it actually STORED — a message it already had is skipped by its
+  // WhatsApp id, so this is the only honest answer to "how much deeper is the inbox
+  // now?". An older API that reports no count leaves it at 0 rather than inventing one.
   let stored = 0
   for (const batch of historyChunks(rows, 500)) {
-    const r = await postWithRetry(() => fetch(`${API_URL}/api/whatsapp/baileys/history`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
-      body: JSON.stringify({ account_id: id, messages: batch }),
-    }), { attempts: 3, baseDelayMs: 500 })
+    const r = await postWithRetry(async () => {
+      const res = await fetch(`${API_URL}/api/whatsapp/baileys/history`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+        body: JSON.stringify({ account_id: id, messages: batch }),
+      })
+      if (res.ok) {
+        try { stored += Number((await res.clone().json())?.stored || 0) } catch { /* no count in the answer */ }
+      }
+      return res
+    }, { attempts: 3, baseDelayMs: 500 })
     if (!r.ok) {
       logEvent('historyPushFailed', { acct: id, rows: batch.length, status: r.status, error: r.error })
-      return
+      return { replayed, importable: rows.length, pushed, stored }
     }
-    stored += batch.length
+    pushed += batch.length
   }
-  console.log(`[${id}] imported ${stored} message(s) of existing history`)
+  console.log(`[${id}] history: ${pushed} importable message(s) pushed, ${stored} new to the inbox`)
+  return { replayed, importable: rows.length, pushed, stored }
 }
+
+// ---- on-demand history: deepening the chats a number already had --------------
+//
+// WhatsApp's replay on pair is shallow (one measured number: 287 conversations,
+// 386 messages). `sock.fetchMessageHistory(count, oldestMsgKey, oldestMsgTimestampMs)`
+// asks for more — it sends a HISTORY_SYNC_ON_DEMAND peer request and the answer
+// arrives as another `messaging-history.set` with syncType ON_DEMAND — but this is
+// an unofficial transport carrying somebody's business line, and a ban is permanent.
+// So: operator-triggered only, ONE request in flight, a jittered gap between
+// requests that is slower than the outbound send queue's own pacing, hard caps per
+// chat and per run, a cursor per chat so a second run continues instead of
+// re-asking, and an abort an operator can press. history.js owns every decision;
+// this half owns the socket, the clock and the state file.
+//
+// The cursor lives next to the session (data/whatsapp/baileys/<id>/history-cursors.json,
+// i.e. under CHATBRANCH_DATA_DIR) — never in the API's database.
+
+/** Caps/pacing: the shipped defaults, overridable only from THIS process's env. */
+function historyCaps() {
+  return fetchCaps({
+    perRequest: process.env.BAILEYS_HISTORY_PER_REQUEST,
+    perChat: process.env.BAILEYS_HISTORY_PER_CHAT,
+    perRun: process.env.BAILEYS_HISTORY_PER_RUN,
+    minGapS: process.env.BAILEYS_HISTORY_MIN_GAP_S,
+    maxGapS: process.env.BAILEYS_HISTORY_MAX_GAP_S,
+    emptyStreak: process.env.BAILEYS_HISTORY_EMPTY_STREAK,
+    responseTimeoutMs: process.env.BAILEYS_HISTORY_TIMEOUT_MS,
+    cooldownS: process.env.BAILEYS_HISTORY_COOLDOWN_S,
+    perDay: process.env.BAILEYS_HISTORY_PER_DAY,
+  })
+}
+
+const nowS = () => Math.floor(Date.now() / 1000)
+const cursorFile = (id) => path.join(AUTH_ROOT, String(id), 'history-cursors.json')
+
+/** id -> { chats: {jid: {msg_id, from_me, ts, ended?}}, last_run_at, requests_24h, ts_units, timer } */
+const cursorStates = new Map()
+/** id -> the run in progress (or the last one that finished) */
+const historyRuns = new Map()
+
+function cursorState(id) {
+  if (cursorStates.has(id)) return cursorStates.get(id)
+  let stored = {}
+  try { stored = JSON.parse(readFileSync(cursorFile(id), 'utf8')) || {} } catch { /* first run */ }
+  const state = {
+    chats: stored.chats && typeof stored.chats === 'object' ? stored.chats : {},
+    last_run_at: Number(stored.last_run_at || 0) || 0,
+    // every request's timestamp, trimmed to the rolling 24h the daily cap counts
+    requests_24h: recentRequests(Array.isArray(stored.requests_24h) ? stored.requests_24h : []),
+    // the anchor-timestamp unit WhatsApp has actually answered for this number
+    ts_units: TS_UNITS.includes(stored.ts_units) ? stored.ts_units : '',
+  }
+  cursorStates.set(id, state)
+  return state
+}
+
+/** Persist the cursors — debounced, because an initial sync arrives in many batches. */
+function saveCursors(id, { now = false } = {}) {
+  const state = cursorState(id)
+  const write = () => {
+    state.timer = null
+    try {
+      mkdirSync(path.join(AUTH_ROOT, String(id)), { recursive: true })
+      writeFileSync(cursorFile(id), JSON.stringify({
+        version: 1, chats: state.chats, last_run_at: state.last_run_at,
+        requests_24h: state.requests_24h, ts_units: state.ts_units,
+      }))
+    } catch { /* a cursor is a resume hint — never worth breaking messaging for */ }
+  }
+  if (now) {
+    if (state.timer) clearTimeout(state.timer)
+    write()
+    return
+  }
+  if (!state.timer) {
+    state.timer = setTimeout(write, 2000)
+    state.timer.unref?.()
+  }
+}
+
+/**
+ * Remember the oldest message each 1:1 chat showed in this batch — for EVERY sync
+ * type, so a number paired after this change can be deepened without the API
+ * having to seed anything. `ended` records WhatsApp's own "the phone holds nothing
+ * older" marker, so a later run skips that chat instead of asking again.
+ */
+function rememberCursors(id, messages, chats, lidPnMappings) {
+  // the sync's own PN↔LID pairs are free to learn, and they are what lets a chat
+  // WhatsApp hosts on a lid be matched to the number the API knows it by
+  for (const m of lidPnMappings || []) {
+    const pn = digits(String(m?.pn || '').split('@')[0])
+    const lid = String(m?.lid || '')
+    if (pn && lid.includes('@lid')) rememberLid(pn, lid)
+  }
+  const state = cursorState(id)
+  const wasEnded = Object.entries(state.chats).filter(([, c]) => c?.ended).map(([key]) => key)
+  // keyed by the customer's number, with the identity the anchor arrived under inside
+  const found = {}
+  for (const [jid, cursor] of Object.entries(oldestCursors(messages))) {
+    const key = chatKeyOf(jid)
+    if (!key) continue
+    if (!found[key] || cursor.ts < found[key].ts) found[key] = { ...cursor, jid }
+  }
+  const { cursors, moved } = mergeCursors(state.chats, found)
+  const movedSet = new Set(moved)
+  // a chat whose cursor did not move keeps the marker it already had
+  for (const key of wasEnded) if (!movedSet.has(key) && cursors[key]) cursors[key].ended = true
+  const ended = endedJids(chats).map(chatKeyOf).filter(Boolean)
+  for (const key of ended) if (cursors[key]) cursors[key] = { ...cursors[key], ended: true }
+  state.chats = cursors
+  saveCursors(id)
+  return { moved, ended }
+}
+
+/**
+ * The ONE key a chat is tracked by: the customer's number. WhatsApp may host the
+ * same conversation on a `<lid>@lid` identity, and the API only ever knows the
+ * phone — so a run that keyed chats by jid would ask under one identity, be
+ * answered under the other, and count a real answer as an empty one. Everything
+ * (cursors, the run's chats, the report) is keyed by this; the jid rides along
+ * inside the cursor, because the REQUEST must name the identity the anchor
+ * message actually arrived under.
+ */
+const chatKeyOf = (jid) => {
+  const raw = String(jid || '')
+  if (raw.endsWith('@lid')) return digits(phoneForLid(raw) || raw.split('@')[0])
+  return digits(raw.split('@')[0])
+}
+
+/**
+ * The identity a chat with this number is hosted on, from what we already know —
+ * a hint learned from inbound traffic, else the PN→LID mapping Baileys stored
+ * locally when the number paired. Read straight out of the local key store
+ * (never sock.signalRepository.lidMapping, whose miss path asks WhatsApp): a run
+ * must not spend a single extra query on bookkeeping.
+ */
+async function knownChatJid(id, waId) {
+  const d = digits(waId)
+  if (!d) return ''
+  const hinted = lidHints.get(d)
+  if (hinted) return hinted
+  try {
+    const stored = await accounts.get(id)?.sock?.authState?.keys?.get?.('lid-mapping', [d])
+    const lidUser = stored?.[d]
+    if (typeof lidUser === 'string' && lidUser) {
+      const jid = `${digits(lidUser)}@lid`
+      rememberLid(d, jid)
+      return jid
+    }
+  } catch { /* nothing stored — the chat is on the phone jid */ }
+  return `${d}@s.whatsapp.net`
+}
+
+/**
+ * Which chats a run may touch: the operator's one chat, or every chat that has an
+ * anchor and is not already exhausted — shallowest first (the chat whose oldest
+ * known message is the most recent has the most to gain).
+ */
+function planChats(state, oneKey) {
+  if (oneKey) return [oneKey]
+  return Object.entries(state.chats)
+    .filter(([, c]) => c && c.msg_id && c.ts && !c.ended)
+    .sort((a, b) => b[1].ts - a[1].ts)
+    .map(([key]) => key)
+}
+
+const httpError = (status, detail) => Object.assign(new Error(detail), { status })
+
+/** The jittered gap before a request — interruptible, so an abort is felt at once. */
+function pace(run, ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { run.wake = null; resolve() }, ms)
+    timer.unref?.()
+    run.wake = () => { clearTimeout(timer); run.wake = null; resolve() }
+  })
+}
+
+/** Wait for THIS request's `messaging-history.set` answer; null = none came. */
+function awaitAnswer(run, req) {
+  return new Promise((resolve) => {
+    const token = {}
+    const done = (value) => {
+      if (run.pending?.token !== token) return
+      run.pending = null
+      clearTimeout(timer)
+      resolve(value)
+    }
+    const timer = setTimeout(() => done(null), run.caps.responseTimeoutMs)
+    timer.unref?.()
+    run.pending = { token, jid: req.jid, session: '', deliver: done }
+  })
+}
+
+/**
+ * An on-demand batch arrived — hand it to the request waiting for it, but only when
+ * it IS that request's answer: the peer-request session id WhatsApp echoes matches
+ * the one fetchMessageHistory returned, or the batch carries messages for the chat we
+ * asked about, or it carries nothing at all (an empty answer names no chat). A late
+ * batch for a DIFFERENT chat is still filed and still moves that chat's cursor — it
+ * just never counts as this request's empty answer.
+ */
+function deliverAnswer(id, payload) {
+  const pending = historyRuns.get(id)?.pending
+  if (!pending) return
+  const mine = payload.session && pending.session
+    ? payload.session === pending.session
+    : payload.raw > 0 || payload.direct === 0
+  if (!mine) {
+    logEvent('historyFetchStray', { acct: id, waiting_for_chat: pending.jid, session: payload.session || '' })
+    return
+  }
+  pending.deliver(payload)
+}
+
+/**
+ * The run itself: one request, one paced gap, one answer, repeat until a stop
+ * condition. Rows land through the SAME pushHistory path as the initial replay, so
+ * all the filtering, chunking and dedupe stay in one place.
+ */
+async function driveHistoryRun(id, run) {
+  const state = cursorState(id)
+  try {
+    for (;;) {
+      const req = pickNext(run)
+      if (!req) break
+      // pace BEFORE the first request too — a trigger must never become a burst
+      const gap = nextGapS(run.caps)
+      run.next_gap_s = gap
+      await pace(run, gap * 1000)
+      run.next_gap_s = null
+      if (run.aborted) break
+      const a = accounts.get(id)
+      if (!a || a.state !== 'connected' || !a.sock) {
+        run.stop_reason = 'the number went offline part-way through the run'
+        break
+      }
+      noteSent(run, req)
+      // the rolling day's ledger is written BEFORE the request leaves, so a crash
+      // mid-run can never hand the day its budget back
+      state.requests_24h = recentRequests([...state.requests_24h, nowS()])
+      saveCursors(id, { now: true })
+      const answer = awaitAnswer(run, req)
+      let askedSession = ''
+      try {
+        const session = await a.sock.fetchMessageHistory(req.count, req.key, req.timestamp)
+        askedSession = typeof session === 'string' ? session : ''
+        if (run.pending) run.pending.session = askedSession
+      } catch (e) {
+        run.pending?.deliver(null)
+        noteError(run, req.jid, e?.message || e)
+        logEvent('historyFetchError', { acct: id, jid: req.jid, error: String(e?.message || e) })
+        continue
+      }
+      const batch = await answer
+      if (run.aborted) break
+      if (!batch) {
+        noteTimeout(run, req.jid)
+        logEvent('historyFetchTimeout', { acct: id, jid: req.jid, waited_ms: run.caps.responseTimeoutMs })
+        continue
+      }
+      const retry = noteBatch(run, {
+        jid: req.jid,
+        raw: batch.raw,
+        imported: batch.imported,
+        ended: batch.ended.includes(req.jid),
+        moved: batch.moved.includes(req.jid),
+      })
+      // the handler merged what arrived — ask from the new anchor next time
+      run.cursors = state.chats
+      // the unit WhatsApp answered for is worth remembering: the probe is paid once
+      if (run.units_confirmed && state.ts_units !== run.units) {
+        state.ts_units = run.units
+        saveCursors(id, { now: true })
+      }
+      logEvent('historyFetchBatch', {
+        acct: id, jid: req.jid, units: req.units, raw: batch.raw, imported: batch.imported,
+        moved: batch.moved.includes(req.jid), retry: retry === 'retry',
+        session: batch.session || '', asked_session: askedSession,
+      })
+    }
+  } finally {
+    finishRun(run)
+    run.active = false
+    run.wake = null
+    state.last_run_at = nowS()
+    saveCursors(id, { now: true })
+    logEvent('historyFetchDone', {
+      acct: id, requests: run.requests, received: run.received, imported: run.imported,
+      timeouts: run.timeouts, errors: run.errors, stop: run.stop_reason,
+    })
+    console.log(`[${id}] history fetch finished: ${run.requests} request(s), ${run.imported} message(s) stored `
+      + `— ${run.stop_reason}`)
+  }
+}
+
+/** The run as the API (and through it the operator) sees it. */
+function historyRunPayload(id, run) {
+  const state = cursorState(id)
+  const caps = historyCaps()
+  return {
+    ...runReport(run, { caps }),
+    running: !!(run && run.active),
+    chats_known: Object.keys(state.chats).length,
+    chats_exhausted: Object.values(state.chats).filter((c) => c?.ended).length,
+    last_run_at: state.last_run_at || null,
+    cooldown_s: caps.cooldownS,
+    day: dailyBudget(state.requests_24h, nowS(), caps),
+    caps: {
+      per_request: caps.perRequest, per_chat: caps.perChat, per_run: caps.perRun,
+      min_gap_s: caps.minGapS, max_gap_s: caps.maxGapS, response_timeout_ms: caps.responseTimeoutMs,
+      per_day: caps.perDay, cooldown_s: caps.cooldownS,
+    },
+  }
+}
+
+/**
+ * Start one run. Refused (never queued) when the number is not connected, when a
+ * run is already going, inside the cooldown, when history import is switched off,
+ * or when no chat has a message to ask WhatsApp from yet.
+ *
+ * `chats[]` are SEED cursors from the API — the oldest message it already holds per
+ * chat. They are what makes a number paired before this feature existed deepenable
+ * at all; they can only ever move a cursor further back, never forward.
+ */
+async function startHistoryRun(id, body = {}) {
+  const a = accounts.get(id)
+  if (!a || a.state !== 'connected') {
+    throw httpError(409, `account ${id} is not connected (state: ${a?.state || 'stopped'}) — link the number first`)
+  }
+  const live = historyRuns.get(id)
+  if (live?.active) {
+    throw httpError(409, 'a history fetch is already running for this number — stop it, or wait for it to finish')
+  }
+  const days = historyWindowDays(loadSettings(id))
+  if (days === 0) {
+    throw httpError(409, 'history import is switched off for this number (import_history_days = 0)')
+  }
+  const caps = historyCaps()
+  const state = cursorState(id)
+  const since = state.last_run_at ? nowS() - state.last_run_at : Infinity
+  if (since < caps.cooldownS) {
+    throw httpError(429, `the last history fetch ended ${since}s ago — wait ${caps.cooldownS - since}s before `
+      + 'asking WhatsApp again (the gap is deliberate: this is an unofficial transport)')
+  }
+  // the rolling day bounds what ANY number of runs can ask for
+  const day = dailyBudget(state.requests_24h, nowS(), caps)
+  if (day.left <= 0) {
+    throw httpError(429, `this number has spent its daily allowance of ${day.cap} history requests — the oldest `
+      + `ages out in ${Math.ceil(day.resets_in_s / 60)} minute(s)`)
+  }
+
+  // Seeds from the API: keyed by the customer's number, which is all it knows. The
+  // identity the chat is hosted on is resolved HERE, from what the gateway already
+  // holds locally (a hint, or the PN→LID mapping Baileys stored at pairing) — a
+  // chat the gateway has a cursor for keeps the identity that cursor arrived under.
+  const seeds = {}
+  for (const row of Array.isArray(body.chats) ? body.chats : []) {
+    const key = digits(row?.wa_id)
+    const msgId = String(row?.msg_id || '')
+    const ts = Number(row?.ts || 0)
+    if (!key || !msgId || !ts) continue
+    const seen = seeds[key]
+    if (!seen || ts < seen.ts) seeds[key] = { msg_id: msgId, from_me: !!row.from_me, ts }
+  }
+  for (const [key, seed] of Object.entries(seeds)) {
+    seed.jid = state.chats[key]?.jid || await knownChatJid(id, key)
+  }
+  if (Object.keys(seeds).length) {
+    state.chats = mergeCursors(state.chats, seeds).cursors
+    saveCursors(id, { now: true })
+  }
+
+  const oneKey = digits(body.wa_id)
+  if (oneKey && !state.chats[oneKey]) {
+    throw httpError(409, `nothing is imported for +${oneKey} yet, so there is no message to ask WhatsApp from`)
+  }
+  const jids = planChats(state, oneKey)
+  if (!jids.length) {
+    const known = Object.keys(state.chats).length
+    throw httpError(409, known
+      ? `every one of the ${known} chat(s) this number holds an anchor for is already as deep as WhatsApp will `
+        + 'serve — it has nothing older to give'
+      : 'no chat has an imported message to ask WhatsApp from yet — let the first history import land, '
+        + 'then try again')
+  }
+
+  const run = newRun({
+    jids, cursors: state.chats, depth: fetchDepth(body.depth, caps), caps, startedAt: nowS(),
+    // never ask past the window this inbox imports: those answers would be discarded
+    days,
+    // the unit WhatsApp has already answered for, when one is known
+    units: state.ts_units || TS_UNITS_DEFAULT, unitsConfirmed: !!state.ts_units,
+    allowance: day.left,
+  })
+  run.active = true
+  run.pending = null
+  historyRuns.set(id, run)
+  logEvent('historyFetchStart', {
+    acct: id, chats: jids.length, one: oneKey || '', depth: run.depth, budget: run.budget,
+    allowance: run.allowance, per_run: caps.perRun, day_used: day.used, day_cap: day.cap,
+    gap_s: `${caps.minGapS}-${caps.maxGapS}`, days, units: run.units,
+  })
+  console.log(`[${id}] history fetch: up to ${run.allowance} request(s) across ${jids.length} chat(s), `
+    + `${caps.minGapS}-${caps.maxGapS}s apart (${day.used}/${day.cap} used today)`)
+  // the loop runs on its own; its failures end the run rather than the process
+  run.loop = driveHistoryRun(id, run).catch((e) => {
+    run.stop_reason = run.stop_reason || `the run failed: ${String(e?.message || e)}`
+    run.active = false
+    logEvent('historyFetchFailed', { acct: id, error: String(e?.message || e) })
+  })
+  return historyRunPayload(id, run)
+}
+
+/**
+ * Stop the run in progress. The loop is woken out of its pacing gap and the request
+ * it was waiting on is released, then this WAITS for the loop to actually end (a
+ * couple of seconds at most) — so the answer never says "running" about a run the
+ * operator has just stopped.
+ */
+async function stopHistoryRun(id) {
+  const run = historyRuns.get(id)
+  if (run?.active) {
+    abortRun(run)
+    run.pending?.deliver(null)
+    run.wake?.()
+    logEvent('historyFetchStopped', { acct: id, requests: run.requests, imported: run.imported })
+    await Promise.race([run.loop, new Promise((r) => {
+      const t = setTimeout(r, 2000)
+      t.unref?.()
+    })])
+  }
+  return historyRunPayload(id, run)
+}
+
 
 /** Reverse DisconnectReason lookup: 401 -> "loggedOut", 403 -> "forbidden"… */
 function disconnectReasonName(code) {
@@ -614,16 +1073,37 @@ async function startAccount(id, phone = null) {
   // further batches as it catches up); each batch is filtered and pushed as a
   // BACKFILL — the API stores the words and runs nothing else (no AI, no flows,
   // no automations, no notifications).
-  if (historyDays !== 0) {
-    sock.ev.on('messaging-history.set', async ({ messages, syncType, progress }) => {
-      if (a.gen !== gen) return   // a newer pairing attempt owns this account now
-      try {
-        await pushHistory(id, messages, historyDays, { syncType, progress })
-      } catch (e) {
-        logEvent('historyPushFailed', { acct: id, error: e.message })
-      }
+  // Registered whatever the window is: the per-chat CURSORS are recorded from every
+  // batch (that is what lets an operator ask for older messages later), while the
+  // push itself still obeys the inbox's setting. An ON_DEMAND batch is an answer to
+  // a /history-fetch request, so it also goes to the run that is waiting for it —
+  // through the SAME pushHistory path, so the filtering lives in one place.
+  sock.ev.on('messaging-history.set', async ({ messages, chats, syncType, progress,
+                                              lidPnMappings, peerDataRequestSessionId }) => {
+    if (a.gen !== gen) return   // a newer pairing attempt owns this account now
+    const { moved, ended } = rememberCursors(id, messages, chats, lidPnMappings)
+    let pushed = null
+    try {
+      if (historyDays !== 0) pushed = await pushHistory(id, messages, historyDays, { syncType, progress })
+    } catch (e) {
+      logEvent('historyPushFailed', { acct: id, error: e.message })
+    }
+    if (Number(syncType) !== ON_DEMAND_SYNC_TYPE) return
+    // matched by the chat's NUMBER, not the jid: WhatsApp may answer a request made
+    // on a phone jid under the chat's lid identity (or the other way round), and a
+    // real answer must never be counted as an empty one
+    const waitingFor = historyRuns.get(id)?.pending?.jid || ''
+    const all = messages || []
+    const mine = waitingFor ? all.filter((m) => chatKeyOf(m?.key?.remoteJid) === waitingFor) : all
+    deliverAnswer(id, {
+      raw: mine.length,
+      // what the INBOX took (the API dedupes by WhatsApp id), not what we posted
+      imported: pushed ? pushed.stored : 0,
+      moved, ended,
+      direct: all.length,
+      session: typeof peerDataRequestSessionId === 'string' ? peerDataRequestSessionId : '',
     })
-  }
+  })
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (a.gen !== gen) return   // this socket has been superseded — stay quiet
@@ -1046,7 +1526,7 @@ const readBody = (req) =>
 http
   .createServer(async (req, res) => {
     if (req.headers['x-baileys-secret'] !== SECRET) return json(res, 403, { detail: 'bad secret' })
-    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|send-media|react|revoke|edit|forward|send-location|send-contact|send-poll|presence|logout|check|call|call-end|call-status|settings)$/)
+    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|send-media|react|revoke|edit|forward|send-location|send-contact|send-poll|presence|logout|check|call|call-end|call-status|settings|history-fetch-stop|history-fetch)$/)
     if (!m) return json(res, 404, { detail: 'not found' })
     const [, id, action] = m
     try {
@@ -1101,6 +1581,18 @@ http
           keep_phone_notifications: !!next.keep_phone_notifications,
           import_history_days: historyWindowDays(next),
         })
+      }
+      if (action === 'history-fetch') {
+        // GET = where the run is; POST = start one ({depth?, wa_id?, chats?[] seeds}).
+        // Honest by design: the answer says what was ASKED and what LANDED, and the
+        // phone must be online for WhatsApp to answer at all.
+        if (req.method === 'GET') return json(res, 200, historyRunPayload(id, historyRuns.get(id)))
+        if (req.method !== 'POST') return json(res, 405, { detail: 'GET or POST' })
+        return json(res, 200, await startHistoryRun(id, await readBody(req)))
+      }
+      if (action === 'history-fetch-stop') {
+        if (req.method !== 'POST') return json(res, 405, { detail: 'POST required' })
+        return json(res, 200, await stopHistoryRun(id))
       }
       if (action === 'call-status') {
         // idle until calls.js has ever been loaded — don't boot WASM for a poll

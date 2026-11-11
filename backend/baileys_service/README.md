@@ -21,7 +21,10 @@ header); the gateway pushes back to the API's `/api/whatsapp/baileys/*` routes.
 ## Processes & files
 
 - `history.js` — the pure half of importing a number's existing chats: which
-  replayed messages are importable, and the window (`--selftest`)
+  replayed messages are importable, and the window — plus the whole decision
+  surface of the **on-demand history fetch** below (cursors, caps, pacing, the
+  stop conditions, the run's own bookkeeping), all self-tested offline
+  (`node history.js --selftest`)
 - `pairing.js` — the pure half of pairing: cleaning the number for
   "Link with phone number", formatting the code (`--selftest`)
 - `index.js` — pairing, text + media send/receive, HTTP control API (port
@@ -110,8 +113,85 @@ on `groups.update`. Status updates, broadcast lists and channels are never pushe
 | `POST /accounts/:id/call` | `{to, room, livekit_url, token, max_seconds}` → call snapshot |
 | `POST /accounts/:id/call-end` | hang up the active call |
 | `POST /accounts/:id/presence` | typing/online presence before an AI reply (best-effort) |
+| `GET  /accounts/:id/history-fetch` | progress of the on-demand history run (below): requests made + the cap, messages WhatsApp served, messages the inbox took, per-chat rows and why it stopped. Reads the gateway's own bookkeeping only — it asks WhatsApp for nothing |
+| `POST /accounts/:id/history-fetch` | `{depth?, wa_id?, chats?: [{wa_id, msg_id, from_me, ts}]}` — start ONE run (below). `chats` are seed anchors from the API's own rows; `wa_id` narrows it to one chat. **409** when the number is not connected, a run is already going, history import is off for it, or no chat has an anchor; **429** inside the cooldown or once the day's allowance is spent |
+| `POST /accounts/:id/history-fetch-stop` | stop the run in progress (idempotent). What landed stays, and so do the cursors |
 | `GET/POST /accounts/:id/settings` | `{keep_phone_notifications?: bool, import_history_days?: 0\|30\|90\|-1}` — stay offline between sends so the phone keeps WhatsApp's notifications (`presence.js`), and how far back to import the number's existing chats when it links (`history.js`; read at socket creation, so the API hands it over before each pairing attempt). Stored in the session dir's `settings.json`; the presence setting is applied to a live session at once |
 | `GET  /accounts/:id/call-status` | `{status, call_id, room?}` — the API's busy/stale-state probe |
+
+## On-demand history (fetching OLDER messages)
+
+WhatsApp's replay when a number is linked is **shallow**: it sends the chat LIST
+and only the most recent messages. One measured number imported 287
+conversations but 386 messages — about 1.3 per chat. The chat list arrived; the
+depth did not, and `messaging-history.set` does not fire again.
+
+`POST /accounts/:id/history-fetch` asks for the rest, chat by chat, with
+Baileys' `sock.fetchMessageHistory(count, oldestMsgKey, oldestMsgTimestamp)`
+(this version's own README passes `msg.messageTimestamp`, i.e. **seconds**, even
+though the proto field is named `oldestMsgTimestampMs`; a run that gets nothing
+at all for its first request spends ONE request trying milliseconds, then keeps
+whichever unit answered next to the session) —
+a `HISTORY_SYNC_ON_DEMAND` peer request whose answer comes back as another
+`messaging-history.set`, with `syncType` `ON_DEMAND` (6). Rows are pushed
+through the **same** `pushHistory` path as the first import, so the filtering
+(1:1 chats, text and the `[image]`-style placeholders, the inbox's window),
+the batching and the dedupe all stay in one place. **Historical media is still
+never downloaded** — the files are usually long gone from WhatsApp's servers.
+
+> ⚠ Every one of these requests is traffic no human generates, on a transport
+> that already violates WhatsApp's Terms. A banned number is gone permanently.
+> So the feature is built around restraint, not throughput:
+
+| Guard | Value | Why |
+| --- | --- | --- |
+| Trigger | an operator only | never on pair, never on a timer, never from the AI's own schedule |
+| In flight | 1 request | the next one is only chosen after this one's answer (or its timeout) |
+| Pacing | jittered **20–45 s** between requests | slower than the outbound queue's own 10–30 s (`queue_min_gap_s` / `queue_max_gap_s`), because a peer request looks nothing like a person typing |
+| Per request | 50 messages | the ceiling WhatsApp Web itself asks for (and Baileys' documented max) |
+| Per chat, per run | 6 requests (≤ 300 messages) | the `depth` an operator asks for is clamped to this |
+| Per run | 20 requests (≤ 1 000 messages) | one press of the button is 7–15 minutes of paced traffic |
+| Per number, rolling 24 h | 60 requests (≤ 3 000 messages) | bounds the DAY, not just one run — at most three full runs |
+| Between runs | 15 min cooldown | nothing can turn "one run" into continuous polling |
+| Answer window | 90 s | no answer = WhatsApp served nothing (the phone may be offline) |
+
+Overrides exist only in **this process's environment**, never from the API or
+the dashboard, and every one is clamped (`fetchCaps`): `BAILEYS_HISTORY_PER_REQUEST`,
+`_PER_CHAT`, `_PER_RUN`, `_PER_DAY`, `_MIN_GAP_S`, `_MAX_GAP_S`, `_EMPTY_STREAK`,
+`_TIMEOUT_MS`, `_COOLDOWN_S`. The gap can never go below 5 s.
+
+**A run stops** — and says which it was — when: every chat is as deep as
+WhatsApp will serve, a chat's `endOfHistoryTransferType` says the phone holds
+nothing older, two answers in a row bring nothing new, the cursor stops moving,
+the chat is already back past the inbox's own `import_history_days` window
+(asking further would only produce rows we then discard), the per-chat or
+per-run cap is reached, the day's allowance is spent, the number goes offline,
+or the operator presses Stop.
+
+**One chat, one key.** WhatsApp hosts some conversations on a `<lid>@lid`
+identity rather than the customer's number, and the API only ever knows the
+number — so cursors, the run's chats and the report are all keyed by the
+NUMBER, with the identity the anchor arrived under riding inside the cursor
+(that is what the request names). PN↔LID pairs are learned free from each
+sync's own `lidPnMappings` and from the mapping Baileys stored locally at
+pairing; the answer is matched by number, so a request made on the phone jid
+and answered under the lid still counts as the real answer it is.
+
+**Resumable.** Each chat's oldest known message is kept in
+`data/whatsapp/baileys/<id>/history-cursors.json` (next to the session, under
+`CHATBRANCH_DATA_DIR` — never in the API's database), recorded from *every*
+`messaging-history.set`, including the first import's. A cursor only ever walks
+backwards, so a second run continues instead of re-asking, and the file also
+holds the rolling 24 h request ledger and the timestamp unit WhatsApp answered
+for. For a number paired before this feature existed the API seeds the cursors
+from the oldest message it already holds per chat (`chats[]` in the request
+body); a seed can only move a cursor further back.
+
+**The ceiling is WhatsApp's, not ours.** It serves what the paired phone still
+holds — and **that phone must be online**, or nothing comes back at all. The
+progress payload is deliberately honest about it: requests *made*, messages
+*served*, messages the inbox actually *took* (the API's own dedupe count), and
+the reason it stopped. It is not a full archive and the UI never calls it one.
 
 ## Setup / run
 
@@ -121,6 +201,8 @@ npm start              # or `npm run dev:baileys` / `npm run dev:all` at repo ro
 node calls.js --selftest   # offline: proves the WASM engine + LiveKit bindings load
                            # (+ media.js and messages.js — quotes, reactions, inbound parsing)
 node messages.js --selftest  # just the quote / reaction / inbound-parsing half (no deps)
+node history.js --selftest   # the history import + the on-demand fetch's whole
+                             # decision surface (cursors, caps, stop conditions)
 ```
 
 Pair a number from **Channels → Add a channel → WhatsApp (QR)** (the setup

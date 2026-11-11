@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The step-by-step inbox setup (Chatwoot-style): a right-side drawer on
+ * The step-by-step inbox setup: a right-side drawer on
  * desktop, a full-screen sheet on phones.
  *
  *   1 Choose channel → 2 Connect → 3 Who answers it → 4 Test & finish → Done
@@ -28,8 +28,10 @@ import { useCompanyAdmin } from '@/lib/useCompanyAdmin'
 import { absoluteApiResource } from '@/lib/apiBase'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { accountRole, type AccountRole } from '@/components/ui/Badges'
+import { WahaPairPanel } from './WahaPairPanel'
 import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 import {
+  BaileysHistoryPanel,
   BaileysPairPanel,
   CopyRow,
   DeliveryEditor,
@@ -59,6 +61,7 @@ import {
   isBspKind,
   isMoreKind,
   isWaKind,
+  isUnofficialWaKind,
   WA_PROVIDER,
   RECALL_KINDS,
   kindMeta,
@@ -72,6 +75,7 @@ import {
   type TestResult,
   type VoiceSettings,
   type WaAccount,
+  type WahaState,
   type Widget,
 } from './inboxes'
 import { CRED_FIELDS, DEFAULT_NAME, GUIDES, ONE_OF, WEBHOOK_HELP, type FieldSpec } from './setupSpec'
@@ -298,6 +302,30 @@ export function InboxSetupDrawer({
   // "Unknown customers" (identify_unknown) — saved right after the account
   const identify = useInboxIdentify(saved?.id ?? null)
 
+  // A WAHA inbox keeps its base URL / session / engine on its own route, not on the WhatsApp
+  // account payload, so an edit has to fetch them — otherwise saving a team change would be
+  // refused for a base_url the person never cleared.
+  useEffect(() => {
+    if (kind !== 'wa_waha' || !saved?.id) return
+    let cancelled = false
+    api<WahaState>(`whatsapp/accounts/${saved.id}/waha/status`)
+      .then((st) => {
+        if (cancelled) return
+        setCreds((prev) => ({
+          ...prev,
+          base_url: prev.base_url || st.base_url || '',
+          session: prev.session || st.session || '',
+          engine: prev.engine || st.engine || '',
+        }))
+      })
+      .catch(() => {
+        /* the panel below reports an unreachable WAHA; the form just stays as typed */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [kind, saved?.id])
+
   /** Seed every field from an inbox (edit) or the kind's defaults (new). */
   const seed = useCallback((k: InboxKind, inbox: Inbox | null) => {
     const c: Record<string, string> = {}
@@ -343,7 +371,7 @@ export function InboxSetupDrawer({
     setName(inbox?.name ?? '')
     setEntity(inbox ? inbox.entity ?? null : defaultEntityRef.current)
     setTeamId(inbox?.teamId != null ? String(inbox.teamId) : '')
-    setRole(inbox?.wa ? accountRole(inbox.wa) : k === 'wa_qr' ? 'conversation' : 'reminder')
+    setRole(inbox?.wa ? accountRole(inbox.wa) : isUnofficialWaKind(k) ? 'conversation' : 'reminder')
     setAiDefault(inbox?.aiDefault ?? '')
     setReviewMode(inbox?.reviewMode ?? '')
     setDelivery(deliveryStateFrom(inbox?.wa?.delivery))
@@ -444,7 +472,7 @@ export function InboxSetupDrawer({
       return true
     }
     const next: Record<string, string> = {}
-    if (kind === 'wa_qr' && !ack) next.ack = t('channels.drawer.ackRequired')
+    if (isUnofficialWaKind(kind) && !ack) next.ack = t('channels.drawer.ackRequired')
     if (kind === 'website') Object.assign(next, widgetLookErrors(look, t))
     if (kind === 'voice' && editing && !creds.sip_password?.trim() && !saved?.voice?.sip_password_masked)
       next.sip_password = t('channels.drawer.required', { field: t('channels.setup.labels.sipPassword') })
@@ -511,6 +539,25 @@ export function InboxSetupDrawer({
         // secrets: blank = keep the stored value (never send an empty string)
         if (c('access_token')) body.access_token = c('access_token')
         if (c('app_secret')) body.app_secret = c('app_secret')
+      } else if (kind === 'wa_waha') {
+        // WAHA: the connection settings (base URL, session, engine, API key) go to its own
+        // route; everything provider-agnostic then rides the shared account update below.
+        const waha: Record<string, string> = {}
+        for (const f of fields) {
+          const v = c(f.key)
+          // a blank secret keeps the stored one; a blank optional field is left untouched
+          if (v) waha[f.key] = v
+          else if (!f.secret && !f.optional) waha[f.key] = v
+        }
+        const made = await api<WaAccount>(id ? `whatsapp/accounts/${id}/waha` : 'whatsapp/accounts/waha', {
+          method: id ? 'PUT' : 'POST',
+          body: JSON.stringify(id ? waha : { ...waha, name: name.trim(), entity: entity ?? '' }),
+        })
+        const a = await api<WaAccount>(`whatsapp/accounts/${made.id}`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        })
+        return fromWa(a)
       } else if (!id) body.provider = 'baileys'
       if (kind === 'wa_qr') {
         body.keep_phone_notifications = keepPhone ? 'true' : 'false'
@@ -903,7 +950,7 @@ export function InboxSetupDrawer({
 
   const connectStep = !kind ? null : saved?.viaZernio ? zernioNote : (
     <div className="flex flex-col gap-5">
-      {kind === 'wa_qr' && (
+      {isUnofficialWaKind(kind) && (
         <>
           <div
             className="flex gap-2.5 rounded-lg border border-amber/40 bg-amber/10 px-3 py-2.5 text-[12.5px] leading-relaxed"
@@ -911,18 +958,27 @@ export function InboxSetupDrawer({
           >
             <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
             <span>
-              <Trans k="channels.drawer.qr.warning" values={{ b: <b>{t('channels.drawer.qr.demoOnly')}</b> }} />
+              {kind === 'wa_waha' ? (
+                <Trans k="channels.drawer.waha.warning" values={{ b: <b>{t('channels.drawer.qr.demoOnly')}</b> }} />
+              ) : (
+                <Trans k="channels.drawer.qr.warning" values={{ b: <b>{t('channels.drawer.qr.demoOnly')}</b> }} />
+              )}
             </span>
           </div>
           <ul className="flex list-disc flex-col gap-1 pl-5 text-[12.5px] leading-relaxed text-text-mid">
             <li>
-              <Trans
-                k="channels.drawer.qr.needsGateway"
-                values={{ cmd: <code className="rounded bg-fill px-1">npm run dev:baileys</code> }}
-              />
+              {kind === 'wa_waha' ? (
+                t('channels.drawer.waha.youHostIt')
+              ) : (
+                <Trans
+                  k="channels.drawer.qr.needsGateway"
+                  values={{ cmd: <code className="rounded bg-fill px-1">npm run dev:baileys</code> }}
+                />
+              )}
             </li>
-            <li>{t('channels.drawer.qr.textAndCalls')}</li>
+            <li>{kind === 'wa_waha' ? t('channels.drawer.waha.textAndFiles') : t('channels.drawer.qr.textAndCalls')}</li>
             <li>{t('channels.drawer.qr.noWindow')}</li>
+            {kind === 'wa_waha' && <li>{t('channels.drawer.waha.tier')}</li>}
           </ul>
           <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line bg-well px-3 py-2.5">
             <input
@@ -1216,9 +1272,19 @@ export function InboxSetupDrawer({
             <Section title={t('channels.drawer.test.pair')}>
               <BaileysPairPanel accountId={saved.id} onConnected={onChanged} />
               <VcfTip />
+              {/* WhatsApp's replay on linking is shallow — this asks for the rest, paced */}
+              <BaileysHistoryPanel accountId={saved.id} />
             </Section>
           )}
 
+          {kind === 'wa_waha' && (
+            <Section title={t('channels.drawer.test.pair')}>
+              <WahaPairPanel accountId={saved.id} onConnected={onChanged} />
+              <VcfTip />
+            </Section>
+          )}
+
+          {kind !== 'wa_waha' && (
           <Section title={t('channels.drawer.test.runTest')}>
             {kind === 'email' && (
               <label className="block">
@@ -1244,6 +1310,7 @@ export function InboxSetupDrawer({
             </div>
             {test && <ResultLine result={test} />}
           </Section>
+          )}
 
           {kind === 'wa_cloud' && !saved.viaZernio && (
             <Section title={t('channels.drawer.test.pointMeta')}>

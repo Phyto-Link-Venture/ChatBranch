@@ -21,7 +21,7 @@ export interface PlaygroundProvider {
 export interface PlaygroundField {
   key: string
   label: string
-  kind: 'text' | 'select' | 'multiselect' | 'number' | 'boolean'
+  kind: 'text' | 'select' | 'multiselect' | 'number' | 'boolean' | 'date' | 'json'
   options: string[]
 }
 

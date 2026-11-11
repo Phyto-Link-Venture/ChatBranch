@@ -144,9 +144,13 @@ public sealed class ChannelHealthProber
         ? ChatBranch.Data.Social.ZernioNative.Configured(a)
         : a.Channel switch
     {
-        ChannelIds.WhatsApp => a.Provider == Providers.Baileys
-            ? a.ExternalId.Length > 0
-            : WhatsAppProviders.IsOfficial(a) && WhatsAppProviders.Configured(a),
+        ChannelIds.WhatsApp => WhatsAppProviders.Of(a) switch
+        {
+            Providers.Baileys => a.ExternalId.Length > 0,
+            // WAHA answers for its own session (unofficial, but it has a probe)
+            Providers.Waha => WhatsAppProviders.Configured(a),
+            _ => WhatsAppProviders.IsOfficial(a) && WhatsAppProviders.Configured(a),
+        },
         ChannelIds.Telegram => TelegramBot.Configured(a),
         ChannelIds.Email => EmailConfig.AccountConfigured(a),
         ChannelIds.Facebook or ChannelIds.Instagram => a.AccessToken.Length > 0,
@@ -179,8 +183,9 @@ public sealed class ChannelHealthProber
                     return _more?.For(more) is { } transport
                         ? (await transport.ProbeAsync(a, ct)).Verdict
                         : null;
-                case ChannelIds.WhatsApp when WhatsAppProviders.IsBsp(a):
-                    // YCloud: the number's profile / balance; Twilio: GET /Accounts/{sid}.json
+                case ChannelIds.WhatsApp when WhatsAppProviders.HasOwnProbe(a):
+                    // YCloud: the number's profile / balance; Twilio: GET /Accounts/{sid}.json;
+                    // WAHA: GET /api/sessions/{session} (its status IS the number's state)
                     return _whatsapp == null ? null : (await _whatsapp.ProbeBspAsync(a, ct))?.Verdict;
                 case ChannelIds.Email:
                 {

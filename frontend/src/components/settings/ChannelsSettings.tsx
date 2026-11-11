@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * /channels — the Inboxes page (Chatwoot's model), the ONE place every
+ * /channels — the Inboxes page, the ONE place every
  * connection is managed. Every number, mailbox, bot, page, website widget, the
  * SIP trunk, every Zernio-connected social account and every marketplace shop:
  *
@@ -39,6 +39,7 @@ import {
   type Step,
 } from '@/components/channels/InboxSetupDrawer'
 import { ChannelsAdvanced } from '@/components/channels/ChannelsAdvanced'
+import { WhatsAppConnectResult } from '@/components/channels/WhatsAppConnectResult'
 import { SocialAccountCard, SocialDisconnectModal, useSocialAccounts } from '@/components/channels/SocialAccountCard'
 import { ChannelTileGrid } from '@/components/channels/ChannelPicker'
 import { CapChip, HealthDot, MethodBadge, OutletChip, cardBtn } from '@/components/channels/parts'
@@ -450,6 +451,8 @@ export function ChannelsSettings() {
       />
 
       <div className="flex flex-col gap-9 pb-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+        {/* a managed WhatsApp signup coming back (?zernio=connected | error) */}
+        <WhatsAppConnectResult />
         {pageMsg && (
           <div role="status" className="flex items-center gap-1.5 text-[12.5px] font-semibold" style={{ color: 'var(--green-ink)' }}>
             <CheckCircle size={13} aria-hidden /> {pageMsg}

@@ -1,13 +1,20 @@
 'use client'
 
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Select } from '@/components/ui/Select'
-import type { FieldDef } from '@/lib/customFields'
+import { JSON_MAX_CHARS, type FieldDef } from '@/lib/customFields'
+import { useT } from '@/i18n'
 
 /**
  * Renders the inputs for a list of Custom Field definitions and edits a
  * `values` map (the row's `attributes` JSON). Shared by the Service Provider
  * form, the Contact form and the Settings → Custom Fields live preview, so
  * every field kind is handled in exactly one place.
+ *
+ * A `date` is edited with the browser's date picker (the operator's own format)
+ * and always stored as the canonical YYYY-MM-DD the API accepts. A `json` field
+ * is a textarea: it is parsed as you type and the object is stored only once it
+ * parses (the API refuses anything else), so a half-typed brace can't be saved.
  */
 
 const inputCls =
@@ -116,6 +123,29 @@ export function CustomFieldsInputs({
                 </span>
               </label>
             )
+          case 'date':
+            return (
+              <label key={f.key} className="block">
+                {label}
+                <input
+                  type="date"
+                  value={typeof v === 'string' ? v.slice(0, 10) : ''}
+                  disabled={disabled}
+                  onChange={(e) => set(f.key, e.target.value === '' ? null : e.target.value)}
+                  className={inputCls}
+                />
+              </label>
+            )
+          case 'json':
+            return (
+              <JsonField
+                key={f.key}
+                label={label}
+                value={v}
+                disabled={disabled}
+                onChange={(nv) => set(f.key, nv)}
+              />
+            )
           case 'text':
           default:
             return (
@@ -132,5 +162,96 @@ export function CustomFieldsInputs({
         }
       })}
     </div>
+  )
+}
+
+/**
+ * One `json` custom field: a textarea holding pretty-printed JSON. The parsed
+ * object is pushed up only while the text parses to an object — the same rule
+ * the API enforces — so the form can never save half-typed JSON, and the error
+ * is shown inline instead of coming back as a 400.
+ */
+function JsonField({
+  label,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: ReactNode
+  value: unknown
+  disabled: boolean
+  onChange: (next: unknown) => void
+}) {
+  const t = useT()
+  const asText = (v: unknown): string => {
+    if (v === null || v === undefined || v === '') return ''
+    if (typeof v === 'string') return v
+    try {
+      return JSON.stringify(v, null, 2)
+    } catch {
+      return ''
+    }
+  }
+  const [text, setText] = useState(() => asText(value))
+  const [error, setError] = useState<string | null>(null)
+  // What we last pushed up, so a value coming back from our own onChange never
+  // reformats the textarea mid-keystroke; a value that changed elsewhere (a
+  // reload, another contact) does replace it.
+  const mine = useRef(asText(value))
+  useEffect(() => {
+    const incoming = asText(value)
+    if (incoming === mine.current) return
+    mine.current = incoming
+    setText(incoming)
+    setError(null)
+    // asText is pure; `value` is the only input
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+
+  const push = (next: unknown) => {
+    mine.current = asText(next)
+    onChange(next)
+  }
+
+  const edit = (next: string) => {
+    setText(next)
+    if (next.trim() === '') {
+      setError(null)
+      push(null)
+      return
+    }
+    if (next.length > JSON_MAX_CHARS) {
+      setError(t('settings.customFields.jsonTooLong', { max: JSON_MAX_CHARS }))
+      return
+    }
+    try {
+      const parsed: unknown = JSON.parse(next)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        setError(t('settings.customFields.jsonNotObject'))
+        return
+      }
+      setError(null)
+      push(parsed)
+    } catch {
+      setError(t('settings.customFields.jsonInvalid'))
+    }
+  }
+
+  return (
+    <label className="block md:col-span-2">
+      {label}
+      <textarea
+        value={text}
+        disabled={disabled}
+        rows={5}
+        spellCheck={false}
+        placeholder={t('settings.customFields.jsonPlaceholder')}
+        onChange={(e) => edit(e.target.value)}
+        className={`${inputCls} font-mono text-[11.5px] leading-relaxed`}
+      />
+      <span className={`mt-1 block text-[10.5px] ${error ? 'text-red-300' : 'text-text-faint'}`}>
+        {error ?? t('settings.customFields.jsonHint')}
+      </span>
+    </label>
   )
 }

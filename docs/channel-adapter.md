@@ -7,7 +7,7 @@ another.
 > ## ⚠ Read this first: live, but not field-tested
 >
 > **Every channel has a live transport in the C# API** — WhatsApp (Cloud,
-> YCloud, Twilio + Baileys), Messenger/Instagram, Telegram, email, the website widget, SIP
+> YCloud, Twilio + Baileys and WAHA), Messenger/Instagram, Telegram, email, the website widget, SIP
 > calls, and the newer LINE, Viber, SMS (Twilio), WeChat Official Account,
 > TikTok, Douyin and Zalo OA — and each falls back to sandbox (stored locally,
 > `status="sandbox"`) when it isn't configured. The provider clients are tested
@@ -105,6 +105,64 @@ Not verified against a live Zernio account: tested with `FakeZernioClient`
 which the webhook does not carry; X comments do not fire `comment.received`;
 Facebook reviews have no webhook (list API only, not polled).
 
+### Self-serve WhatsApp onboarding (the client connects their own number)
+
+`POST /api/social/connect {platform:"whatsapp", purpose:"inbox", onboarding, signup}`
+runs **Meta's Embedded Signup** through Zernio
+(`GET /v1/connect/whatsapp?profileId=&redirect_url=&onboarding=&signup=`), so a client
+signs in to Meta in their own browser and picks the number — no System User token is
+ever typed into ChatBranch. The headless
+`POST /api/social/connect/whatsapp` (the business's own `accessToken` + `wabaId` +
+`phoneNumberId`) stays as the advanced fallback.
+
+- **`onboarding` is required** and has no default here, because Zernio's own default
+  (the parameter omitted) is **coexistence**:
+  - `api` — Cloud API only. The number **stops working in the WhatsApp Business app**,
+    the phone's history does not come across, and undoing it means deregistering the
+    number. A number on the *consumer* WhatsApp app does not qualify at all.
+  - `business_app` — coexistence. The number keeps working in the app, messages are
+    mirrored both ways (up to ~6 months of history), **someone scans a QR code during
+    setup**, and the API side is capped: 20 msg/s, no groups made in the app, no
+    calls, no disappearing or view-once messages.
+  Either way the number must first be **disconnected from its previous provider** —
+  one provider at a time (WhatsApp Business app → Settings → Account → Business
+  Platform → Disconnect). The warnings are returned per mode (`warnings[].code`) and
+  the dashboard makes them an acknowledgement before the browser leaves.
+- **`signup=hosted`** (the default in `api` mode) makes `authUrl` a page on zernio.com
+  that opens Meta's popup itself and connects exactly the number the user picked — no
+  Facebook SDK, no domain to register, and no second number picker for a login that
+  manages several WABAs. Coexistence runs in Meta's own window (its QR step), so the
+  hosted picker is not sent with `business_app`; the answer says which was used.
+- **The round trip** is bound to a single-use nonce (`cb`) stored as a Setting
+  (`zernio_wa_signup:<nonce>`, 2 hours, pruned on the next start) carrying the entity,
+  the profile and Zernio's own `state`.
+  `GET /api/social/connect/whatsapp/callback` is **anonymous** (the browser arrives
+  from zernio.com / facebook.com): that nonce IS the CSRF control, a `state` sent back
+  must match, and the nonce accepts ONE account id. It mirrors the number with
+  `MirrorConnectedAsync` — keyed on the Zernio account id, and only for an account
+  `GET /v1/accounts` really lists in that profile — so a reloaded callback never makes
+  a second inbox, and an inbound message right after the signup already has an inbox.
+  Then it redirects to `/channels?zernio=connected|error`.
+- **Inbound needs nothing new**: `ZernioWebhook` already handles WhatsApp through
+  Zernio (Meta error codes, the 24h window) and `zernio` is already in
+  `WhatsAppProviders.Official`, so templates and the window apply.
+
+### Phone numbers (buy / release)
+
+`GET /api/social/phone-numbers` lists the numbers the outlet's Zernio profile owns
+(`monthly_cents` each) **plus the live per-country price**
+(`GET /v1/phone-numbers/countries`), so the recurring cost is on screen before anyone
+buys. No profile for that level = an empty list (a bare `GET /v1/phone-numbers` would
+return every company's numbers on the key). `POST …/purchase` needs
+`confirm: true` **and** a caller-minted `purchase_intent_id` (a retry must not buy a
+second number) and always sends `connectWhatsapp` explicitly, since Zernio defaults it
+to true. `DELETE …/{id}` needs `confirm=true` **and** the number typed back, and is
+refused for a number in another entity's profile. Both are audited
+(`social.phone_number.purchase` / `.release`) and both are deliberately **not** MCP
+tools (`McpExclusions`): they spend the owner's money and a release cannot be undone.
+A number bought through Zernio is pre-verified for WhatsApp and carries calls and SMS
+on the same number; a customer's own carrier number does not.
+
 ---
 
 ## 1. What each channel can do
@@ -136,9 +194,47 @@ Facebook reviews have no webhook (list API only, not polled).
 | Voice calls | ❌ (Cloud bridge removed; `call/start` → 501) | ✅ (ToS-violating) + recordings | — | — | — | — |
 | Auth on inbound | `X-Hub-Signature-256`, **required once any Cloud account is configured** | `X-Baileys-Secret` | anonymous by design (session id) | bot token in path (constant time) + `X-Telegram-Bot-Api-Secret-Token` once registered from the dashboard | `X-Hub-Signature-256`, **always required** | n/a (we read over IMAP) |
 
+**WhatsApp through WAHA** — the operator's OWN self-hosted WhatsApp HTTP API
+(`github.com/devlikeapro/waha`, docs `waha.devlike.pro`), provider `waha`. It is
+**UNOFFICIAL**: the same category as Baileys, never a Business Solution Provider —
+no templates, no 24h window, the `conversation` role by default, and using it may
+breach WhatsApp's Terms of Service with a real risk of the number being banned.
+Unlike Baileys it is **not a sidecar of ours**: no container in this repo's
+compose, no `npm run dev:*`. The operator runs WAHA and types three things into
+the inbox — base URL, session name, API key.
+
+| | WhatsApp (WAHA) |
+|---|---|
+| Credentials | `Config.base_url` (where WAHA listens, http or https), `Config.session` (WAHA's session name, default `default`), `Config.engine` (WEBJS \| WPP \| NOWEB \| GOWS — **declared by the operator for display only**: WAHA picks the engine with its own `WHATSAPP_DEFAULT_ENGINE`, not per session, and ChatBranch calls only endpoints every engine supports), AccessToken = WAHA's API key (`X-Api-Key`; optional — a WAHA started without `WAHA_API_KEY` needs none), AppSecret = the webhook HMAC key (minted on pairing when blank). ExternalId = the paired number's digits, LEARNED when the session reaches WORKING |
+| Pair | `POST /api/whatsapp/accounts/{id}/waha/start` — `GET /api/sessions/{s}`, then `PUT /api/sessions/{s}` (existing) or `POST /api/sessions` `{name, start, config}` (new) with OUR webhook + `hmac.key`, then `POST …/start`. `{}` → the QR (`GET /api/{s}/auth/qr`, `Accept: application/json` → base64 PNG; WAHA's codes expire — 60 s for the first, 20 s after, 6 in all — so the panel re-reads it every 3 s); `{"phone": "+60…"}` → `POST /api/{s}/auth/request-code` `{phoneNumber}` → `{code}`, with the QR kept as the fallback when WhatsApp refuses |
+| Session statuses | `STOPPED` · `STARTING` · `SCAN_QR_CODE` · `PASSKEY_REQUIRED` · `PASSKEY_CONFIRMATION_REQUIRED` · `WORKING` · `FAILED`. `PASSKEY_CONFIRMATION_REQUIRED` carries `data.code` — a number to CONFIRM on the phone, surfaced as `confirm_code` and never as a pairing code |
+| Never restart a live number | WAHA's `PUT /api/sessions/{s}` is destructive — `SessionService.updateSession` stops the session, upserts the config and starts it again. So a WORKING session whose webhook is already ours (or whose config WAHA did not return) is left untouched, and the pairing panel reads the status BEFORE it posts anything. Opening the setup drawer must never drop a paired WhatsApp connection |
+| Inbound media's address | a WAHA started without `WAHA_BASE_URL` advertises its files as `http://localhost:3000/api/files/…` — its own address, not one we can reach. Any `/api/…` link whose authority is not the configured `base_url` is rebased onto it (`WahaWhatsAppClient.Rebase`), which also keeps the API key scoped to the one host the operator named |
+| Receive | the `message` event on `/api/messaging/webhook/whatsapp-waha/{account_id}`: WAHA's `WAHAWebhook<WAMessage>` envelope (`{id, timestamp, event, session, me, engine, environment, payload}`) — text, media by `payload.media.url`, location, vCards, `replyTo`. 1:1 only: a group (`@g.us`), a channel (`@newsletter`), `status@broadcast` and our own echoes are acked and dropped |
+| Send text | `POST /api/sendText` `{session, chatId, text, reply_to?}`; `chatId` = `<digits>@c.us` |
+| Send media | `POST /api/sendImage` \| `sendVideo` \| `sendVoice` \| `sendFile` \| `sendSticker` with `file: {mimetype, data}` — **inline base64, because WAHA has no upload step** (≤16 MB). `UploadMediaAsync` therefore only encodes: it hands `SendMediaAsync` a `data:` URI through the same two-call seam every other provider uses. A public `file.url` is accepted too |
+| Reactions / quotes | ✅ both ways (`PUT /api/reaction`, `reply_to`) |
+| Delivery receipts | ❌ not subscribed (`message.ack` exists in WAHA; the inbox does not read it yet) |
+| Typing / read | ❌ WAHA has `POST /api/startTyping`, not wired — and deliberately short-circuited so a WAHA account can never fall through to Meta's Graph |
+| Templates | ❌ unofficial: `HasTemplateRegistry` is false and `RouteNeed.Template` asks for `AnyOfficial`, so a template never routes here |
+| 24h window | none (`WhatsAppProviders.WindowApplies` is false) |
+| Health (prober + session push) | `GET /api/sessions/{s}` → `WahaWhatsAppClient.Verdict`: WORKING → healthy; **STARTING / PASSKEY_REQUIRED / PASSKEY_CONFIRMATION_REQUIRED → TRANSIENT, health untouched** (they are the pairing flow working, including the restart right after pairing); SCAN_QR_CODE / STOPPED / FAILED → disconnected; 401/403 → disconnected ("WAHA refused the API key"); WAHA unreachable → transient (the number is fine). The `session.status` push applies the same rule through `AccountHealth.SetStatus` |
+| Auth on inbound | `X-Webhook-Hmac` — **lowercase hex HMAC-SHA512 of the raw body** (`X-Webhook-Hmac-Algorithm: sha512`), keyed by the session's `hmac.key`. No key ⇒ 503, bad ⇒ 401, unknown account ⇒ 404. There is no signed timestamp header, so the replay window reads `timestamp` out of the SIGNED body (10 min — WAHA retries a webhook up to 15 times with its own backoff); the dedup on WhatsApp's message id is the other half |
+| Voice calls | ❌ (`call/start` → 501) |
+| AI voice replies | text (WAHA's `sendVoice` is not wired to the voice-reply path) |
+| Tier | **WAHA Plus was folded into WAHA Core in 2026.6.1** ("Plus is now Core": one `devlikeapro/waha` image, "unlimited sessions, multimedia messages, all storages, built-in security"), so nothing ChatBranch depends on is paid. On a pre-2026.6 image, media messages and more than one session are Plus features — the setup drawer says so rather than letting a media send fail mysteriously |
+
+Where the code is: `Channels/WhatsAppBsp/WahaWhatsAppClient.cs` (the client, the
+session lifecycle, the health verdict, the HMAC), `WahaWebhook.cs` (the envelope),
+`ChatBranch.Api/Endpoints/WahaEndpoints.cs` (create / settings / pair / status /
+logout / the signed webhook), `components/channels/WahaPairPanel.tsx` (the pairing
+UX). Tests: `WahaTests` — against a fake of WAHA's documented API, never a live
+WAHA, so treat a first real server as the integration test.
+
 **WhatsApp through a Business Solution Provider** — YCloud and Twilio are
 OFFICIAL business numbers like Cloud (templates, the 24h window, the `reminder`
 role by default; `Channels/WhatsAppBsp/WhatsAppProviders.cs` is the one place
+(WAHA rides the same router while staying unofficial)
 that knows what each provider means, `WhatsAppClientRouter` sends every
 `IWhatsAppCloudClient` call to the account's provider). One signed webhook per
 ACCOUNT, `/api/messaging/webhook/whatsapp-{ycloud,twilio}/{account_id}`
@@ -225,6 +321,25 @@ outbound queue are already channel-blind.
   message; free text and media into a closed window return **409 — use a
   template**. Inbound rows store **Meta's own timestamp**, not arrival time —
   Meta's retry backlog can deliver a webhook hours late.
+- **Routing: a payload is matched to ONE registered number.** The webhook finds
+  the `ChannelAccount` whose `external_id` is the payload's `phone_number_id`
+  (`uniq_channelaccount_wa_pnid` makes that at most one row — two accounts on the
+  same number used to make it a coin flip between their companies). The entry id
+  (`entry[].id`, the WABA) is a cross-check: a payload that CONTRADICTS the
+  number's stored `waba_id` is refused, while a missing or blank entry id — Meta
+  specifies it only for `account_update` / `account_review_update` — changes
+  nothing, so it is defence in depth and never the only guard. **Once the install
+  has any Cloud number, a payload matching no number is recorded and dropped**:
+  no thread, no message, no reaction, no delivery receipt, an audit row
+  `whatsapp.webhook.unknown_number` (the number, the WABA, counts and the first
+  wamid — never the message text or the sender, because that row is
+  organization-wide) and still **200**, so Meta stops retrying. It used to be
+  processed with no account, which filed the conversation in the unattributed
+  bucket every company can see and let the next company to touch it adopt the
+  chat. An install with **no** Cloud number at all (sandbox, demo, Baileys-only)
+  is unchanged, and the organization Setting
+  `whatsapp_accept_unknown_numbers=on` restores the old permissive bucketing.
+  `ChatBranch.Data/Channels/CloudInboxRouting.cs` holds the rule.
 - **Signature:** `X-Hub-Signature-256` is **required once any Cloud account is
   configured** (a row with token + phone_number_id, or the env-default
   `WHATSAPP_*` pair) and is verified against the known Meta app secrets (the
@@ -285,9 +400,39 @@ outbound queue are already channel-blind.
   app-secret list only look at `provider = cloud` rows (a YCloud row's
   `app_secret` is its webhook secret, not a Meta credential).
 - Routing treats every OFFICIAL number alike: `RouteNeed.Template` asks for
-  `WhatsAppProviders.AnyOfficial` (cloud / ycloud / twilio), never Baileys.
+  `WhatsAppProviders.AnyOfficial` (cloud / ycloud / twilio / a managed
+  connection), never Baileys and never WAHA. `IsOfficial` is a WHITELIST of
+  `WhatsAppProviders.Official`, so a new unofficial transport cannot acquire
+  templates, the window or the reminder role by accident.
 - Twilio takes media by URL only. The signed link names one stored file for 6
   hours (key in Setting `media_link_secret`) and resolves under the media root.
+
+### WhatsApp over WAHA
+- The operator's own server, so the failure modes are theirs: an unreachable
+  WAHA is TRANSIENT (health untouched) and the pairing panel says "WAHA is your
+  own server, not part of ChatBranch — check that it is running and that the base
+  URL and API key are right", never "start a gateway". The remedy has to match
+  the cause: ChatBranch has no WAHA to start.
+- **Treat the pairing lifecycle as progress.** `STARTING` and the two `PASSKEY`
+  statuses are the flow working (a session restarts once right after pairing),
+  so they are reported `transient: true`, never recorded as a health failure and
+  never shown as a hard error. Only `FAILED`, a refused API key or an unreachable
+  server are errors.
+- The webhook key is MINTED on the first Pair and written into the session's
+  `config.webhooks[].hmac.key`, so inbound is never accepted unsigned (503 until
+  it exists). Re-pairing is idempotent; the key is kept.
+- WAHA also takes a GLOBAL `WHATSAPP_HOOK_URL`. ChatBranch configures the webhook
+  PER SESSION instead, because that is what lets each account verify with its own
+  secret — and because a global hook would carry other sessions' traffic here.
+- The engine (`WEBJS` / `WPP` / `NOWEB` / `GOWS`) is chosen on the WAHA side with
+  `WHATSAPP_DEFAULT_ENGINE`, not per session and not by us. It is stored only so
+  the inbox can show it; **no call here is engine-specific**, which is why the
+  field is optional and purely informational.
+- Gaps, honestly: no delivery ticks (`message.ack` is not subscribed), no typing
+  indicator, no delete / edit / poll / forward, no history import, no number
+  lookup, no calls, no group conversations, no AI voice notes. All of those exist
+  on the Baileys gateway and several have WAHA endpoints — they are simply not
+  wired.
 
 ### WhatsApp over Baileys
 - Unofficial WhatsApp Web protocol. **Violates WhatsApp's ToS**; dev/demo only.
@@ -336,6 +481,47 @@ outbound queue are already channel-blind.
   thousands of messages). It is handed to the gateway with the other per-number
   settings BEFORE each pairing attempt, because `syncFullHistory` is a socket option.
   Tests: `WhatsAppHistoryTests`, `history.js --selftest`.
+- **Fetching OLDER messages on demand.** That replay is shallow — WhatsApp sends the
+  chat LIST and the most recent messages, then stops (one measured number: 287
+  conversations, 386 messages), and `messaging-history.set` does not fire again. An
+  operator can ask for more per chat:
+  `POST /api/whatsapp/accounts/{id}/baileys/history-fetch` `{depth?, wa_id?}` starts
+  ONE run, `GET` the same route reports its progress, `POST .../stop` ends it
+  (capability `channels.manage`; the GET is `channels.view`; MCP tools
+  `channels_fetch_older_history` / `channels_get_history_fetch` /
+  `channels_stop_history_fetch`). The API contributes only the two things the
+  database knows (`Channels/WhatsAppHistoryFetch.cs`): the bounds on `depth`
+  (1–300 messages per chat, 200 by default) and the **seed anchors** — the oldest
+  message it already holds per 1:1 chat *that this number carried* (a conversation
+  can hold messages sent through another account, whose ids the paired phone never
+  had), which is what makes a number paired before this feature existed deepenable
+  at all. It also refuses a second concurrent run
+  itself (it reads the gateway's progress first), an inbox whose
+  `import_history_days` is 0, and a number with nothing imported to anchor on.
+- The run itself lives in the gateway, because that is where the pacing and the caps
+  belong (`baileys_service/history.js`, every decision self-tested):
+  `sock.fetchMessageHistory(count, oldestMsgKey, oldestMsgTimestamp)` — the installed
+  Baileys' own README passes `msg.messageTimestamp`, i.e. SECONDS — one request in
+  flight, a jittered **20–45 s** between requests (slower than the send queue's own
+  10–30 s), **50** messages a request, **6** per chat, **20** per run, **60** per
+  number per rolling 24 h, a **15-minute** cooldown between runs, and a stop the
+  moment WhatsApp stops serving. Answers arrive as another `messaging-history.set`
+  with `syncType` `ON_DEMAND` (6) and are pushed through the SAME `pushHistory` path,
+  so the filtering, batching and dedupe stay in one place — and historical media is
+  still never downloaded. A per-chat cursor in
+  `data/whatsapp/baileys/<id>/history-cursors.json` (next to the session, under
+  `CHATBRANCH_DATA_DIR` — never in the API's database) makes a run resumable and
+  idempotent: it only ever walks backwards, so a second run continues rather than
+  re-asking, and a chat already back past the inbox's own window is skipped instead
+  of asked about. Chats are keyed by the customer's NUMBER, not the jid: WhatsApp
+  hosts some conversations on a `<lid>@lid` identity, so the cursor carries the
+  identity its anchor arrived under (that is what the request names) and the answer
+  is matched by number — a request made on the phone jid and answered under the lid
+  still counts as the real answer it is. **The ceiling is WhatsApp's**: it serves what the paired phone
+  still holds, and that phone must be ONLINE. The progress payload says what was
+  asked, what was served, what the inbox actually took and why it stopped — it is
+  never a full archive, and the dashboard copy does not claim one.
+  Tests: `BaileysHistoryFetchTests`, `history.js --selftest`.
 - **Messages sent from the phone** (or WhatsApp Web — another device of the number)
   reach ChatBranch as the person's reply: the gateway pushes a live (`notify`)
   message from its own number that it did not send itself, to a 1:1 chat, under 15
@@ -706,8 +892,11 @@ automations, notify (assignee → team → admins), the **unknown-customer step*
 `ask_identity` automation asks: a deterministic EN/BM "who are you?" exchange
 that links, creates or hands over), expire stale AI drafts, then —
 behind the **coverage gate** (linked contact, the effective chatbot verdict from
-`Ai/AiEligibility.Decide` — the same rule every `ai_enabled` payload shows — and
-not opted out) — the AI reply, debounced through the queue or instant
+`Ai/AiEligibility.Decide` — the same rule every `ai_enabled` payload shows: opted
+out → quota → the master switch / schedule of the entity tree AND of the
+conversation's own inbox (which can only switch itself off) → contact never /
+never-AI tag → the per-chat tick → contact always → the inbox default → the
+account role — and not opted out) — the AI reply, debounced through the queue or instant
 (`ai_reply_mode` + the AI behaviour settings); with the chatbot off on a
 WhatsApp reminder (business) number, the business redirect instead. It never
 throws into the webhook. Manual sends to an opted-out conversation need

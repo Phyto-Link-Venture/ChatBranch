@@ -111,6 +111,9 @@ public class PermissionMatrixTests : IClassFixture<ApiFactory>
         new("DELETE", "/api/whatsapp/accounts/999999", G("channels.manage")),
         new("POST", "/api/whatsapp/accounts/999999/baileys/start", G("channels.manage")),
         new("POST", "/api/whatsapp/accounts/999999/baileys/logout", G("channels.manage")),
+        // asking WhatsApp for a QR number's older history talks to the provider
+        new("POST", "/api/whatsapp/accounts/999999/baileys/history-fetch", G("channels.manage"), new { }),
+        new("POST", "/api/whatsapp/accounts/999999/baileys/history-fetch/stop", G("channels.manage")),
         new("POST", "/api/whatsapp/channels/health", G("channels.manage")),
         new("POST", "/api/widgets", G("channels.manage"), new { }),
         new("PATCH", "/api/widgets/999999", G("channels.manage"), new { name = "x" }),

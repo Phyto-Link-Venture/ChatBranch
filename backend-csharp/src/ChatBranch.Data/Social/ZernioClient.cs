@@ -91,8 +91,17 @@ public interface IZernioClient
     Task<ZernioReply> CreateProfileAsync(string name, string externalId, CancellationToken ct = default);
     /// <summary>GET /v1/accounts[?profileId=] → {accounts:[…]}.</summary>
     Task<ZernioReply> ListAccountsAsync(string? profileId = null, CancellationToken ct = default);
-    /// <summary>GET /v1/connect/{platform}?profileId=&amp;redirect_url= → {authUrl}.</summary>
-    Task<ZernioReply> ConnectUrlAsync(string platform, string profileId, string redirectUrl, CancellationToken ct = default);
+    /// <summary>
+    /// GET /v1/connect/{platform}?profileId=&amp;redirect_url=[&amp;onboarding=][&amp;signup=] → {authUrl, state}.
+    /// WhatsApp only: <paramref name="onboarding"/> picks the Embedded Signup screen —
+    /// <c>api</c> = Cloud API only, <c>business_app</c> = coexistence (the number stays in the
+    /// WhatsApp Business app and a QR is scanned). OMITTING it means coexistence, so ChatBranch
+    /// always sends one. <paramref name="signup"/> = <c>hosted</c> makes <c>authUrl</c> a page on
+    /// zernio.com that opens Meta's popup itself and connects exactly the number the user picked
+    /// (no Facebook SDK, no second number picker).
+    /// </summary>
+    Task<ZernioReply> ConnectUrlAsync(string platform, string profileId, string redirectUrl,
+        string? onboarding = null, string? signup = null, CancellationToken ct = default);
     /// <summary>DELETE /v1/accounts/{accountId}.</summary>
     Task<ZernioReply> DeleteAccountAsync(string accountId, CancellationToken ct = default);
     /// <summary>PATCH /v1/accounts/{accountId} {profileId} → {message, profileId} (moveAccountToProfile).</summary>
@@ -167,6 +176,25 @@ public interface IZernioClient
     Task<ZernioReply> ListPhoneNumbersAsync(string? profileId = null, CancellationToken ct = default);
     /// <summary>POST /v1/phone-numbers/{id}/sms → {enabled, id (the SMS account), phoneNumber, isActive, needsRegistration…}.</summary>
     Task<ZernioReply> EnableSmsAsync(string phoneNumberId, CancellationToken ct = default);
+    /// <summary>GET /v1/phone-numbers/{id} → one owned number.</summary>
+    Task<ZernioReply> GetPhoneNumberAsync(string phoneNumberId, CancellationToken ct = default);
+    /// <summary>
+    /// GET /v1/phone-numbers/countries → {countries:[{code, monthlyCents, callsAvailable, smsAvailable,
+    /// whatsappAvailable, needsKyc, inStock}]} — the live price, quoted BEFORE a purchase.
+    /// </summary>
+    Task<ZernioReply> PhoneNumberCountriesAsync(CancellationToken ct = default);
+    /// <summary>
+    /// POST /v1/phone-numbers/purchase {profileId, country, areaCode?, phoneNumber?, wantsSms,
+    /// connectWhatsapp, purchaseIntentId?} → {phoneNumber:{id, phoneNumber, monthlyCents…}}.
+    /// SPENDS MONEY: a flat monthly charge starts when the number activates. 202 = kyc_required,
+    /// 409 PHONE_NUMBER_UNAVAILABLE = that exact number went; <c>connectWhatsapp</c> defaults to
+    /// TRUE at Zernio, so it is always sent explicitly here.
+    /// </summary>
+    Task<ZernioReply> PurchasePhoneNumberAsync(string profileId, string country, string? areaCode,
+        string? phoneNumber, bool wantsSms, bool connectWhatsapp, string? purchaseIntentId,
+        CancellationToken ct = default);
+    /// <summary>DELETE /v1/phone-numbers/{id} — releases it to the carrier pool. CANNOT BE UNDONE.</summary>
+    Task<ZernioReply> ReleasePhoneNumberAsync(string phoneNumberId, CancellationToken ct = default);
 
     // ---- posts + media ---------------------------------------------------------
     /// <summary>POST /v1/posts → {post:{_id, status, platforms[]}}.</summary>
@@ -198,7 +226,8 @@ public sealed class NullZernioClient : IZernioClient
     public Task<ZernioReply> ListProfilesAsync(string? e = null, CancellationToken ct = default) => No();
     public Task<ZernioReply> CreateProfileAsync(string n, string e, CancellationToken ct = default) => No();
     public Task<ZernioReply> ListAccountsAsync(string? p = null, CancellationToken ct = default) => No();
-    public Task<ZernioReply> ConnectUrlAsync(string pl, string p, string r, CancellationToken ct = default) => No();
+    public Task<ZernioReply> ConnectUrlAsync(string pl, string p, string r, string? o = null, string? s = null,
+        CancellationToken ct = default) => No();
     public Task<ZernioReply> DeleteAccountAsync(string a, CancellationToken ct = default) => No();
     public Task<ZernioReply> MoveAccountAsync(string a, string p, CancellationToken ct = default) => No();
     public Task<ZernioReply> FacebookPagesAsync(string a, bool r = false, CancellationToken ct = default) => No();
@@ -224,6 +253,11 @@ public sealed class NullZernioClient : IZernioClient
     public Task<ZernioReply> WhatsAppCredentialsAsync(string p, string t, string w, string n, string? pin, CancellationToken ct = default) => No();
     public Task<ZernioReply> ListPhoneNumbersAsync(string? p = null, CancellationToken ct = default) => No();
     public Task<ZernioReply> EnableSmsAsync(string n, CancellationToken ct = default) => No();
+    public Task<ZernioReply> GetPhoneNumberAsync(string n, CancellationToken ct = default) => No();
+    public Task<ZernioReply> PhoneNumberCountriesAsync(CancellationToken ct = default) => No();
+    public Task<ZernioReply> PurchasePhoneNumberAsync(string p, string c, string? a, string? n, bool sms, bool wa,
+        string? intent, CancellationToken ct = default) => No();
+    public Task<ZernioReply> ReleasePhoneNumberAsync(string n, CancellationToken ct = default) => No();
     public Task<ZernioReply> CreatePostAsync(Dictionary<string, object?> b, CancellationToken ct = default) => No();
     public Task<ZernioReply> GetPostAsync(string p, CancellationToken ct = default) => No();
     public Task<ZernioReply> UpdatePostAsync(string p, Dictionary<string, object?> b, CancellationToken ct = default) => No();
@@ -353,10 +387,13 @@ public sealed class HttpZernioClient : IZernioClient
             null, ct);
 
     public Task<ZernioReply> ConnectUrlAsync(string platform, string profileId, string redirectUrl,
-        CancellationToken ct = default) =>
+        string? onboarding = null, string? signup = null, CancellationToken ct = default) =>
         CallAsync(HttpMethod.Get,
             $"/connect/{E(platform)}?profileId={E(profileId)}" +
-            (redirectUrl.Length > 0 ? "&redirect_url=" + E(redirectUrl) : ""), null, ct);
+            (redirectUrl.Length > 0 ? "&redirect_url=" + E(redirectUrl) : "") +
+            // sent only when asked for: another platform's connect must look exactly as it did
+            (string.IsNullOrWhiteSpace(onboarding) ? "" : "&onboarding=" + E(onboarding!.Trim())) +
+            (string.IsNullOrWhiteSpace(signup) ? "" : "&signup=" + E(signup!.Trim())), null, ct);
 
     public Task<ZernioReply> DeleteAccountAsync(string accountId, CancellationToken ct = default) =>
         CallAsync(HttpMethod.Delete, $"/accounts/{E(accountId)}", null, ct);
@@ -503,6 +540,31 @@ public sealed class HttpZernioClient : IZernioClient
 
     public Task<ZernioReply> EnableSmsAsync(string phoneNumberId, CancellationToken ct = default) =>
         CallAsync(HttpMethod.Post, $"/phone-numbers/{E(phoneNumberId)}/sms", null, ct);
+
+    public Task<ZernioReply> GetPhoneNumberAsync(string phoneNumberId, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Get, $"/phone-numbers/{E(phoneNumberId)}", null, ct);
+
+    public Task<ZernioReply> PhoneNumberCountriesAsync(CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Get, "/phone-numbers/countries", null, ct);
+
+    // a purchase provisions (and bills) inside the request — give it room
+    public Task<ZernioReply> PurchasePhoneNumberAsync(string profileId, string country, string? areaCode,
+        string? phoneNumber, bool wantsSms, bool connectWhatsapp, string? purchaseIntentId,
+        CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Post, "/phone-numbers/purchase", new Dictionary<string, object?>
+        {
+            ["profileId"] = profileId,
+            ["country"] = country,
+            ["areaCode"] = string.IsNullOrWhiteSpace(areaCode) ? null : areaCode!.Trim(),
+            ["phoneNumber"] = string.IsNullOrWhiteSpace(phoneNumber) ? null : phoneNumber!.Trim(),
+            ["wantsSms"] = wantsSms,
+            // Zernio defaults this to true: never let the default decide what we pay for
+            ["connectWhatsapp"] = connectWhatsapp,
+            ["purchaseIntentId"] = string.IsNullOrWhiteSpace(purchaseIntentId) ? null : purchaseIntentId!.Trim(),
+        }, ct, timeoutSeconds: 120);
+
+    public Task<ZernioReply> ReleasePhoneNumberAsync(string phoneNumberId, CancellationToken ct = default) =>
+        CallAsync(HttpMethod.Delete, $"/phone-numbers/{E(phoneNumberId)}", null, ct);
 
     // publishing now runs every platform inside the request — give it room
     public Task<ZernioReply> CreatePostAsync(Dictionary<string, object?> body, CancellationToken ct = default) =>

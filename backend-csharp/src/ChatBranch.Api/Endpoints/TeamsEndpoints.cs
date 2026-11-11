@@ -12,7 +12,7 @@ namespace ChatBranch.Api.Endpoints;
 /// Teams — a group of agents conversations are routed to, and the round-robin
 /// that hands each new one to a member.
 ///
-/// Assignment is TWO-LEVEL, like Chatwoot's: a thread belongs to a team (who
+/// Assignment is TWO-LEVEL: a thread belongs to a team (who
 /// owns it) and optionally to one agent inside that team (who is working it).
 /// Losing the agent never loses the thread — it falls back to the team's queue.
 /// </summary>

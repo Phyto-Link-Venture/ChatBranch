@@ -294,7 +294,13 @@ public class AiTaskService
         else if (!task.Enabled) skip = "The task was switched off.";
         else if (!InScope(_db, _sc, thread.EntityId, thread.Channel).Any(t => t.Id == task.Id))
             skip = "The task is no longer available to this conversation.";
-        else if (new AiControls(_db, _sc).Master(thread.EntityId).Mode == AiMasterModes.Off)
+        else if (new AiControls(_db, _sc).Master(thread.EntityId).Mode == AiMasterModes.Off
+                 || AiControls.InboxMaster(thread.AccountId is int inboxId
+                        ? _db.ChannelAccounts.AsNoTracking().FirstOrDefault(a => a.Id == inboxId)
+                        : null)?.Mode == AiMasterModes.Off)
+            // the entity tree's switch, or the conversation's own inbox
+            // (AiControls.InboxMaster — the level below it, which can only switch
+            // itself off); a schedule at either level is the AI gate's business
             skip = "The AI is switched off (AI master switch).";
         else if (AiQuota.EntityBlock(_db, _sc, thread.EntityId) is { } quota)
             skip = AiQuota.Reason(quota).Replace("Off: ", "");

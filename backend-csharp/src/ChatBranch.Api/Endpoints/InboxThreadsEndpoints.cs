@@ -516,6 +516,8 @@ public static class InboxThreadsEndpoints
     internal sealed class WaContext
     {
         private Dictionary<int, ChannelAccount> _byId = new();
+        /// <summary>Every inbox by id, every channel — the AI verdict's own-inbox lookup.</summary>
+        private Dictionary<int, ChannelAccount> _everyById = new();
         /// <summary>Messenger / Instagram pages, for their messaging window.</summary>
         private Dictionary<int, ChannelAccount> _social = new();
         /// <summary>Live WeChat / Zalo / TikTok / Douyin accounts, for their reply windows.</summary>
@@ -540,16 +542,19 @@ public static class InboxThreadsEndpoints
 
         public static async Task<WaContext> LoadAsync(AppDbContext db, ScopingService sc, int? entityId)
         {
-            var wa = await db.ChannelAccounts.AsNoTracking()
-                .Where(a => a.Channel == ChatBranch.Domain.Channels.WhatsApp).ToListAsync();
+            // every inbox in ONE query: the WhatsApp numbers and the social pages
+            // as before, plus the rest — the AI verdict needs the conversation's
+            // OWN inbox (its master switch and never-AI tags) whatever the channel
+            var every = await db.ChannelAccounts.AsNoTracking().ToListAsync();
+            var wa = every.Where(a => a.Channel == ChatBranch.Domain.Channels.WhatsApp).ToList();
             var configured = wa.Where(WhatsAppSettingsEndpoints.IsConfigured).ToList();
             var env = WhatsAppSettingsEndpoints.EnvAccountConfigured();
-            var social = await db.ChannelAccounts.AsNoTracking()
-                .Where(a => a.Channel == ChatBranch.Domain.Channels.Facebook
-                            || a.Channel == ChatBranch.Domain.Channels.Instagram).ToListAsync();
+            var social = every.Where(a => a.Channel == ChatBranch.Domain.Channels.Facebook
+                                          || a.Channel == ChatBranch.Domain.Channels.Instagram).ToList();
             return new WaContext
             {
                 _byId = wa.ToDictionary(a => a.Id),
+                _everyById = every.ToDictionary(a => a.Id),
                 _social = social.ToDictionary(a => a.Id),
                 _windowed = ChatBranch.Data.Channels.ChannelWindow.LiveAccounts(db),
                 // an unknown/missing account falls back to the SOLE configured
@@ -563,6 +568,16 @@ public static class InboxThreadsEndpoints
 
         public ChannelAccount? Account(int? accountId) =>
             accountId is int id && _byId.TryGetValue(id, out var own) ? own : _fallback;
+
+        /// <summary>
+        /// The conversation's OWN inbox on any channel (a widget, a bot, a
+        /// mailbox…), for the AI verdict: its master switch and never-AI tags
+        /// live there (<see cref="ChatBranch.Data.Ai.AiControls.InboxMaster"/>),
+        /// and <see cref="Account"/> only knows WhatsApp numbers. Falls back to
+        /// <see cref="Account"/> so the WhatsApp rules are unchanged.
+        /// </summary>
+        public ChannelAccount? AiAccount(int? accountId) =>
+            accountId is int id && _everyById.TryGetValue(id, out var own) ? own : Account(accountId);
 
         /// <summary>
         /// Meta's 24h customer-service window. Only a LIVE Cloud number or a live
@@ -584,7 +599,9 @@ public static class InboxThreadsEndpoints
             if (c.Channel != ChatBranch.Domain.Channels.WhatsApp) return (true, null);
             var account = Account(c.AccountId);
             var live = account != null ? WhatsAppSettingsEndpoints.IsConfigured(account) : _envIsSoleFallback;
-            if (!live || account?.Provider == Providers.Baileys) return (true, null);
+            // Baileys / WAHA: WhatsApp Web, so Meta's 24h window never applies
+            if (!live || (account != null && ChatBranch.Data.Channels.WhatsAppProviders.IsUnofficial(account)))
+                return (true, null);
             if (c.LastInTs is not DateTime lastIn) return (false, null);
             var expires = DateTime.SpecifyKind(lastIn, DateTimeKind.Utc).AddHours(24);
             return (DateTime.UtcNow < expires, expires.ToString("o"));
@@ -623,7 +640,7 @@ public static class InboxThreadsEndpoints
                     WhatsAppSettingsEndpoints.EffectiveAi(probe, Account(c.AccountId), ReminderDefaultOn(c.EntityId)),
                     ChatBranch.Data.Ai.AiRules.ChatTick, "", false);
             else
-                v = _ai.Decide(probe, Account(c.AccountId), c.ContactAiMode, c.ContactTags);
+                v = _ai.Decide(probe, AiAccount(c.AccountId), c.ContactAiMode, c.ContactTags);
             _verdicts[c.Id] = v;
             return v;
         }

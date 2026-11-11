@@ -552,9 +552,13 @@ public static class InboxEndpoints
         // The account lookup mirrors wa_config.get_account(): an unknown/missing
         // account id falls back to the SOLE configured account, and never guesses
         // between several — a wrong pick would report another number's window.
-        var waAccounts = await db.ChannelAccounts.AsNoTracking()
-            .Where(a => a.Channel == Channels.WhatsApp).ToListAsync();
+        var allAccounts = await db.ChannelAccounts.AsNoTracking().ToListAsync();
+        var waAccounts = allAccounts.Where(a => a.Channel == Channels.WhatsApp).ToList();
         var byId = waAccounts.ToDictionary(a => a.Id);
+        // the AI verdict needs the conversation's OWN inbox on any channel: its
+        // master switch and never-AI tags live in ChannelAccount.Config, and the
+        // WhatsApp lookup above would hand a widget thread the fallback number
+        var everyById = allAccounts.ToDictionary(a => a.Id);
         var configured = waAccounts.Where(WhatsAppSettingsEndpoints.IsConfigured).ToList();
         var envConfigured = WhatsAppSettingsEndpoints.EnvAccountConfigured();
         // .env contributes one more configured account to that count, but has no
@@ -580,14 +584,16 @@ public static class InboxEndpoints
             var stat = stats.GetValueOrDefault(t.Id);
             var account = t.AccountId is int aid && byId.TryGetValue(aid, out var own)
                 ? own : fallback;
-            var aiVerdict = aiRule.Decide(t, account);
-            // Baileys is a normal WhatsApp account over WhatsApp Web — Meta's
-            // 24h contact-service window does not apply to it. A sandbox thread
+            var aiVerdict = aiRule.Decide(t,
+                t.AccountId is int ownId && everyById.TryGetValue(ownId, out var ownInbox) ? ownInbox : account);
+            // Baileys and WAHA are normal WhatsApp accounts over WhatsApp Web — Meta's
+            // 24h contact-service window does not apply to them. A sandbox thread
             // is always open too: nothing real is sent, and the demo flow must
             // never dead-end on a closed window.
             var live = account != null
                 ? WhatsAppSettingsEndpoints.IsConfigured(account) : envIsSoleFallback;
-            var baileys = account?.Provider == Providers.Baileys;
+            var baileys = account != null
+                && ChatBranch.Data.Channels.WhatsAppProviders.IsUnofficial(account);
 
             var windowOpen = true;
             string? windowExpiresAt = null;

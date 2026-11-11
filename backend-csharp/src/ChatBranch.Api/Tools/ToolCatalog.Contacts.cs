@@ -125,6 +125,23 @@ public static partial class ToolCatalog
                 A.Bool("preview", "true = dry run: counts and mapping only, nothing written."),
             });
 
+        yield return T(g, "contacts_link_conversations", "Link existing conversations to contacts",
+            "Fill in the contact on conversations that already existed when their contact was created (a phone " +
+            "book imported after a WhatsApp history import leaves them unnamed, with no contact). Matches exactly " +
+            "as an incoming message does — email by address, WhatsApp/SMS by the last 8 digits — against the " +
+            "RECEIVING company only, so one company's contact is never attached to another's conversation. Only " +
+            "empty links are filled, groups and broadcasts are skipped, and running it twice changes nothing. " +
+            "Run with preview=true first: it writes nothing and returns the counts and example links.",
+            "POST", "/api/contacts/link-conversations", manage,
+            new[]
+            {
+                A.Bool("preview", "true = dry run: the counts and examples only, nothing written."),
+                A.Entity("Only this entity's conversations (and its branches')."),
+                A.Str("channel", "Only this channel (whatsapp, email, sms)."),
+                A.Int("limit", $"Conversations to examine in this run (default {ChatBranch.Data.Contacts.ThreadContactBackfill.DefaultLimit}, max {ChatBranch.Data.Contacts.ThreadContactBackfill.MaxLimit}); the answer's 'more' says whether any are left.",
+                    min: 1, max: ChatBranch.Data.Contacts.ThreadContactBackfill.MaxLimit),
+            });
+
         yield return T(g, "contacts_preview_google_import", "Preview a Google Contacts import",
             "Read YOUR connected Google Contacts (Settings → My connections) as import rows with the duplicate " +
             "counts — a preview; commit them with contacts_import (rows).",

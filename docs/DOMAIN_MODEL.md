@@ -63,6 +63,27 @@ All the many-to-many links can be edited in bulk on **Bindings** (`/bindings`,
 `/api/bindings/{kind}`): user ↔ entities, team ↔ members, contact ↔ entities,
 tag ↔ contacts, tag ↔ entities, channel account ↔ entity.
 
+**One inbox, several transports.** A WhatsApp `ChannelAccount` also carries a
+`provider` — *which* WhatsApp carries it — and
+`Channels/WhatsAppBsp/WhatsAppProviders.cs` is the only place that knows what each
+one means:
+
+| `provider` | What it is | Official? |
+|---|---|---|
+| `cloud` | Meta's WhatsApp Cloud API (Graph) | ✅ |
+| `ycloud` · `twilio` | Business Solution Providers (Meta-shaped APIs) | ✅ |
+| `zernio` | a WhatsApp Business number through a managed connection — the client connects (or buys) their own number from the dashboard: `POST /api/social/connect {platform:"whatsapp", onboarding}` runs Meta's Embedded Signup through Zernio, and the mode (`api` = Cloud API only, `business_app` = coexistence) is always chosen explicitly. See `docs/channel-adapter.md` §0b | ✅ |
+| `baileys` | a QR-paired personal number through ChatBranch's own Node gateway | ❌ |
+| `waha` | a personal number through **WAHA**, a self-hosted WhatsApp HTTP API the OPERATOR runs (`github.com/devlikeapro/waha`) | ❌ |
+
+Official = template-capable and bound by Meta's 24-hour customer-service window,
+and the `reminder` (business) role by default. The two unofficial ones drive
+WhatsApp Web: no templates, no window, the `conversation` role by default — and
+**using them may breach WhatsApp's Terms of Service, with a real risk of the
+number being banned**. Nothing else in the model changes: all five write to the
+same `crm_thread` / `crm_message` rows, so the inbox, the AI, teams, flows and
+routing are provider-blind.
+
 ## Each concept in detail
 
 ### Entity — `Tenant` + `Entity`
@@ -81,7 +102,17 @@ tag ↔ contacts, tag ↔ entities, channel account ↔ entity.
   inbound messages link by the last 8 digits, email by address.
 - Vertical data: **custom fields** (Settings → Custom fields, values in
   `Contact.Attributes`, `{{cf_<key>}}`, shown on the contact page and usable in
-  templates) for facts about the person; **tags** for
+  templates) for facts about the person — `text` · `select` · `multiselect` ·
+  `number` · `boolean` · `date` (stored `YYYY-MM-DD`, compared by journey
+  conditions and the "Date field" trigger) · `json` (an object an outside system
+  syncs in through the API, shown flattened as `key: value` everywhere). A field
+  with **`show_to_ai`** on is added to the AI's CONTACT block and to a journey's
+  "Let AI decide" prompt — off by default, guarded and capped — and
+  `entity_id` is a privacy boundary on every AI-facing path: a field scoped to an
+  entity is shown only to that entity's COMPANY (the prompts, and
+  `ctx.contact` inside a code skill), the way a scoped tag is. Code skills get the
+  opted-in fields as `ctx.contact.fields` and the rest of their own company's as
+  `ctx.contact.internalFields` (`ContactCustomFields.SkillFields`); **tags** for
   what they are and anything you branch or filter on; **records** for the
   business object a conversation is about (`order` / `shipment` / `invoice` /
   `booking` / `ticket` / `custom`, with your own status vocabulary and a
@@ -121,9 +152,9 @@ tag ↔ contacts, tag ↔ entities, channel account ↔ entity.
 | Record (`booking`) | A lesson slot, `due_date` = the lesson time |
 | Integration (Google Calendar / Sheets, per user or per branch) | Each teacher's own calendar, or the branch's |
 
-The AI sees the contact's tag NAMES in its contact context (attribute values
-are not in the prompt — put what the AI must know in a skill or the knowledge
-base); flows branch on "Has tag" and render values like `{{tag_student_level}}`. A per-teacher
+The AI sees the contact's tag NAMES in its contact context (tag attribute values
+are not in the prompt — put what the AI must know in a skill, the knowledge base,
+or a custom field with `show_to_ai` on); flows branch on "Has tag" and render values like `{{tag_student_level}}`. A per-teacher
 calendar is an integration owned by that teacher's login
 (`Integration.OwnerUserId`), resolved at action time.
 

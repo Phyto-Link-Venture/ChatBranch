@@ -23,7 +23,9 @@ public sealed class FlowAiRequest
     public string Question { get; init; } = "";
     public List<FlowAiOption> Options { get; init; } = new();
     public Contact? Contact { get; init; }
-    /// <summary>Custom fields with a value: label → value.</summary>
+    /// <summary>Custom fields with a value: label → value — only the ones this
+    /// prompt may carry (<see cref="Contacts.ContactCustomFields.PromptFields"/>:
+    /// <c>show_to_ai</c> ON and inside the run's company).</summary>
     public Dictionary<string, string> Fields { get; init; } = new();
     public List<FlowAiLine> History { get; init; } = new();
     /// <summary>The reply that arrived during the last wait ("" = none).</summary>

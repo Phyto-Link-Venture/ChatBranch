@@ -33,6 +33,19 @@ namespace ChatBranch.Api.Endpoints;
 /// the current UTC month and later, a past month keeps the terms that applied
 /// to it. The AI usage quotas (<see cref="AiQuota"/>) live here too:
 /// <c>GET/PUT /api/billing/ai/quotas</c>.
+///
+/// <para><b>How a price is found.</b> Not here — in
+/// <see cref="AiPriceBooks.Resolve"/>, the ONE place pricing resolves, which
+/// this file, the quotas and the settings screens all ask: the per-company
+/// explicit override above (field by field) → the PRICE BOOK assigned to the
+/// entity, else to its nearest ancestor (<see cref="ScopingService.ChainMap"/>,
+/// the same nearest-level-wins walk as every other setting) → the organization
+/// default plan → the default markup and fee. A plan prices by markup, by a flat
+/// monthly amount or by the unit (per 1,000 tokens / per AI reply), and the
+/// month's terms carry a snapshot of the plans, so a plan changed or reassigned
+/// today never rewrites a month that was already billed. Plans are edited
+/// through <see cref="AiPriceBookEndpoints"/> and assigned in bulk through the
+/// bindings pattern (<c>pricebook-entities</c>).</para>
 /// </summary>
 public static class AiBillingEndpoints
 {
@@ -52,19 +65,31 @@ public static class AiBillingEndpoints
             var s = Load(sc);
             var companies = await db.Entities.AsNoTracking().Where(e => e.ParentId == null)
                 .OrderBy(e => e.Name).Select(e => new { e.Id, e.Name, e.Slug }).ToListAsync();
+            var chains = sc.ChainMap();
             return Results.Ok(new
             {
                 settings = s.CopyTerms(s.EffectiveFrom),
                 current_month = AiBilling.MonthKey(DateTime.UtcNow),
                 // newest first: the current terms, then what billed earlier months
                 history = History(s),
-                companies = companies.Select(c => new
+                // the plans in force this month (the editable rows are on
+                // /api/billing/ai/price-books, which also paginates the companies)
+                plans = s.Plans.Select(PlanJson).ToList(),
+                default_plan = s.DefaultPlan,
+                companies = companies.Select(c =>
                 {
-                    id = c.Id, name = c.Name, slug = c.Slug,
-                    markup_pct = s.Companies.TryGetValue(c.Id.ToString(CultureInfo.InvariantCulture), out var t) ? t.MarkupPct : null,
-                    monthly_fee = t?.MonthlyFee,
-                    effective_markup_pct = s.MarkupFor(c.Id),
-                    effective_monthly_fee = s.FeeFor(c.Id),
+                    var own = s.Companies.TryGetValue(c.Id.ToString(CultureInfo.InvariantCulture), out var t) ? t : null;
+                    var price = AiPriceBooks.Resolve(s, chains.TryGetValue(c.Id, out var chain) ? chain : new List<int> { c.Id });
+                    return new
+                    {
+                        id = c.Id, name = c.Name, slug = c.Slug,
+                        markup_pct = own?.MarkupPct,
+                        monthly_fee = own?.MonthlyFee,
+                        effective_markup_pct = price.MarkupPct,
+                        effective_monthly_fee = price.FixedMonthly(),
+                        plan = price.PlanSlug, plan_label = price.PlanLabel, mode = price.Mode,
+                        plan_source = price.Source, inherited = price.InheritedBy(c.Id),
+                    };
                 }),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(ManageCap);
@@ -91,11 +116,16 @@ public static class AiBillingEndpoints
                 if (terms.MarkupPct != null || terms.MonthlyFee != null)
                     companies[id.ToString(CultureInfo.InvariantCulture)] = terms;
             }
+            // the price books are not edited here (POST /api/billing/ai/price-books is their
+            // home) but they ARE part of the month's terms, so carry the live snapshot
+            // through — saving the defaults must never silently unprice every company
+            var (plans, entityPlans, fallback) = AiPriceBooks.LiveSnapshot(db);
             var incoming = new BillingTerms
             {
                 Currency = currency, UsdRate = body.UsdRate,
                 DefaultMarkupPct = body.DefaultMarkupPct, DefaultMonthlyFee = body.DefaultMonthlyFee,
                 Companies = companies,
+                Plans = plans, EntityPlans = entityPlans, DefaultPlan = fallback,
             };
             // a change bills this month and later; earlier months keep their terms
             var stored = AiBilling.Load(sc, out var hadRow);
@@ -120,6 +150,11 @@ public static class AiBillingEndpoints
                 usage_amount = c.UsageAmount,
                 monthly_fee = c.MonthlyFee,
                 total = c.Total,
+                // how it was priced: the plan in force for this month, and how (AiPriceBooks)
+                plan_slug = c.PlanSlug,
+                plan_label = c.PlanLabel,
+                mode = c.Mode,
+                plan_inherited = c.PlanInherited,
                 // billing managers only
                 cost_usd = c.CostUsd,
                 markup_pct = c.MarkupPct,
@@ -300,6 +335,8 @@ public static class AiBillingEndpoints
                         username = u.Username, role = u.Role,
                         cap = s.Cap > 0 ? s.Cap : (double?)null,
                         spent = s.Spent, pct = s.Pct, state = s.State,
+                        // the cap came from the person's price book, not from a typed row
+                        from_plan = snap.UserCapFromPlan(u.Username),
                         set_by_manager = snap.Config.ManagerSet(AiQuotaConfig.UserKey(u.Username)),
                         // nobody sets their own cap but a superadmin; an admin never
                         // touches a cap a billing manager set
@@ -401,6 +438,14 @@ public static class AiBillingEndpoints
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability(QuotasCap, ManageCap);
     }
+
+    /// <summary>One plan as the API reports it (the month's snapshot shape).</summary>
+    internal static object PlanJson(PricePlan p) => new
+    {
+        slug = p.Slug, label = p.Label, mode = p.Mode, markup_pct = p.MarkupPct,
+        flat_amount = p.FlatAmount, unit_per_1k_tokens = p.UnitPer1kTokens, unit_per_reply = p.UnitPerReply,
+        monthly_fee = p.MonthlyFee, user_allowance = p.UserAllowance, active = p.Active,
+    };
 
     private const string AmountError =
         "A quota must be a number of at least 0.01 (0 or empty = no cap).";
@@ -529,13 +574,16 @@ public static class AiBillingEndpoints
         var to = from.AddMonths(1);
         var manager = await ShellScope.HasCapAsync(db, me, ManageCap);
         // the terms that applied to THAT month — a later change never rewrites a past bill
-        var settings = Load(sc).TermsFor(AiBilling.MonthKey(from));
+        BillingTerms settings = Load(sc).TermsFor(AiBilling.MonthKey(from));
         var prices = AnalyticsEndpoints.PriceTable(sc);
 
         // ---- the tree: entity -> its company (top-level ancestor)
         var entities = await db.Entities.AsNoTracking()
             .Select(e => new { e.Id, e.ParentId, e.Name, e.Slug, e.CreatedAt }).ToListAsync();
         var byId = entities.ToDictionary(e => e.Id);
+        // every entity's chain (nearest first), walked once in ScopingService — the same
+        // chains the quotas price with, so the bill and a quota can never disagree
+        Dictionary<int, List<int>> chains = sc.ChainMap();
         int? CompanyOf(int? entityId)
         {
             var cur = entityId;
@@ -576,28 +624,51 @@ public static class AiBillingEndpoints
                     u.AudioPromptTokens, u.AudioCompletionTokens, u.CostUsd);
                 var co = CompanyOf(u.EntityId)
                          ?? (u.ContactId is int cid && contactCompany.TryGetValue(cid, out var cc) ? cc : (int?)null);
-                return new BillRow(co, u.Feature, u.CreatedAt,
-                    (long)u.PromptTokens + u.CompletionTokens + u.AudioPromptTokens + u.AudioCompletionTokens, cost);
+                return new BillRow(co, u.EntityId, u.Feature, u.CreatedAt,
+                    (long)u.PromptTokens + u.CompletionTokens + u.AudioPromptTokens + u.AudioCompletionTokens, cost,
+                    AiPriceBooks.IsReply(u.Feature));
             }).ToList();
 
-        double Billed(int companyId, double costUsd) =>
-            // 4 decimals: a light month is fractions of a cent, which must not read as 0
-            Math.Round(costUsd * (1 + settings.MarkupFor(companyId) / 100d) * settings.UsdRate, 4, MidpointRounding.AwayFromZero);
+        // ---- the price each entity is billed by: ONE resolution per entity, from the
+        // month's own terms snapshot (AiPriceBooks: per-company override → the plan
+        // assigned nearest up the tree → the organization default plan → the defaults)
+        Dictionary<int, EffectivePrice> priceCache = new();
+        EffectivePrice PriceOf(int? entityId)
+        {
+            if (entityId is not int id) return AiPriceBooks.Resolve(settings, null);
+            if (priceCache.TryGetValue(id, out var hit)) return hit;
+            var price = AiPriceBooks.Resolve(settings, chains.TryGetValue(id, out var chain) ? chain : new List<int> { id });
+            priceCache[id] = price;
+            return price;
+        }
+
+        // a row is priced by its OWN entity's plan (a branch may be on a different plan
+        // than its head office), falling back to its company's when the row only
+        // resolved through its contact
+        double RowAmount(BillRow r) =>
+            PriceOf(r.Entity ?? r.Company).UsageAmount(r.CostUsd, r.Tokens, r.Reply ? 1 : 0, settings.UsdRate);
+
+        // 4 decimals: a light month is fractions of a cent, which must not read as 0
+        double Billed(IEnumerable<BillRow> some) =>
+            Math.Round(some.Sum(RowAmount), 4, MidpointRounding.AwayFromZero);
 
         BillCompany Summary(int companyId, string name, string slug)
         {
             var mine = rows.Where(r => r.Company == companyId).ToList();
             var cost = mine.Sum(r => r.CostUsd);
-            var usage = Billed(companyId, cost);
+            var usage = Billed(mine);
+            var price = PriceOf(companyId);
             // no monthly fee for a month that ended before the company existed
             var existed = !byId.TryGetValue(companyId, out var row) || row.CreatedAt == default || row.CreatedAt < to;
-            var fee = existed ? Math.Round(settings.FeeFor(companyId), 2) : 0d;
+            // the fixed part of the month: the monthly fee plus a flat plan's amount
+            var fee = existed ? Math.Round(price.FixedMonthly(), 2) : 0d;
             return new BillCompany(companyId, name, slug, mine.Count, mine.Sum(r => r.Tokens), usage, fee,
                 Math.Round(usage + fee, 4),
                 // billing managers only
                 manager ? Math.Round(cost, 4) : null,
-                manager ? settings.MarkupFor(companyId) : null,
-                manager ? Math.Round(usage + fee - cost * settings.UsdRate, 4) : null);
+                manager ? price.MarkupPct : null,
+                manager ? Math.Round(usage + fee - cost * settings.UsdRate, 4) : null,
+                price.PlanSlug, price.PlanLabel, price.Mode, price.InheritedBy(companyId));
         }
 
         BillDetail? Detail()
@@ -605,12 +676,12 @@ public static class AiBillingEndpoints
             if (picked == null) return null;
             var mine = rows.Where(r => r.Company == picked.Id).ToList();
             var lines = mine.GroupBy(r => r.Feature).Select(g => new BillLine(
-                    g.Key, g.Count(), g.Sum(r => r.Tokens), Billed(picked.Id, g.Sum(r => r.CostUsd)),
+                    g.Key, g.Count(), g.Sum(r => r.Tokens), Billed(g),
                     manager ? Math.Round(g.Sum(r => r.CostUsd), 4) : null))
                 .OrderByDescending(l => l.Amount).ThenByDescending(l => l.Requests).ToList();
             var daily = Enumerable.Range(0, (to - from).Days).Select(i => from.AddDays(i)).Select(d => new BillDay(
                 d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                Billed(picked.Id, mine.Where(r => r.CreatedAt.Date == d).Sum(r => r.CostUsd)))).ToList();
+                Billed(mine.Where(r => r.CreatedAt.Date == d)))).ToList();
             return new BillDetail(Summary(picked.Id, picked.Name, picked.Slug), lines, daily);
         }
 
@@ -634,7 +705,10 @@ public static class AiBillingEndpoints
         return clean.Length > 0 ? clean[..Math.Min(clean.Length, 60)] : "company";
     }
 
-    private sealed record BillRow(int? Company, string Feature, DateTime CreatedAt, long Tokens, double CostUsd);
+    /// <summary><paramref name="Entity"/> = the row's OWN entity (its price book may differ
+    /// from its company's); <paramref name="Reply"/> = it counts as one AI reply for unit pricing.</summary>
+    private sealed record BillRow(int? Company, int? Entity, string Feature, DateTime CreatedAt, long Tokens,
+        double CostUsd, bool Reply);
 
     /// <summary>Company ids the caller may see; null = every company.</summary>
     private static Task<HashSet<int>?> VisibleCompanies(AppDbContext db, ScopingService sc, ClaimsPrincipal me,

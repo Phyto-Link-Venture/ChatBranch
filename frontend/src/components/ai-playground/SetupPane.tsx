@@ -207,7 +207,7 @@ function FieldInput({
       <Label htmlFor={id}>{f.label}</Label>
       <input
         id={id}
-        type={f.kind === 'number' ? 'number' : 'text'}
+        type={f.kind === 'number' ? 'number' : f.kind === 'date' ? 'date' : 'text'}
         value={value == null || Array.isArray(value) || typeof value === 'boolean' ? '' : String(value)}
         onChange={(e) =>
           onChange(f.kind === 'number' && e.target.value !== '' ? Number(e.target.value) : e.target.value)

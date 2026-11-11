@@ -48,6 +48,7 @@ public static class SystemEmailEndpoints
             var username = Text("username", current.Username).Trim();
             var password = Text("password", current.Password);
             if (password.Contains("••")) password = current.Password; // the masked value sent back = unchanged
+            else password = SystemEmail.NormalizePassword(password);
 
             var port = current.Port;
             if (body.TryGetProperty("port", out var pv))

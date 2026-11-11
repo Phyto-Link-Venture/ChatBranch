@@ -2,7 +2,7 @@
 
 > **Historical.** The plan for porting the Django API to C# (August 2026). The port shipped and Django was removed; for the current state and the remaining gaps see the Port status table in [`CLAUDE.md`](../CLAUDE.md).
 
-Status: **planning** · Branch: `claude/chatwoot-csharp-migration-dzeyrj` ·
+Status: **planning** ·
 Author: Claude Code · Date: 2026-08-13
 
 ## Decisions locked in
@@ -201,7 +201,7 @@ To actually *dispatch* a LiveKit room/token from C#, use the LiveKit
 These are ordinary authenticated HTTP handlers/clients in C#. The Node
 gateway does not change.
 
-## Chatwoot-parity backlog (optional, post-migration)
+## Shared-inbox parity backlog (optional, post-migration)
 
 The comparison found you're ahead on AI/voice/flows and behind on the classic
 helpdesk surface. If you want to close the gap, these are the adds — none
@@ -209,7 +209,7 @@ block the migration, and doing them **in C# after** the port is cleaner than
 porting-then-adding:
 
 1. **Website live-chat widget** (embeddable JS SDK + a websocket/SSE channel)
-   — Chatwoot's single biggest feature; you have no web-widget channel.
+   — the classic shared-inbox headline feature; you have no web-widget channel.
 2. **Help Center** (public customer-facing KB portal).
 3. **CSAT surveys** (post-conversation rating → a report).
 4. **Teams + team assignment / round-robin** (you have account routing, not

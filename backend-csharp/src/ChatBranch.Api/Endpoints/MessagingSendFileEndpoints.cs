@@ -409,7 +409,7 @@ public static class MessagingSendFileEndpoints
     {
         var role = account.Config.TryGetValue("role", out var raw) && (raw?.ToString() ?? "") is { Length: > 0 } r
             ? r
-            : account.Provider == Providers.Baileys ? "conversation" : "reminder";
+            : WhatsAppProviders.IsOfficial(account) ? "reminder" : "conversation";
         if (role != "conversation") return false;
         var guard = (sc.SettingValue("cold_text_guard", thread.EntityId) ?? "").Trim().ToLowerInvariant();
         if (guard.Length == 0) guard = "block";
@@ -419,7 +419,8 @@ public static class MessagingSendFileEndpoints
 
     internal static bool WindowOpen(AppDbContext db, Thread thread, ChannelAccount? account)
     {
-        if (account == null || account.Provider == Providers.Baileys) return true;
+        // only an OFFICIAL number is bound by Meta's window (Baileys / WAHA are WhatsApp Web)
+        if (!WhatsAppProviders.WindowApplies(account)) return true;
         var lastIn = db.Messages.AsNoTracking()
             .Where(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In)
             .Max(m => (DateTime?)m.CreatedAt);

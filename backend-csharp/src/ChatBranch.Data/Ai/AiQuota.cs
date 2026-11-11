@@ -12,7 +12,10 @@ public sealed class AiQuotaConfig
 {
     /// <summary>Entity id (as a string) → cap. A top-level entity = a company cap; any child = a branch cap.</summary>
     [JsonPropertyName("entities")] public Dictionary<string, double> Entities { get; set; } = new();
-    /// <summary>Username → cap for what that person runs themselves (assistant, playground, skill drafting, summaries).</summary>
+    /// <summary>Username → cap for what that person runs themselves (assistant, playground,
+    /// skill drafting, summaries). A cap here is an EXPLICIT override: a login with no entry
+    /// gets the allowance its price book grants (<see cref="AiPriceBooks.UserAllowance"/>),
+    /// which is how a thousand logins are capped without a thousand typed rows.</summary>
     [JsonPropertyName("users")] public Dictionary<string, double> Users { get; set; } = new();
 
     /// <summary>Caps a billing manager set ("entity:&lt;id&gt;" / "user:&lt;username&gt;", lower-case):
@@ -44,7 +47,11 @@ public sealed record AiQuotaStatus(string Scope, string Key, int? EntityId, int?
 /// <summary>
 /// AI usage quotas: monthly spending caps in the BILLING currency, priced
 /// exactly like the AI bill (<see cref="LlmPricing"/> × the month's
-/// <see cref="BillingTerms"/>; the monthly fee is not usage and never counts).
+/// <see cref="BillingTerms"/>, resolved by <see cref="AiPriceBooks"/>; the
+/// monthly fee is not usage and never counts). A quota counts at least what the
+/// usage COST (<see cref="EffectivePrice.QuotaAmount"/>), so a flat-priced
+/// company still has a brake; for every markup plan that is the billed amount
+/// itself. A login with no typed cap gets the allowance its plan grants.
 ///
 /// <para><b>What counts.</b> A COMPANY cap (a top-level entity) counts every row
 /// the bill attributes to that company — the row's own entity anywhere in its
@@ -130,6 +137,11 @@ public static class AiQuota
         /// <summary>Billed spend by company, as the bill attributes it.</summary>
         public Dictionary<int, double> ByCompany { get; init; } = new();
         public Dictionary<string, double> ByUser { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>The allowance each login's PLAN grants it (<see cref="AiPriceBooks.UserAllowance"/>);
+        /// an explicit cap in <see cref="AiQuotaConfig.Users"/> wins over it.</summary>
+        public Dictionary<string, double> PlanAllowance { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>The terms (and so the price books) this month is priced by.</summary>
+        public BillingTerms Terms { get; init; } = new();
 
         public List<int> Chain(int? entityId)
         {
@@ -160,9 +172,20 @@ public static class AiQuota
                 e.ParentId, e.ParentId == null, e.Name, Cap(entityId), Round(EntitySpend(entityId)), Currency, e.TenantId);
         }
 
+        /// <summary>
+        /// The cap on one login: the cap someone typed for them if there is one,
+        /// else the allowance their price book grants (so a plan caps a thousand
+        /// logins at once instead of a thousand hand-typed rows).
+        /// </summary>
+        public double UserCap(string username) =>
+            Config.Users.TryGetValue(username, out var c) && c > 0 ? c : PlanAllowance.GetValueOrDefault(username);
+
+        /// <summary>True when this login's cap came from a plan, not from a typed row.</summary>
+        public bool UserCapFromPlan(string username) =>
+            !(Config.Users.TryGetValue(username, out var c) && c > 0) && PlanAllowance.GetValueOrDefault(username) > 0;
+
         public AiQuotaStatus UserStatus(string username, int? tenantId = null) =>
-            new(ScopeUser, username, null, null, false, username,
-                Config.Users.TryGetValue(username, out var c) ? c : 0,
+            new(ScopeUser, username, null, null, false, username, UserCap(username),
                 Round(ByUser.GetValueOrDefault(username)), Currency, tenantId);
 
         /// <summary>The first cap reached on the way up from this entity (nearest first), or null.</summary>
@@ -184,8 +207,8 @@ public static class AiQuota
             var list = new List<AiQuotaStatus>();
             foreach (var (key, cap) in Config.Entities)
                 if (cap > 0 && int.TryParse(key, out var id) && Entities.ContainsKey(id)) list.Add(EntityStatus(id));
-            foreach (var (user, cap) in Config.Users)
-                if (cap > 0) list.Add(UserStatus(user));
+            foreach (var user in Config.Users.Keys.Concat(PlanAllowance.Keys).Distinct(StringComparer.OrdinalIgnoreCase))
+                if (UserCap(user) > 0) list.Add(UserStatus(user));
             return list;
         }
     }
@@ -218,12 +241,21 @@ public static class AiQuota
         var month = AiBilling.MonthKey(nowUtc);
         var config = LoadConfig(sc);
         var terms = AiBilling.Load(sc).TermsFor(month);
-        if (config.IsEmpty && !always)
-            return new Snapshot { BuiltAt = nowUtc, Month = month, Currency = terms.Currency, Config = config };
+        // a plan that grants a per-login allowance is a cap too, so an org with no typed
+        // cap but a plan allowance must still be priced
+        var allowances = terms.Plans.Any(p => p.Active && p.UserAllowance > 0);
+        if (config.IsEmpty && !allowances && !always)
+            return new Snapshot
+            {
+                BuiltAt = nowUtc, Month = month, Currency = terms.Currency, Config = config, Terms = terms,
+            };
 
         var entities = db.Entities.AsNoTracking()
             .Select(e => new { e.Id, e.ParentId, e.Name, e.TenantId }).ToList()
             .ToDictionary(e => e.Id, e => (e.ParentId, e.Name, e.TenantId));
+        // the tree, walked ONCE in ScopingService (nearest first) — the same chains the
+        // AI bill prices with, so a quota and the bill can never disagree
+        var chains = sc.ChainMap();
         int? CompanyOf(int? entityId)
         {
             var cur = entityId;
@@ -234,6 +266,8 @@ public static class AiQuota
             }
             return null;
         }
+        List<int>? ChainOf(int? entityId) =>
+            entityId is int id && chains.TryGetValue(id, out var chain) ? chain : null;
         var contactCompany = db.ContactEntities.AsNoTracking()
             .Select(l => new { l.ContactId, l.EntityId }).ToList()
             .GroupBy(l => l.ContactId)
@@ -247,7 +281,7 @@ public static class AiQuota
         var rows = db.LlmUsage.AsNoTracking().Where(u => u.CreatedAt >= from && u.CreatedAt < to)
             .Select(u => new
             {
-                u.Model, u.EntityId, u.ContactId, u.UserName,
+                u.Feature, u.Model, u.EntityId, u.ContactId, u.UserName,
                 u.PromptTokens, u.CompletionTokens, u.AudioPromptTokens, u.AudioCompletionTokens, u.CostUsd,
             }).ToList();
         var byEntity = new Dictionary<int, double>();
@@ -259,16 +293,37 @@ public static class AiQuota
                 u.AudioPromptTokens, u.AudioCompletionTokens, u.CostUsd);
             var company = CompanyOf(u.EntityId)
                           ?? (u.ContactId is int cid && contactCompany.TryGetValue(cid, out var cc) ? cc : (int?)null);
-            var billed = terms.BilledRaw(company, cost);
+            // the price book of the row's OWN entity (nearest plan up its tree), falling
+            // back to its company's when the row only resolved through its contact
+            var price = AiPriceBooks.Resolve(terms, ChainOf(u.EntityId) ?? ChainOf(company));
+            var tokens = (long)u.PromptTokens + u.CompletionTokens + u.AudioPromptTokens + u.AudioCompletionTokens;
+            var billed = price.QuotaAmount(cost, tokens, AiPriceBooks.IsReply(u.Feature) ? 1 : 0, terms.UsdRate);
             if (u.EntityId is int eid) byEntity[eid] = byEntity.GetValueOrDefault(eid) + billed;
             if (company is int co) byCompany[co] = byCompany.GetValueOrDefault(co) + billed;
             if (!string.IsNullOrWhiteSpace(u.UserName))
                 byUser[u.UserName] = byUser.GetValueOrDefault(u.UserName) + billed;
         }
+
+        // the allowance each login's plan grants (the entities they are bound to; none =
+        // the organization default plan) — a plan caps every login it covers at once
+        var planAllowance = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        if (allowances)
+            foreach (var u in db.Profiles.AsNoTracking()
+                         .Where(p => p.User != null && p.User.IsActive)
+                         .OrderBy(p => p.Id)
+                         .Select(p => new { p.User!.Username, Entities = p.Entities.Select(e => e.Id).ToList() })
+                         .Take(5000).ToList())
+            {
+                var allowance = AiPriceBooks.UserAllowance(terms,
+                    u.Entities.Select(id => (IReadOnlyList<int>)(ChainOf(id) ?? new List<int> { id })));
+                if (allowance > 0) planAllowance[u.Username] = allowance;
+            }
+
         return new Snapshot
         {
-            BuiltAt = nowUtc, Month = month, Currency = terms.Currency, Config = config,
+            BuiltAt = nowUtc, Month = month, Currency = terms.Currency, Config = config, Terms = terms,
             Entities = entities, ByEntity = byEntity, ByCompany = byCompany, ByUser = byUser,
+            PlanAllowance = planAllowance,
         };
     }
 
@@ -293,7 +348,7 @@ public static class AiQuota
         try
         {
             var snap = Current(db, sc);
-            if (!snap.Config.Users.TryGetValue(username, out var cap) || cap <= 0) return null;
+            if (snap.UserCap(username) <= 0) return null;
             var s = snap.UserStatus(username);
             return s.Reached ? s : null;
         }
@@ -352,7 +407,7 @@ public static class AiQuota
         try
         {
             var snap = Current(db, sc, nowUtc);
-            if (snap.Config.IsEmpty) return 0;
+            if (snap.Config.IsEmpty && snap.PlanAllowance.Count == 0) return 0;
             Warned warned;
             try { warned = JsonSerializer.Deserialize<Warned>(sc.SettingValue(WarnedKey), Json) ?? new Warned(); }
             catch { warned = new Warned(); }

@@ -612,6 +612,16 @@ public static class WhatsAppSettingsEndpoints
                     return Results.Json(new { detail = "name is required for a Baileys account." },
                                         statusCode: 400);
             }
+            else if (provider == Providers.Waha)
+            {
+                // WAHA is the operator's OWN server: an inbox is created with its base URL and
+                // session name, which have their own validation (WahaEndpoints).
+                return Results.Json(new
+                {
+                    detail = "A WAHA number is created with POST /api/whatsapp/accounts/waha "
+                             + "{name, base_url, session, engine, api_key} — it has no phone_number_id.",
+                }, statusCode: 400);
+            }
             else if (WhatsAppProviders.IsBsp(provider))
             {
                 // YCloud / Twilio: their own credential shapes (BspCredentialError)
@@ -663,7 +673,8 @@ public static class WhatsAppSettingsEndpoints
                     AsString(body, InboxSettings.KeepRecalledKey)) is string inboxErr)
                 return Results.Json(new { detail = inboxErr }, statusCode: 400);
             db.ChannelAccounts.Add(row);
-            await db.SaveChangesAsync();
+            try { await db.SaveChangesAsync(); }
+            catch (DbUpdateException e) when (IsDuplicateNumber(e)) { return DuplicateNumber(row.ExternalId); }
             // Twilio: per-message StatusCallback = this account's own webhook (needs the id)
             if (StampStatusCallback(row, ctx)) await db.SaveChangesAsync();
             // a first real verdict within seconds (Cloud: Graph token ping; Baileys: no-op)
@@ -778,7 +789,8 @@ public static class WhatsAppSettingsEndpoints
                 row.FailStreak = 0;
                 row.HealthChangedAt = DateTime.UtcNow;
             }
-            await db.SaveChangesAsync();
+            try { await db.SaveChangesAsync(); }
+            catch (DbUpdateException e) when (IsDuplicateNumber(e)) { return DuplicateNumber(row.ExternalId); }
             // …and re-probe it now, off the request, instead of at the next checker pass
             if (credsChanged) _ = ctx.RequestServices.GetRequiredService<ChatBranch.Api.Workers.HealthRecheck>().Schedule(row.Id);
             // "Keep phone notifications" takes effect on the live session at once (a number
@@ -874,10 +886,11 @@ public static class WhatsAppSettingsEndpoints
                 .FirstOrDefaultAsync(a => a.Id == id && a.Channel == Channels.WhatsApp, ct);
             if (row == null || !IsConfigured(row))
                 return Results.Json(new { detail = "Account not configured." }, statusCode: 400);
-            if (WhatsAppProviders.IsBsp(row))
+            if (WhatsAppProviders.HasOwnProbe(row))
             {
-                // YCloud: the number's profile (or the balance); Twilio: the account — each
-                // provider's own authenticated GET, the same probe the health checker runs
+                // YCloud: the number's profile (or the balance); Twilio: the account; WAHA: its
+                // session status — each provider's own authenticated GET, the same probe the
+                // health checker runs
                 var probe = await wa.ProbeBspAsync(row, ct);
                 if (probe == null)
                     return Results.Json(new { detail = "Account not configured." }, statusCode: 400);
@@ -1011,6 +1024,101 @@ public static class WhatsAppSettingsEndpoints
             await Audit(db, ctx, me, "account.baileys_logout", $"whatsapp:{id}", st.State);
             return Results.Ok(BaileysStatePayload(st));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
+
+        // ---- Baileys on-demand history (proxied to the Node gateway) -------
+        // WhatsApp's replay on pair is SHALLOW: it sends the chat list and a message or
+        // two each, and then stops. These three let an OPERATOR ask for the older
+        // messages per chat — never the AI on its own schedule, never a pairing hook,
+        // never a timer. The run itself lives in the gateway, which owns the pacing
+        // (a jittered 20–45 s between requests), the caps (50 messages a request, 6
+        // requests a chat, 20 a run, 60 per number per rolling day, a 15-minute
+        // cooldown between runs) and the per-chat cursors; this end triggers it,
+        // reads its progress and stops it.
+        //
+        // ⚠ Baileys is unofficial and a ban is permanent, so a refusal is surfaced as
+        // a refusal: already running, cooling down, the number not linked or nothing
+        // imported to anchor on all come back 409 with the gateway's own reason
+        // instead of being retried or queued.
+        app.MapGet("/api/whatsapp/accounts/{id:int}/baileys/history-fetch", async (int id, AppDbContext db,
+            ChatBranch.Data.Sidecars.IBaileysGateway gw) =>
+        {
+            var acct = await BaileysAccount(db, id);
+            if (acct == null) return BaileysNotFound();
+            var key = await EnsureBaileysKey(db, acct);
+            var run = await gw.HistoryRunAsync(key);
+            return Results.Ok(WhatsAppHistoryFetch.Payload(run));
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.view");
+
+        app.MapPost("/api/whatsapp/accounts/{id:int}/baileys/history-fetch", async (int id, HttpContext ctx,
+            AppDbContext db, ClaimsPrincipal me, ChatBranch.Data.Sidecars.IBaileysGateway gw) =>
+        {
+            var acct = await BaileysAccount(db, id);
+            if (acct == null) return BaileysNotFound();
+            // someone bound to entities deepens their own entities' numbers only
+            if (ShellScope.ObjectScopeError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me,
+                    acct.EntityId) is { } outside)
+                return outside;
+            // "import none" means this inbox asked for no history at all — honour that
+            if (BaileysSettings.ImportHistoryDays(acct) == 0)
+                return Results.Json(new
+                {
+                    detail = "History import is switched off for this number. Turn it on first "
+                             + "(Channels → the number → Import history).",
+                }, statusCode: 409);
+            var body = await ReadBody(ctx);
+            if (!WhatsAppHistoryFetch.TryDepth(AsInt(body, "depth"), out var depth, out var bad))
+                return Results.Json(new { detail = bad }, statusCode: 400);
+            // one chat, as the thread is keyed: digits only, however the operator typed it
+            var waId = new string((AsString(body, "wa_id") ?? "").Where(char.IsDigit).ToArray());
+            var seeds = WhatsAppHistoryFetch.Seeds(db, acct, waId);
+            if (seeds.Count == 0)
+                return Results.Json(new
+                {
+                    detail = waId.Length > 0
+                        ? "Nothing is imported for that chat yet, so there is no message to ask WhatsApp from."
+                        : "This number has no imported WhatsApp message to ask from yet. Link it and let the "
+                          + "first history import land, then fetch older messages.",
+                }, statusCode: 409);
+            var key = await EnsureBaileysKey(db, acct);
+            // One run at a time per number, checked HERE as well as in the gateway: two
+            // operators pressing the button together must not become two request loops
+            // against the same WhatsApp session, and the second one deserves the reason
+            // rather than a race.
+            var current = await gw.HistoryRunAsync(key);
+            if (current.Running)
+                return Results.Json(new
+                {
+                    detail = "A history fetch is already running for this number — watch it, or stop it first.",
+                }, statusCode: 409);
+            var run = await gw.FetchHistoryAsync(key, depth, waId.Length > 0 ? waId : null, seeds);
+            await Audit(db, ctx, me, "account.baileys_history_fetch", $"whatsapp:{id}",
+                run.Error.Length > 0
+                    ? $"refused: {run.Error}"
+                    : $"depth {depth}, {seeds.Count} chat(s) seeded{(waId.Length > 0 ? $", chat {waId}" : "")}");
+            if (run.Error.Length > 0)
+                return Results.Json(new { detail = WhatsAppHistoryFetch.Reason(run.Error) },
+                    statusCode: run.Conflict ? 409 : 502);
+            return Results.Ok(WhatsAppHistoryFetch.Payload(run));
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(WhatsAppHistoryFetch.Capability);
+
+        app.MapPost("/api/whatsapp/accounts/{id:int}/baileys/history-fetch/stop", async (int id, HttpContext ctx,
+            AppDbContext db, ClaimsPrincipal me, ChatBranch.Data.Sidecars.IBaileysGateway gw) =>
+        {
+            var acct = await BaileysAccount(db, id);
+            if (acct == null) return BaileysNotFound();
+            if (ShellScope.ObjectScopeError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me,
+                    acct.EntityId) is { } outside)
+                return outside;
+            var key = await EnsureBaileysKey(db, acct);
+            var run = await gw.StopHistoryAsync(key);
+            await Audit(db, ctx, me, "account.baileys_history_stop", $"whatsapp:{id}",
+                run.Error.Length > 0 ? $"refused: {run.Error}" : $"after {run.Requests} request(s), "
+                    + $"{run.Imported} message(s) imported");
+            if (run.Error.Length > 0)
+                return Results.Json(new { detail = WhatsAppHistoryFetch.Reason(run.Error) },
+                    statusCode: run.Conflict ? 409 : 502);
+            return Results.Ok(WhatsAppHistoryFetch.Payload(run));
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(WhatsAppHistoryFetch.Capability);
 
         // ---- template authoring --------------------------------------------
         // A live WABA (configured Cloud account with a waba_id) writes to Meta's
@@ -1931,6 +2039,15 @@ public static class WhatsAppSettingsEndpoints
         // YCloud / Twilio: this account's own signed webhook + its provider settings
         webhook_path = WhatsAppProviders.WebhookPath(a),
         bsp = BspPayload(a),
+        // WAHA: where the operator's own server is (secrets masked); null for every other provider
+        waha = WhatsAppProviders.IsWaha(a) ? new Dictionary<string, object?>
+        {
+            ["base_url"] = WahaConfig.BaseUrl(a),
+            ["session"] = WahaConfig.Session(a),
+            ["engine"] = WahaConfig.Engine(a),
+            ["api_key_masked"] = Mask(a.AccessToken),
+            ["webhook_secret_masked"] = Mask(a.AppSecret),
+        } : null,
         // QR numbers: stay offline between sends so the phone keeps its notifications
         keep_phone_notifications = BaileysSettings.KeepPhone(a),
         // QR numbers: how much of the number's own chat history to import when it links
@@ -2407,6 +2524,27 @@ public static class WhatsAppSettingsEndpoints
     // ======================= primitives ======================================
 
     /// <summary>_mask: secrets round-trip as "••••1234", never in full.</summary>
+    /// <summary>
+    /// Did a save trip <c>uniq_channelaccount_wa_pnid</c> (one Cloud number per account)?
+    /// SQLite reports "UNIQUE constraint failed", PostgreSQL "duplicate key" (23505); the
+    /// index name is checked first so an unrelated constraint still surfaces as a 500.
+    /// </summary>
+    private static bool IsDuplicateNumber(DbUpdateException e)
+    {
+        var msg = (e.InnerException?.Message ?? e.Message) ?? "";
+        return msg.Contains("uniq_channelaccount_wa_pnid", StringComparison.OrdinalIgnoreCase)
+               || ((msg.Contains("UNIQUE constraint failed", StringComparison.OrdinalIgnoreCase)
+                    || msg.Contains("duplicate key", StringComparison.OrdinalIgnoreCase))
+                   && msg.Contains("external_id", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static IResult DuplicateNumber(string pnid) => Results.Json(new
+    {
+        detail = $"That WhatsApp number (phone_number_id {pnid}) is already connected to another inbox. "
+                 + "Edit that inbox instead, or remove it first.",
+        code = "duplicate_number",
+    }, statusCode: 409);
+
     internal static string Mask(string secret)
     {
         if (string.IsNullOrEmpty(secret)) return "";

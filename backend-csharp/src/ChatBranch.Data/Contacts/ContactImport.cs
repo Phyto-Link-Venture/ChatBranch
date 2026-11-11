@@ -293,29 +293,11 @@ public class ContactImporter
 
     // ---- mapping ----------------------------------------------------------------
 
-    /// <summary>The custom-field schema (key, label, kind) from the `custom_fields` Setting.</summary>
-    public List<(string Key, string Label, string Kind)> CustomFields()
-    {
-        var outv = new List<(string, string, string)>();
-        try
-        {
-            var raw = _sc.SettingValue("custom_fields");
-            if (string.IsNullOrWhiteSpace(raw)) return outv;
-            using var doc = JsonDocument.Parse(raw);
-            if (!doc.RootElement.TryGetProperty("customer", out var arr) || arr.ValueKind != JsonValueKind.Array)
-                return outv;
-            foreach (var f in arr.EnumerateArray())
-            {
-                var key = f.TryGetProperty("key", out var k) ? k.GetString() ?? "" : "";
-                if (key.Length == 0) continue;
-                var label = f.TryGetProperty("label", out var l) ? l.GetString() ?? key : key;
-                var kind = f.TryGetProperty("kind", out var kd) ? kd.GetString() ?? "text" : "text";
-                outv.Add((key, label, kind));
-            }
-        }
-        catch { }
-        return outv;
-    }
+    /// <summary>The custom-field schema (key, label, kind) from the `custom_fields`
+    /// Setting — the shared reader (<see cref="ContactCustomFields.Customer"/>).</summary>
+    public List<(string Key, string Label, string Kind)> CustomFields() =>
+        ContactCustomFields.Customer(_sc)
+            .Select(f => (Key: f.Key, Label: f.Label.Length > 0 ? f.Label : f.Key, Kind: f.Kind)).ToList();
 
     public List<ImportTarget> Targets()
     {
@@ -432,8 +414,16 @@ public class ContactImporter
                     if (target.StartsWith("cf:"))
                     {
                         var key = target[3..];
-                        var kind = custom.FirstOrDefault(f => f.Key == key).Kind ?? "text";
-                        r.Custom[key] = CustomValue(v, kind);
+                        var def = custom.FirstOrDefault(f => f.Key == key);
+                        var kind = def.Kind ?? "text";
+                        var value = CustomValue(v, kind, out var problem);
+                        // a date or JSON cell that doesn't parse is WARNED about and
+                        // skipped — never a failed row (an unparseable number is kept
+                        // as text the same way)
+                        if (problem != null)
+                            report.Warnings.Add(Error(number,
+                                $"ignored {(def.Label ?? key)}: {problem}", r.Name, "", ""));
+                        else r.Custom[key] = value;
                     }
                     break;
             }
@@ -495,13 +485,31 @@ public class ContactImporter
         };
     }
 
-    private static object? CustomValue(string v, string kind) => kind switch
+    /// <summary>
+    /// One imported CELL as a stored custom-field value. <paramref name="problem"/> is
+    /// set (and the value dropped) for a <c>date</c> that doesn't read as one or
+    /// <c>json</c> that isn't a valid object within the cap — the caller warns.
+    /// </summary>
+    private object? CustomValue(string v, string kind, out string? problem)
     {
-        "boolean" => v.Trim().ToLowerInvariant() is "1" or "true" or "yes" or "y" or "ya",
-        "number" => double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : v,
-        "multiselect" => SplitList(v),
-        _ => v,
-    };
+        problem = null;
+        switch (kind)
+        {
+            case "boolean": return v.Trim().ToLowerInvariant() is "1" or "true" or "yes" or "y" or "ya";
+            case "number": return double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : v;
+            case "multiselect": return SplitList(v);
+            case "date":
+            case "json":
+                var value = ContactCustomFields.FromCell(v, kind, OrgZone, out problem);
+                if (problem == "date") problem = $"\"{v}\" is not a date (use YYYY-MM-DD)";
+                return value;
+            default: return v;
+        }
+    }
+
+    /// <summary>The org's wall clock — a timestamped date cell lands on the operator's day.</summary>
+    private TimeZoneInfo OrgZone => _orgZone ??= Flows.OrgClock.Zone(_sc);
+    private TimeZoneInfo? _orgZone;
 
     private static Dictionary<string, object?> Error(int row, string reason, string name, string phone, string email) =>
         new() { ["row"] = row, ["reason"] = reason, ["name"] = name, ["phone"] = phone, ["email"] = email };
@@ -730,6 +738,21 @@ public class ContactImporter
                     report.Queued += discovery.Discover(c, "import", save: false).Queued;
                 _db.SaveChanges();
             }
+        }
+
+        // An import writes CONTACTS, not conversations: chats that were already here
+        // (a WhatsApp history import, say) keep contact_id null, which is exactly the
+        // gap an operator expects importing to close. Same matching as the inbound path
+        // — ThreadContactBackfill delegates to ContactCompanies, so nothing crosses
+        // companies — bounded to this import's scope, idempotent, and never on a preview.
+        if (!opt.Preview && touched.Count > 0)
+        {
+            try
+            {
+                new ThreadContactBackfill(_db, _sc).Run(preview: false, entityId: opt.EntityId,
+                    allowedEntityIds: opt.AllowedEntityIds);
+            }
+            catch { /* the import must never fail because of the backfill */ }
         }
 
         Audit.AuditTrail.Write(_db, "contacts.import", $"{table.Source}:{table.Rows.Count} rows",

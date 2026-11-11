@@ -224,6 +224,39 @@ public sealed class AiSchedule
 }
 
 /// <summary>
+/// ONE inbox's own master switch (<c>ChannelAccount.Config</c>, written through
+/// <see cref="Channels.InboxSettings.SetMaster"/>) — the level BELOW the entity.
+///
+/// It can only ever SUBTRACT. "off" silences that inbox, a schedule narrows the
+/// hours it may answer in, and "on" adds no permission at all: an inbox can
+/// never answer while the entity tree says off or sits outside its own hours
+/// (the master switch's rule is "off anywhere up the tree wins", not
+/// nearest-level-wins — unlike the AI BEHAVIOUR settings). That is why
+/// <see cref="AiControls.InboxMaster"/> returns null for "on": there is nothing
+/// to gate on.
+/// </summary>
+public sealed record AiInboxMaster(
+    string Mode,
+    AiSchedule Schedule,
+    string ScheduleMode,
+    int AccountId,
+    string Name)
+{
+    /// <summary>Does THIS inbox allow the AI to act at this moment?</summary>
+    public bool AllowsAt(DateTime nowUtc, TimeZoneInfo zone)
+    {
+        if (Mode == AiMasterModes.Off) return false;
+        // a schedule with no window would silence the inbox by accident
+        if (Mode != AiMasterModes.Schedule || Schedule.IsEmpty) return true;
+        var inside = Schedule.Contains(Flows.OrgClock.ToOrg(nowUtc, zone));
+        return ScheduleMode == AiScheduleModes.Outside ? !inside : inside;
+    }
+
+    /// <summary>"the Website chat inbox" — the level a reason names.</summary>
+    public string Label => Name.Trim().Length > 0 ? $"the {Name.Trim()} inbox" : "this inbox";
+}
+
+/// <summary>
 /// The master switch as it applies to one entity: resolved up the entity TREE
 /// (the nearest level with a value wins — an outlet's own row, then its
 /// parent's, …, then the organization's), so switching a head office off
@@ -235,13 +268,17 @@ public sealed record AiMaster(
     string ScheduleMode,
     int? ScopeEntityId,
     string ScopeName,
-    string ModeFrom)
+    string ModeFrom,
+    /// <summary>The conversation's inbox, when it overrides the switch — it can
+    /// only ever narrow what the tree allows (<see cref="AiInboxMaster"/>).</summary>
+    AiInboxMaster? Inbox = null)
 {
     public static AiMaster Default { get; } =
         new(AiMasterModes.On, new AiSchedule(), AiScheduleModes.Inside, null, "the organization", "default");
 
-    /// <summary>May the AI act at this moment (master switch + schedule)?</summary>
-    public bool AllowsAt(DateTime nowUtc, TimeZoneInfo zone)
+    /// <summary>May the AI act at this moment as far as the ENTITY TREE is
+    /// concerned (master switch + schedule), the inbox left out?</summary>
+    public bool TreeAllowsAt(DateTime nowUtc, TimeZoneInfo zone)
     {
         if (Mode == AiMasterModes.Off) return false;
         if (Mode != AiMasterModes.Schedule) return true;
@@ -249,11 +286,16 @@ public sealed record AiMaster(
         return ScheduleMode == AiScheduleModes.Outside ? !inside : inside;
     }
 
+    /// <summary>May the AI act at this moment? The tree AND the inbox must both
+    /// allow it — an inbox subtracts, never adds.</summary>
+    public bool AllowsAt(DateTime nowUtc, TimeZoneInfo zone) =>
+        TreeAllowsAt(nowUtc, zone) && (Inbox?.AllowsAt(nowUtc, zone) ?? true);
+
     /// <summary>When the answer of <see cref="AllowsAt"/> next flips (5-minute
     /// steps over the coming 8 days), or null when it never does.</summary>
     public DateTime? NextChangeUtc(DateTime nowUtc, TimeZoneInfo zone)
     {
-        if (Mode != AiMasterModes.Schedule) return null;
+        if (Mode != AiMasterModes.Schedule && Inbox?.Mode != AiMasterModes.Schedule) return null;
         var now = AllowsAt(nowUtc, zone);
         var start = nowUtc.AddTicks(-(nowUtc.Ticks % TimeSpan.FromMinutes(5).Ticks));
         for (var i = 1; i <= 8 * 24 * 12; i++)
@@ -368,6 +410,37 @@ public sealed class AiControls
 
     // ---- master switch -----------------------------------------------------------
 
+    /// <summary>
+    /// The master switch for a conversation on <paramref name="account"/>: the
+    /// entity tree's, narrowed by that inbox's own override when it has one.
+    /// </summary>
+    public AiMaster Master(int? entityId, ChannelAccount? account) =>
+        InboxMaster(account) is { } inbox ? Master(entityId) with { Inbox = inbox } : Master(entityId);
+
+    /// <summary>
+    /// One inbox's own master-switch override, or null when it overrides nothing
+    /// that could switch the AI OFF. Stored in <c>ChannelAccount.Config</c> next
+    /// to the AI behaviour overrides (<see cref="Channels.InboxSettings"/>).
+    ///
+    /// "on" and an empty schedule both come back null: an inbox cannot force the
+    /// AI on against the level above, so they gate nothing.
+    /// </summary>
+    public static AiInboxMaster? InboxMaster(ChannelAccount? account)
+    {
+        if (account == null) return null;
+        var raw = InboxSettings.MasterOwn(account, AiControlKeys.Master);
+        if (raw.Length == 0) return null;                            // inherits
+        var mode = AiMasterModes.Normalize(raw);
+        if (mode == AiMasterModes.On) return null;                   // adds no permission
+        var schedule = mode == AiMasterModes.Schedule
+            ? AiSchedule.Parse(InboxSettings.MasterOwn(account, AiControlKeys.Schedule))
+            : new AiSchedule();
+        if (mode == AiMasterModes.Schedule && schedule.IsEmpty) return null;  // nothing to gate on
+        return new AiInboxMaster(mode, schedule,
+            AiScheduleModes.Normalize(InboxSettings.MasterOwn(account, AiControlKeys.ScheduleMode)),
+            account.Id, account.Name ?? "");
+    }
+
     public AiMaster Master(int? entityId)
     {
         var k = entityId ?? 0;
@@ -421,6 +494,22 @@ public sealed class AiControls
         return outv;
     }
 
+    /// <summary>
+    /// The never-AI tags for a conversation on <paramref name="account"/>: the
+    /// tree's PLUS that inbox's own. Never-lists only ever ADD (the same rule as
+    /// up the entity tree), so an inbox can silence more contacts, never fewer.
+    /// </summary>
+    public List<string> NeverTags(int? entityId, ChannelAccount? account)
+    {
+        var tree = NeverTags(entityId);
+        var own = account == null
+            ? new List<string>()
+            : SplitTags(InboxSettings.MasterOwn(account, AiControlKeys.NeverTags));
+        return own.Count == 0
+            ? tree
+            : tree.Concat(own).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
     public static List<string> SplitTags(string? raw) => (raw ?? "")
         .Split(new[] { ',', ';', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .Where(t => t.Length > 0).Select(t => t.Length > 64 ? t[..64] : t)
@@ -449,9 +538,10 @@ public sealed class AiControls
         return on;
     }
 
-    public AiPolicyInputs Inputs(int? entityId, string? contactMode, IReadOnlyCollection<string>? contactTags) =>
-        new(Master(entityId), NowUtc, Zone, ContactAiModes.Normalize(contactMode),
-            contactTags ?? Array.Empty<string>(), NeverTags(entityId), QuotaBlock(entityId));
+    public AiPolicyInputs Inputs(int? entityId, string? contactMode, IReadOnlyCollection<string>? contactTags,
+        ChannelAccount? account = null) =>
+        new(Master(entityId, account), NowUtc, Zone, ContactAiModes.Normalize(contactMode),
+            contactTags ?? Array.Empty<string>(), NeverTags(entityId, account), QuotaBlock(entityId));
 
     /// <summary>The full rule for a conversation whose account and contact the caller already holds.</summary>
     public AiVerdict Decide(Thread t, ChannelAccount? account, string? contactMode,
@@ -459,8 +549,14 @@ public sealed class AiControls
     {
         try
         {
+            // The inbox LAYER applies only when this really is the conversation's
+            // own inbox. A list payload may hand us a stand-in (the inbox list
+            // falls back to the sole configured WhatsApp number for an unknown
+            // id), and another inbox's switch must never decide this chat. The
+            // tick layer guards itself the same way (AiEligibility.TickLayer).
+            var own = account != null && account.Id == t.AccountId ? account : null;
             return AiEligibility.Decide(t, account, ReminderDefaultOn(t.EntityId),
-                Inputs(t.EntityId, contactMode, contactTags));
+                Inputs(t.EntityId, contactMode, contactTags, own));
         }
         catch
         {

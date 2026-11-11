@@ -309,12 +309,16 @@ public class ZernioNativeTests : IClassFixture<ZernioFactory>
         _f.Zernio.Profiles.Add(new { _id = "prof-default", name = "Default", isDefault = true, externalId = (string?)null });
         var c = await Admin();
 
-        // WhatsApp: the hosted signup, plus the own-credentials alternative
-        var hosted = await (await c.PostAsJsonAsync("/api/social/connect", new { platform = "whatsapp", purpose = "inbox" }))
+        // WhatsApp: the hosted embedded signup (the mode is explicit — see
+        // ZernioWhatsAppOnboardingTests), plus the own-credentials alternative
+        var hosted = await (await c.PostAsJsonAsync("/api/social/connect",
+                new { platform = "whatsapp", purpose = "inbox", onboarding = "api" }))
             .Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("hosted", hosted.GetProperty("flow").GetString());
         Assert.StartsWith("https://auth.example/whatsapp", hosted.GetProperty("url").GetString());
-        Assert.Contains("/channels?zernio=connected", _f.Zernio.Of("ConnectUrl").Last()["redirect_url"]!.ToString());
+        // the browser comes back through our own callback, carrying the one-time state
+        Assert.Contains("/api/social/connect/whatsapp/callback?cb=" + hosted.GetProperty("state").GetString(),
+            _f.Zernio.Of("ConnectUrl").Last()["redirect_url"]!.ToString());
         var alt = hosted.GetProperty("alternatives")[0];
         Assert.Equal("/api/social/connect/whatsapp", alt.GetProperty("submit_url").GetString());
         Assert.Contains(alt.GetProperty("fields").EnumerateArray(), f => f.GetProperty("key").GetString() == "access_token"

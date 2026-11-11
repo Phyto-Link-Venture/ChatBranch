@@ -46,6 +46,47 @@ public class IntegrationsTests : IClassFixture<ApiFactory>
         Assert.Equal((HttpStatusCode)503, res.StatusCode);
     }
 
+    /// <summary>
+    /// Meta's X-Hub-Signature-256 (the WhatsApp Cloud and Messenger/Instagram
+    /// webhooks' only authentication — <c>WebhooksEndpoints</c> /
+    /// <c>MetaWebhookEndpoints</c>): hex HMAC-SHA256 of the RAW body under the app
+    /// secret. A tampered body, a wrong secret, a missing header and a header
+    /// carrying something other than that digest are all rejected.
+    /// </summary>
+    [Fact]
+    public void Meta_hmac_verifies_and_rejects()
+    {
+        var secret = "app-secret-1";
+        var body = Encoding.UTF8.GetBytes("""{"entry":[{"id":"WABA-1"}]}""");
+        static string Hex(string secret, byte[] body)
+        {
+            using var h = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+            return Convert.ToHexString(h.ComputeHash(body)).ToLowerInvariant();
+        }
+        var good = "sha256=" + Hex(secret, body);
+
+        Assert.True(WebhookVerify.Meta(secret, body, good));
+        // the digest's hex case is irrelevant; the "sha256=" label is matched literally
+        Assert.True(WebhookVerify.Meta(secret, body, "sha256=" + Hex(secret, body).ToUpperInvariant()));
+        Assert.False(WebhookVerify.Meta(secret, body, "SHA256=" + Hex(secret, body)));
+        // tampered body: the same signature over different bytes
+        Assert.False(WebhookVerify.Meta(secret, Encoding.UTF8.GetBytes("""{"entry":[{"id":"WABA-2"}]}"""), good));
+        Assert.False(WebhookVerify.Meta("another-app-secret", body, good));     // wrong secret
+        Assert.False(WebhookVerify.Meta("", body, good));                       // no secret ⇒ false
+        Assert.False(WebhookVerify.Meta(secret, body, ""));                     // missing header
+        Assert.False(WebhookVerify.Meta(secret, body, "   "));                  // blank-ish header
+        Assert.False(WebhookVerify.Meta(secret, body, "sha256="));              // prefix, no digest
+        Assert.False(WebhookVerify.Meta(secret, body, "sha1=" + Hex(secret, body)));  // wrong algorithm label
+        Assert.False(WebhookVerify.Meta(secret, body, "not-a-signature"));      // malformed
+        // DOCUMENTED leniency, pinned here: the "sha256=" prefix is optional, so a
+        // bare correct digest verifies. That is not a hole (it still takes the app
+        // secret to produce it) and Meta always sends the prefix — but a change of
+        // mind about it must break this line rather than a live install.
+        Assert.True(WebhookVerify.Meta(secret, body, Hex(secret, body)));
+        // …while a bare digest of the WRONG body or secret is still refused
+        Assert.False(WebhookVerify.Meta(secret, body, Hex("another-app-secret", body)));
+    }
+
     [Fact]
     public void Shopify_hmac_verifies_and_rejects()
     {

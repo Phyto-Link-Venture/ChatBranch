@@ -198,7 +198,8 @@ export default function ContactDetailPage() {
   }
 
   const filledFields = customerFields
-    .map((field) => ({ field, v: formatFieldValue(field, d.attributes?.[field.key]) }))
+    // a date reads in the operator's own format; a json field reads flattened
+    .map((field) => ({ field, v: formatFieldValue(field, d.attributes?.[field.key], t, f.date) }))
     .filter((x) => x.v !== '')
   // newest first — the latest touchpoint is what an operator reads first
   const timeline = [...events].reverse()

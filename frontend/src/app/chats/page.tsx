@@ -1542,7 +1542,7 @@ function ChatsPage() {
       .map((x) => x.row)
   }, [threads, pendingRows, filters.channels.length, filters.sort])
 
-  // canned-response picker: type "/" (Chatwoot's shortcut) in reply mode
+  // canned-response picker: type "/" in reply mode
   const cannedQuery = composerMode === 'reply' && draft.startsWith('/') ? draft.slice(1).toLowerCase() : null
   const cannedMatches =
     cannedQuery === null || cannedClosed

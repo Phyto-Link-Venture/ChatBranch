@@ -143,7 +143,7 @@ minute) · `expires_at` · `revoked_at` · `created_at`. The token
 | `ai_mode` | `""` (follow the rules) \| `never` \| `always` — "AI for this contact" (`AiEligibility.Decide`) |
 | `external_id` | id in your system of record |
 | `tags` | JSON list — **a write-through cache of the contact's registry tag NAMES** (`TagService`); writing it directly is reconciled into `crm_tagassignment` |
-| `attributes` | JSON dict — custom-field values (`{{cf_<key>}}`); not part of the AI prompt |
+| `attributes` | JSON dict — custom-field values (`{{cf_<key>}}`). A `date` field holds the canonical `YYYY-MM-DD`, a `json` field a JSON object (≤ 8000 chars) an outside system syncs in; both are validated on write (`ContactCustomFields`). Only the fields whose definition sets `show_to_ai` reach the AI's prompts (the CONTACT block and a journey's "Let AI decide"), and `entity_id` scopes a field to one company on every AI-facing path including a code skill's `ctx.contact` |
 | `preferred_contact_time`, `communication_style`, `sentiment_trend`, `ai_profile_summary` | AI memory (summaries write `ai_profile_summary`) |
 | `tenant_id`, `last_synced_at`, timestamps | |
 
@@ -238,8 +238,8 @@ cache) live in `ChatBranch.Data/Tags/TagService.cs`.
 | `entity_id` | null = org-wide. **Decides which outlet a conversation belongs to** |
 | `channel` | `whatsapp` \| `facebook` \| `instagram` \| `telegram` \| `email` \| `website` \| `line` \| `viber` \| `sms` \| `wechat` \| `tiktok` \| `douyin` \| `zalo` |
 | `provider` | `cloud` \| `baileys` (WhatsApp) |
-| `name`, `external_id` | external_id = phone_number_id / page id / bot id / from-address / the widget's PUBLIC token / the Baileys gateway account key / the LINE or Viber bot id, SMS from number, WeChat original id, TikTok business id, Douyin open_id, Zalo OA id |
-| `waba_id`, `access_token`, `app_secret`, `api_version`, `owner` | secrets never leave the API unmasked (the newer channels' mapping is in `Channels/More/MoreChannels.cs`) |
+| `name`, `external_id` | external_id = phone_number_id / page id / bot id / from-address / the widget's PUBLIC token / the Baileys gateway account key / the LINE or Viber bot id, SMS from number, WeChat original id, TikTok business id, Douyin open_id, Zalo OA id. **WhatsApp Cloud: unique** — `uniq_channelaccount_wa_pnid` `(external_id) WHERE channel = 'whatsapp' AND provider IN ('cloud', '') AND external_id <> ''`, because the Cloud webhook matches inbound traffic by it and two rows holding the same number made routing a coin flip between their companies (`Endpoints/WebhooksEndpoints`, `Channels/CloudInboxRouting`). The filter is that webhook's own match: a BSP or QR row is addressed by its own webhook URL / gateway key, never by a shared number lookup, so those providers are left alone (the same business number may sit on two of them while one is migrated). Added on boot by `Seed.UpgradeSchema` / `PostgresSchema.Sync` — defensively: a database that already holds a duplicate still boots, logs the clash and simply has no index |
+| `waba_id`, `access_token`, `app_secret`, `api_version`, `owner` | secrets never leave the API unmasked (the newer channels' mapping is in `Channels/More/MoreChannels.cs`). `waba_id` is also the Cloud webhook's cross-check: a payload whose `entry[].id` contradicts it is refused, a blank one on either side never is |
 | `config` | JSON: `role` (`reminder`\|`conversation`), delivery (`quiet_start`, `quiet_end`, `quiet_schedule`, `queue_min_gap_s`, `queue_max_gap_s`, `llm_provider`, `stt_provider`), inbox ("who answers it": `team_id`, `ai_default`, `ai_review_mode`, any AI-behaviour override; unknown customers: `identify_unknown` off\|ask\|ask_and_create, `identify_message`), email SMTP creds, widget look, the newer channels' non-secret ids and secrets (`account_sid`, `from_number`, `messaging_service_sid`, WeChat `app_id` / `token` / `encoding_aes_key`, Zalo `app_id` / `refresh_token` / `oa_secret_key`, Douyin `client_key` / `refresh_token`…) |
 | `health_status` | `unknown` \| `healthy` \| `degraded` \| `disconnected` \| `banned` — written only by `AccountHealth.SetStatus` |
 | `health_detail`, `last_ok_at`, `last_inbound_at`, `fail_streak`, `health_changed_at`, `created_at` | |
@@ -248,12 +248,12 @@ cache) live in `ChatBranch.Data/Tags/TagService.cs`.
 | Column | Notes |
 |---|---|
 | `channel` + `key` + `company_entity_id` | **unique** — two partial unique indexes (NULLs are distinct in SQL): `uniq_thread_channel_key_company` `(channel, key, company_entity_id) WHERE company_entity_id IS NOT NULL` and `uniq_thread_channel_key_unattributed` `(channel, key) WHERE company_entity_id IS NULL`. key = wa_id digits / email / PSID / IGSID / TG chat id / widget session — or a GROUP's own id: WhatsApp's whole `…@g.us` jid, a negative Telegram chat id, a LINE groupId `C…` / roomId `R…` (group-ness is derived from channel + key, `Channels/GroupChats.IsGroup`; a group thread never has a `contact_id`). The old `uniq_thread_channel_key` (`(channel, key)` for the whole tenant — incident 2026-10-11) is dropped on boot |
-| `company_entity_id` | the COMPANY (top-level entity) the conversation belongs to — part of its identity. Set at creation from the receiving account's entity (else the thread's entity); null = unattributed (no account, no entity — the organization-wide bucket). Never changed afterwards: a contact link, a same-company number taking over or an account re-binding never moves a thread into another company (an unattributed thread adopts a company once, when it first gets one and the slot is free). Backfilled on boot by `Stores/ThreadCompanies.Upgrade` (SQLite `Seed.UpgradeSchema`; PostgreSQL adds the column + indexes from the model in `PostgresSchema.Sync`, the same backfill then runs): the account's company, else the entity's; the new indexes are created BEFORE the old one is dropped |
+| `company_entity_id` | the COMPANY (top-level entity) the conversation belongs to — part of its identity. Set at creation from the receiving account's entity (else the thread's entity); null = unattributed (no account, no entity — the organization-wide bucket **every company can see**, which the next company to touch the conversation adopts, so nothing that could belong to a real company may be filed here: an inbound WhatsApp Cloud payload whose `phone_number_id` matches no account is recorded and dropped instead, once the install has any Cloud number — `Channels/CloudInboxRouting`). Never changed afterwards: a contact link, a same-company number taking over or an account re-binding never moves a thread into another company (an unattributed thread adopts a company once, when it first gets one and the slot is free). Backfilled on boot by `Stores/ThreadCompanies.Upgrade` (SQLite `Seed.UpgradeSchema`; PostgreSQL adds the column + indexes from the model in `PostgresSchema.Sync`, the same backfill then runs): the account's company, else the entity's; the new indexes are created BEFORE the old one is dropped |
 | `address`, `name` | |
 | `status` | `open` \| `pending` \| `snoozed` \| `resolved` (an inbound message reopens resolved/snoozed) |
 | `assignee`, `team_id` | two-level assignment; `team_id` → `crm_team` (`SetNull` on delete) |
 | `labels` | JSON list of conversation-tag slugs |
-| `contact_id` | the CRM link. **AI auto-replies only fire on linked threads** |
+| `contact_id` | the CRM link. **AI auto-replies only fire on linked threads**. Written when a message arrives (`Channels/InboundProcessor.LinkContact` → `ContactCompanies.MatchPhone`/`MatchEmail` against the RECEIVING entity, then `MayLink`), by hand from the chat, or — for conversations that already existed when their contact was created (a contact import never touches this table) — by the on-demand backfill `Contacts/ThreadContactBackfill` behind `POST /api/contacts/link-conversations`, which reuses that very resolution, fills only NULLs, skips groups / broadcasts and bumps `updated_at` |
 | `account_id` | current sending account — always a number of the thread's company (or an organization-wide one) |
 | `entity_id` | denormalized attribution, re-synced by `ScopingService.SyncThreadEntity` — always inside `company_entity_id` |
 | `ai_enabled` | the account-less fallback tick (legacy column, kept in step by `AiEligibility.Set`) — every reader goes through `AiEligibility.Decide`, never this column |
@@ -619,6 +619,87 @@ it reports one — OpenRouter; null = estimate at read time from Setting
 `llm_prices` over OpenRouter's public list `llm_prices_catalog`) · `detail` (JSON) ·
 `created_at`.
 
+### `crm_aicreditaccount` — prepaid AI credit balances
+`scope` (`entity` \| `user`) · `entity_id` (the COMPANY — a top-level entity;
+**unique** where non-null, `uniq_aicreditaccount_entity`) · `user_name` (the
+login of a per-person balance; **unique** where non-blank,
+`uniq_aicreditaccount_user`; "" on a company account) · `balance` · `currency` ·
+`enabled` · `overdraft_limit` · `low_balance_threshold` · `created_at` ·
+`updated_at`.
+
+One prepaid balance per client company. A branch has **no** balance of its own:
+it draws on its top-level parent's, the same attribution the AI bill and the AI
+quotas use. `balance` is a **cache** of `sum(crm_aicreditentry.amount)` for the
+same scope, moved by one atomic `UPDATE … SET balance = balance + x` inside the
+ledger line's own transaction (`Data/Ai/AiCredit.cs`) — never read-modify-write.
+It is **signed and never clamped**: consumption is only knowable after a model
+call, so the last reply before exhaustion overshoots, and clamping to zero would
+forgive money and stop the ledger reconciling. A company with no row is simply
+not on credit. The currency is copied from the billing terms when the account is
+opened and a later currency change does **not** convert it — a grant in another
+currency is refused rather than silently mixed.
+
+### `crm_aicreditentry` — the credit ledger (append-only)
+`scope` (`entity` \| `user`) · `entity_id` · `user_name` · `kind` (`grant` \|
+`topup` \| `promo_bonus` \| `consumption` \| `adjustment` \| `refund` \|
+`chargeback` \| `expiry` \| `conversion`) · `amount` (**signed**: credits
+positive, usage and refunds negative) · `currency` · `balance_after` · `ref`
+(`llmusage:12..84`, `stripe:evt_…`, `payment:12`) · `idempotency_key`
+(**unique where non-blank**, `uniq_aicreditentry_idem` — the
+`crm_message.idempotency_key` pattern: a replayed grant or webhook delivery
+credits exactly once) · `note` · `actor` · `source` (`AuditSources`) ·
+`offer_id` / `payment_id` (reserved for the promotion and Stripe phases; no FK —
+the ledger outlives both) · `created_at`. Index
+`ix_aicreditentry_entity_created` on `(entity_id, created_at)`.
+
+The **source of truth** for credit: never updated, never deleted — a correction
+is a new signed line. `sum(amount)` per scope must equal that account's
+`balance` to within 1e-6 (`AiCredit.ReconcileAsync`, asserted by
+`AiCreditTests`). Nothing writes `consumption` lines yet: AI usage is still
+billed by the monthly AI bill and a credit balance cannot stop an AI reply.
+
+### `crm_aipricebook` — AI price books (named pricing plans)
+`slug` (**unique** where non-blank, `uniq_aipricebook_slug` — what a month's
+terms snapshot refers to) · `label` · `mode` (`markup` \| `flat` \| `unit`) ·
+`markup_pct` (percent over the provider's cost) · `flat_amount` (per company per
+month, usage or no usage) · `unit_per1k_tokens` / `unit_per_reply` (a price per
+unit, quoted in the billing currency) · `monthly_fee` · `user_allowance` (the
+monthly AI allowance the plan grants EACH login it covers) · `is_active` ·
+`is_default` (the organization default — at most one) · `note` · `created_by` ·
+`created_at` · `updated_at`.
+
+A plan is what a client is sold, so a hundred companies can be priced by
+assigning a plan instead of by typing a markup into a hundred boxes
+(`Data/Ai/AiPriceBooks.cs`). `mode` carries exactly ONE price mode; a `unit`
+plan needs at least one of the two unit prices, a `flat` plan a flat amount.
+Only `billing.manage` writes these rows, and every write leaves an
+`AuditTrail` row (`billing.pricebook`).
+
+### `crm_aipricebookassignment` — which entity a plan prices
+`price_book_id` · `entity_id` (**unique** where > 0,
+`uniq_aipricebookassignment_entity` — one plan per entity) · `actor` ·
+`created_at` · `updated_at`. Index `ix_aipricebookassignment_book` on
+`price_book_id`.
+
+ANY level of the tree may carry an assignment: an entity with none inherits its
+nearest assigned ancestor's plan, through the same nearest-level-wins walk as
+every other setting (`ScopingService.EntityChain` / `ChainMap`). Assignments are
+made in bulk through the bindings pattern (`POST
+/api/bindings/pricebook-entities`, target = the plan, add/remove = entity ids),
+which audits as `binding.update` plus `billing.pricebook.assign`.
+
+**These two tables are the editing surface, not what bills a month.** Every plan
+or assignment change re-snapshots them into the month-versioned `ai_billing`
+Setting (`BillingTerms.plans` / `entity_plans` / `default_plan`, written by
+`AiPriceBooks.SyncTerms` through `AiBilling.Apply`): the change prices the
+CURRENT month and later, and a month already billed keeps the snapshot that
+billed it. Billing and the AI quotas read only that snapshot, through the one
+resolver `AiPriceBooks.Resolve`, whose order is: the per-company explicit
+override in `ai_billing.companies` (field by field) → the plan assigned nearest
+up the tree → the organization default plan → the terms' own
+`default_markup_pct` / `default_monthly_fee` (which is exactly what billed
+before price books existed, so a database with no plans bills identically).
+
 ### `crm_callrecord`
 `call_id` (**unique**) · `contact_id` · `entity_id` (nullable — the entity the
 call was placed for, from the dispatch metadata's `entity_id`; contact views
@@ -729,12 +810,12 @@ Notable keys:
 | AI providers | `openrouter_api_key`, `openai_api_key`, `google_api_key`, `ilmu_api_key` (+ optional `ilmu_base_url`, `ilmu_chat_model`), `elevenlabs_api_key`, `local_base_url`, `local_api_key`, `chat_model`, `chat_provider_pref` (mirrored to `chat_provider`), `chat_provider_order`, `llm_prices` |
 | Compliance | `opt_out_keywords`, `opt_in_keywords` (org-wide JSON lists that ADD to STOP/UNSUBSCRIBE/BERHENTI and START/UNSTOP/MULA) |
 | AI content | `aicore_persona`, `org_timezone` (the business time zone — built-in date tools, booking skills, journeys, quiet hours, report days; set at Settings → Time zone via `PUT /api/settings/appearance {time_zone}`), `booking_hours` (legacy: edited at `/api/aicore/booking-hours`, read by nothing — booking skills carry their own hours) |
-| AI controls (entity-scoped, resolved up the tree) | `ai_enabled` (`on` \| `off` \| `schedule`), `ai_schedule` (JSON per-weekday windows), `ai_schedule_mode` (`inside` \| `outside`), `ai_never_tags` (comma list; levels add up) |
+| AI controls (entity-scoped, resolved up the tree) | `ai_enabled` (`on` \| `off` \| `schedule`), `ai_schedule` (JSON per-weekday windows), `ai_schedule_mode` (`inside` \| `outside`), `ai_never_tags` (comma list; levels add up). The same four keys may also sit in one inbox's `ChannelAccount.Config` (`InboxSettings.SetMaster`) as the level BELOW the entity: there they only ever SUBTRACT — `off` silences that inbox, a schedule narrows its hours, its tags add to the inherited ones, and `on` gates nothing, because the rule is "off anywhere up the tree wins" (`Ai/AiInboxMaster`). Not `ai_default`, which is stamped on a new conversation and loses to the per-chat tick |
 | AI monitor + behaviour | `ai_review_mode`, `ai_review_autosend_minutes`, `ai_review_first_n`, `ai_review_keywords`, `ai_review_notify`, `ai_wait_seconds`, `ai_wait_max_seconds`, `ai_typing*`, `ai_split*`, `ai_ack_skip`, `ai_ack_text`, `ai_followup*` |
 | AI learning + retrieval | `ai_learning_mode` (`review` \| `auto` \| `off`, entity-scoped), `embedding_provider` (`""` automatic \| `openai` \| `google` \| `local` \| `none`; env `EMBEDDING_PROVIDER`), `embedding_model` (env `EMBEDDING_MODEL`), `embedding_last_error` (written by the indexer) |
 | Contacts | `identify_unknown` (the default for inboxes without their own `identify_unknown`), `default_country_code` (E.164 normalisation on import, default `60`) |
 | Queue + routing | `quiet_start`, `quiet_end`, `queue_min_gap_s`, `queue_max_gap_s`, `queue_daily_cap`, `queue_active_cap`, `queue_active_window_h`, `queue_call_gap_s`, `queue_call_daily_cap`, `ai_reply_mode`, `reminder_ai_default`, `business_redirect*`, `recovery_mode`, `recovery_template`, `cold_text_guard`, `cold_call_guard`, `flow_call_voice` |
-| Channels | `whatsapp_verify_token` (+ legacy `verify_token`), `whatsapp_custom_templates`, `whatsapp_template_bindings`, `voice_twilio_settings`, `baileys_url`, `baileys_secret`, SMTP defaults |
+| Channels | `whatsapp_verify_token` (+ legacy `verify_token`), `whatsapp_custom_templates`, `whatsapp_template_bindings`, `whatsapp_accept_unknown_numbers` (`on` puts the OLD behaviour back: a Cloud payload whose `phone_number_id` matches no account files into the unattributed bucket instead of being recorded and dropped — organization-wide, off by default, `Channels/CloudInboxRouting`), `voice_twilio_settings`, `baileys_url`, `baileys_secret`, SMTP defaults |
 | Organization | `custom_fields` (seeded `{"customer":[]}`), `appearance_default`, `notif_<category>`, `timezone` (flow statistics' day boundary), business variables (`business_name`, `agent_name`, `support_number`, `support_email`, `website`) |
 | Integrations + MCP | `integrations_settings` (one JSON row: Google client, webhook secrets), `oauth_state_secret`, `mcp_servers` |
 | Voice | `pronunciation_terms` |

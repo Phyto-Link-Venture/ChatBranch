@@ -61,11 +61,32 @@ public sealed class SkillContext
     /// The contact as a skill sees it: name, language, tags and the operator's
     /// custom fields. Phone/email are deliberately left out — a validation
     /// script has no business with them, and nothing in the sandbox needs them.
+    ///
+    /// <para>The custom fields arrive in two maps, both scoped to the company this
+    /// reply is for (<paramref name="company"/>, the conversation's — a field that
+    /// belongs to another client company is in NEITHER, because <c>entity_id</c> is a
+    /// privacy boundary and operator-authored code is no exception):</para>
+    /// <list type="bullet">
+    /// <item><c>fields</c> — the fields opted in with <c>show_to_ai</c>, the same set
+    /// the prompt gets. A skill's result is read back by the model, so the DEFAULT key
+    /// must not hand it a field the operator kept off the AI;</item>
+    /// <item><c>internalFields</c> — everything else this company may see (the
+    /// not-opted-in fields, and attributes with no definition such as
+    /// <c>preferred_channel</c>). A skill that legitimately needs an internal field
+    /// reads it here, under a name that says what it is.</item>
+    /// </list>
+    /// Values are the raw stored ones, as before. With no
+    /// <paramref name="scoping"/> (a hand-built context in a test) the fields are left
+    /// out rather than guessed at — see <see cref="Contacts.ContactCustomFields.SkillFields"/>.
     /// </summary>
-    public static Dictionary<string, object?> ContactView(Contact? c)
+    public static Dictionary<string, object?> ContactView(Contact? c, ScopingService? scoping = null,
+        int? company = null)
     {
         if (c == null) return new Dictionary<string, object?>();
         var first = (c.Name ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+        var (shown, internals) = scoping == null
+            ? (new Dictionary<string, object?>(), new Dictionary<string, object?>())
+            : Contacts.ContactCustomFields.SkillFields(scoping, c.Attributes, company);
         return new Dictionary<string, object?>
         {
             ["name"] = c.Name ?? "",
@@ -73,7 +94,8 @@ public sealed class SkillContext
             ["language"] = c.Language ?? "",
             ["tags"] = c.Tags.ToList(),
             ["company"] = c.CompanyName ?? "",
-            ["fields"] = new Dictionary<string, object?>(c.Attributes),
+            ["fields"] = shown,
+            ["internalFields"] = internals,
         };
     }
 }

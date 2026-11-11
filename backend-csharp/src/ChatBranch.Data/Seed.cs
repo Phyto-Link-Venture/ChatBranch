@@ -503,6 +503,69 @@ public static class Seed
         AddColumnIfMissing(db, "crm_booking", "meeting_id", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "crm_booking", "meeting_integration_id", "INTEGER NULL");
         AddColumnIfMissing(db, "crm_booking", "meeting_sent_at", "TEXT NULL");
+        // ---- prepaid AI credit (Data/Ai/AiCredit.cs): the append-only ledger and
+        // the account row that caches its signed sum per company (or per login) ----
+        AddTableIfMissing(db, "crm_aicreditaccount",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aicreditaccount\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"scope\" TEXT NOT NULL, \"entity_id\" INTEGER NULL, \"user_name\" TEXT NOT NULL, "
+            + "\"balance\" REAL NOT NULL, \"currency\" TEXT NOT NULL, \"enabled\" INTEGER NOT NULL, "
+            + "\"overdraft_limit\" REAL NOT NULL, \"low_balance_threshold\" REAL NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_aicreditaccount_entity", "crm_aicreditaccount", "\"entity_id\"",
+            "\"entity_id\" IS NOT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_aicreditaccount_user", "crm_aicreditaccount", "\"user_name\"",
+            "\"user_name\" <> ''");
+        AddTableIfMissing(db, "crm_aicreditentry",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aicreditentry\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"scope\" TEXT NOT NULL, \"entity_id\" INTEGER NULL, \"user_name\" TEXT NOT NULL, "
+            + "\"kind\" TEXT NOT NULL, \"amount\" REAL NOT NULL, \"currency\" TEXT NOT NULL, "
+            + "\"balance_after\" REAL NOT NULL, \"ref\" TEXT NOT NULL, \"idempotency_key\" TEXT NOT NULL, "
+            + "\"note\" TEXT NOT NULL, \"actor\" TEXT NOT NULL, \"source\" TEXT NOT NULL, "
+            + "\"offer_id\" INTEGER NULL, \"payment_id\" INTEGER NULL, \"created_at\" TEXT NOT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_aicreditentry_idem", "crm_aicreditentry", "\"idempotency_key\"",
+            "\"idempotency_key\" <> ''");
+        AddIndexIfMissing(db, "ix_aicreditentry_entity_created", "crm_aicreditentry",
+            "\"entity_id\", \"created_at\"");
+        // ---- AI price books (Data/Ai/AiPriceBooks.cs): named plans and the entity
+        // each one prices. The month's terms (`ai_billing`) keep a snapshot of these,
+        // so editing a plan never rewrites a month that was already billed ----
+        AddTableIfMissing(db, "crm_aipricebook",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aipricebook\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"slug\" TEXT NOT NULL, \"label\" TEXT NOT NULL, \"mode\" TEXT NOT NULL, "
+            + "\"markup_pct\" REAL NOT NULL, \"flat_amount\" REAL NOT NULL, "
+            + "\"unit_per1k_tokens\" REAL NOT NULL, \"unit_per_reply\" REAL NOT NULL, "
+            + "\"monthly_fee\" REAL NOT NULL, \"user_allowance\" REAL NOT NULL, "
+            + "\"is_active\" INTEGER NOT NULL, \"is_default\" INTEGER NOT NULL, \"note\" TEXT NOT NULL, "
+            + "\"created_by\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_aipricebook_slug", "crm_aipricebook", "\"slug\"", "\"slug\" <> ''");
+        AddTableIfMissing(db, "crm_aipricebookassignment",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aipricebookassignment\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"price_book_id\" INTEGER NOT NULL, \"entity_id\" INTEGER NOT NULL, \"actor\" TEXT NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_aipricebookassignment_entity", "crm_aipricebookassignment",
+            "\"entity_id\"", "\"entity_id\" > 0");
+        AddIndexIfMissing(db, "ix_aipricebookassignment_book", "crm_aipricebookassignment", "\"price_book_id\"");
+        // ---- one WhatsApp CLOUD account per number -------------------------------
+        // The Cloud webhook matches inbound traffic by external_id (phone_number_id),
+        // so two rows holding the same number made routing a coin flip between their
+        // companies (Endpoints/WebhooksEndpoints, Channels/CloudInboxRouting). The
+        // filter mirrors that webhook's own match — a BSP / QR row is addressed by its
+        // own URL or gateway key, so those providers are left alone.
+        // DEFENSIVE: an install that already holds such a duplicate must still boot —
+        // UpgradeSchema runs on every container start — so a clash is logged and left
+        // for an operator to fix instead of taking the API down. (PostgresSchema.Sync
+        // creates the same index from the EF model, equally tolerantly.)
+        try
+        {
+            AddUniqueIndexIfMissing(db, AppDbContext.WhatsAppNumberIndex, "crm_channelaccount", "\"external_id\"",
+                "\"channel\" = 'whatsapp' AND \"provider\" IN ('cloud', '') AND \"external_id\" <> ''");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[seed] {AppDbContext.WhatsAppNumberIndex} not created: {ex.Message}. "
+                + "Two WhatsApp accounts hold the same phone_number_id — inbound routing between "
+                + "them stays ambiguous until one of them is corrected.");
+        }
     }
 
     /// <summary>A partial UNIQUE index EnsureCreated() will never add to an existing

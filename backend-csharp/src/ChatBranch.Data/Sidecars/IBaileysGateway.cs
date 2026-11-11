@@ -45,6 +45,74 @@ public record BaileysCheck(bool? Exists, string? Jid, string Error = "");
 public record BaileysQuote(string Id, bool FromMe, string Text = "", string Participant = "");
 
 /// <summary>
+/// The oldest message ChatBranch already holds for one WhatsApp chat — the anchor a
+/// gateway run asks WhatsApp from ("give me what came BEFORE this"). The gateway
+/// keeps its own cursor per chat, but a number paired before on-demand fetching
+/// existed has none, so the API seeds it from the rows the first import left behind.
+/// A seed can only ever move a cursor further back, never forward.
+/// </summary>
+/// <param name="WaId">The customer's number, as the thread is keyed.</param>
+/// <param name="MsgId">WhatsApp's own id of that oldest message.</param>
+/// <param name="FromMe">The number sent it (an outbound reply), else the customer did.</param>
+/// <param name="Seconds">Its WhatsApp timestamp, unix seconds.</param>
+public record BaileysHistorySeed(string WaId, string MsgId, bool FromMe, long Seconds);
+
+/// <summary>One chat as a history-fetch run touched it.</summary>
+public record BaileysHistoryChat(string WaId, int Requests, int Received, int Imported, bool Done, string Reason);
+
+/// <summary>
+/// A history-fetch run as the gateway reports it — the honest version, which is the
+/// point of the feature: how many requests were MADE, how many messages WhatsApp
+/// actually served, how many landed in the inbox, and why it stopped. WhatsApp
+/// serves what the paired phone still holds and no more, so a run ending with
+/// fewer messages than asked for is the normal case, not a failure.
+/// </summary>
+public record BaileysHistoryRun
+{
+    public bool Running { get; init; }
+    public bool Aborted { get; init; }
+    /// <summary>Messages per chat this run was asked for.</summary>
+    public int Depth { get; init; }
+    public int Requests { get; init; }
+    /// <summary>The hard cap on requests for one run.</summary>
+    public int RequestsCap { get; init; }
+    /// <summary>Messages WhatsApp served (importable or not).</summary>
+    public int Received { get; init; }
+    /// <summary>Messages the inbox took — the number that matters to an operator.</summary>
+    public int Imported { get; init; }
+    public int Timeouts { get; init; }
+    public int Errors { get; init; }
+    public int ChatsTotal { get; init; }
+    public int ChatsTouched { get; init; }
+    public int ChatsDone { get; init; }
+    /// <summary>Chats the gateway holds an anchor for at all.</summary>
+    public int ChatsKnown { get; init; }
+    /// <summary>Chats WhatsApp itself declared exhausted.</summary>
+    public int ChatsExhausted { get; init; }
+    public string StopReason { get; init; } = "";
+    /// <summary>Seconds until the next request, while one is being waited out.</summary>
+    public int? NextGapS { get; init; }
+    public long? StartedAt { get; init; }
+    public long? FinishedAt { get; init; }
+    public long? LastRunAt { get; init; }
+    /// <summary>The jittered pacing between requests, seconds.</summary>
+    public int MinGapS { get; init; }
+    public int MaxGapS { get; init; }
+    /// <summary>A run may not start again this soon after the last one ended.</summary>
+    public int CooldownS { get; init; }
+    /// <summary>Requests this number has spent in the rolling 24h, and the cap on them —
+    /// the bound that matters across runs, not within one.</summary>
+    public int DayUsed { get; init; }
+    public int DayLeft { get; init; }
+    public int DayCap { get; init; }
+    public IReadOnlyList<BaileysHistoryChat> Chats { get; init; } = Array.Empty<BaileysHistoryChat>();
+    /// <summary>"" when the gateway answered; the reason otherwise.</summary>
+    public string Error { get; init; } = "";
+    /// <summary>The gateway refused as asked (already running, cooling down, not linked).</summary>
+    public bool Conflict { get; init; }
+}
+
+/// <summary>
 /// Per-number settings of a QR (Baileys) WhatsApp number, kept in
 /// <c>ChannelAccount.Config</c> and handed to the gateway (which stores its own copy
 /// next to the session): <see cref="KeepPhoneNotifications"/> = stay offline between
@@ -249,6 +317,32 @@ public interface IBaileysGateway
     /// </summary>
     Task<bool> SetSettingsAsync(string accountExternalId, bool keep, int importHistoryDays,
         CancellationToken ct = default) => SetPhoneNotificationsAsync(accountExternalId, keep, ct);
+    // ---- on-demand history (Channels → the number → "Fetch older messages") ----
+    /// <summary>
+    /// Where the number's history-fetch run is (or the last one that ran). Read-only
+    /// and cheap: it talks to no one but the gateway's own bookkeeping.
+    /// </summary>
+    Task<BaileysHistoryRun> HistoryRunAsync(string accountExternalId, CancellationToken ct = default) =>
+        Task.FromResult(new BaileysHistoryRun
+        {
+            Error = "this Baileys gateway cannot fetch older history", Conflict = true,
+        });
+
+    /// <summary>
+    /// Ask WhatsApp for OLDER messages, chat by chat — the operator-triggered deepening
+    /// of what the shallow replay on pair left behind. One run at a time per number;
+    /// the gateway paces the requests, caps them, and stops when WhatsApp stops serving.
+    /// <paramref name="depth"/> is messages per chat; <paramref name="waId"/> narrows it
+    /// to one chat; <paramref name="seeds"/> are the anchors from our own rows.
+    /// </summary>
+    Task<BaileysHistoryRun> FetchHistoryAsync(string accountExternalId, int depth, string? waId,
+        IReadOnlyList<BaileysHistorySeed> seeds, CancellationToken ct = default) =>
+        HistoryRunAsync(accountExternalId, ct);
+
+    /// <summary>Stop the run in progress (an operator pressing Stop). Idempotent.</summary>
+    Task<BaileysHistoryRun> StopHistoryAsync(string accountExternalId, CancellationToken ct = default) =>
+        HistoryRunAsync(accountExternalId, ct);
+
     // ---- pairing (Settings → Channels → WhatsApp → Pair) ----
     Task<BaileysStatus> StatusAsync(string accountExternalId, CancellationToken ct = default);
     Task<BaileysStatus> StartAsync(string accountExternalId, CancellationToken ct = default);
@@ -294,6 +388,19 @@ public class SandboxBaileysGateway : IBaileysGateway
     public Task<BaileysStatus> StatusAsync(string a, CancellationToken ct = default) => Task.FromResult(NotAttached);
     public Task<BaileysStatus> StartAsync(string a, CancellationToken ct = default) => Task.FromResult(NotAttached);
     public Task<BaileysStatus> LogoutAsync(string a, CancellationToken ct = default) => Task.FromResult(NotAttached);
+
+    /// <summary>
+    /// Fetching older history is the gateway's own paced run — with no gateway attached
+    /// there is nothing to run and nothing to report. A refusal with the reason, never
+    /// an exception and never an invented run.
+    /// </summary>
+    public Task<BaileysHistoryRun> HistoryRunAsync(string a, CancellationToken ct = default) =>
+        Task.FromResult(new BaileysHistoryRun
+        {
+            Error = "Baileys gateway not attached — fetching older history runs in the Node sidecar "
+                    + "(backend/baileys_service).",
+            Conflict = true,
+        });
 }
 
 /// <summary>
@@ -409,6 +516,110 @@ public class HttpBaileysGateway : IBaileysGateway
             new { keep_phone_notifications = keep, import_history_days = importHistoryDays }, ct,
             timeoutSeconds: 10);
         return ok;
+    }
+
+    // ---- on-demand history --------------------------------------------------
+    // The gateway owns the run (and the per-chat cursors next to its session files);
+    // this end only triggers, reads and stops. A 409/429 refusal — already running,
+    // cooling down, the number not linked — is a Conflict, not a provider failure,
+    // so the endpoint can answer 409 with the reason instead of 502.
+
+    private static int Int(JsonElement o, string key) =>
+        o.ValueKind == JsonValueKind.Object && o.TryGetProperty(key, out var v)
+        && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : 0;
+
+    private static int? IntOrNull(JsonElement o, string key) =>
+        o.ValueKind == JsonValueKind.Object && o.TryGetProperty(key, out var v)
+        && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : null;
+
+    private static long? LongOrNull(JsonElement o, string key) =>
+        o.ValueKind == JsonValueKind.Object && o.TryGetProperty(key, out var v)
+        && v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var n) ? n : null;
+
+    private static bool Flag(JsonElement o, string key) =>
+        o.ValueKind == JsonValueKind.Object && o.TryGetProperty(key, out var v)
+        && v.ValueKind == JsonValueKind.True;
+
+    private static string Text(JsonElement o, string key) =>
+        o.ValueKind == JsonValueKind.Object && o.TryGetProperty(key, out var v)
+        && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+
+    private static BaileysHistoryRun ToRun(bool ok, JsonElement body, string error)
+    {
+        if (!ok || body.ValueKind != JsonValueKind.Object)
+            return new BaileysHistoryRun { Error = error, Conflict = Refused(error) };
+        var pacing = body.TryGetProperty("pacing", out var p) ? p : default;
+        var day = body.TryGetProperty("day", out var d) ? d : default;
+        var chats = new List<BaileysHistoryChat>();
+        if (body.TryGetProperty("chats", out var list) && list.ValueKind == JsonValueKind.Array)
+            foreach (var c in list.EnumerateArray())
+                chats.Add(new BaileysHistoryChat(Text(c, "wa_id"), Int(c, "requests"), Int(c, "received"),
+                    Int(c, "imported"), Flag(c, "done"), Text(c, "reason")));
+        return new BaileysHistoryRun
+        {
+            Running = Flag(body, "running"),
+            Aborted = Flag(body, "aborted"),
+            Depth = Int(body, "depth"),
+            Requests = Int(body, "requests"),
+            RequestsCap = Int(body, "requests_cap"),
+            Received = Int(body, "received"),
+            Imported = Int(body, "imported"),
+            Timeouts = Int(body, "timeouts"),
+            Errors = Int(body, "errors"),
+            ChatsTotal = Int(body, "chats_total"),
+            ChatsTouched = Int(body, "chats_touched"),
+            ChatsDone = Int(body, "chats_done"),
+            ChatsKnown = Int(body, "chats_known"),
+            ChatsExhausted = Int(body, "chats_exhausted"),
+            StopReason = Text(body, "stop_reason"),
+            NextGapS = IntOrNull(body, "next_gap_s"),
+            StartedAt = LongOrNull(body, "started_at"),
+            FinishedAt = LongOrNull(body, "finished_at"),
+            LastRunAt = LongOrNull(body, "last_run_at"),
+            MinGapS = Int(pacing, "min_gap_s"),
+            MaxGapS = Int(pacing, "max_gap_s"),
+            CooldownS = Int(body, "cooldown_s"),
+            DayUsed = Int(day, "used"),
+            DayLeft = Int(day, "left"),
+            DayCap = Int(day, "cap"),
+            Chats = chats,
+        };
+    }
+
+    /// <summary>A gateway 409/429: the request cannot succeed as asked, right now.</summary>
+    private static bool Refused(string error) =>
+        error.StartsWith("gateway 409", StringComparison.Ordinal)
+        || error.StartsWith("gateway 429", StringComparison.Ordinal);
+
+    public async Task<BaileysHistoryRun> HistoryRunAsync(string a, CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Get,
+            $"/accounts/{Uri.EscapeDataString(a)}/history-fetch", null, ct, timeoutSeconds: 10);
+        return ToRun(ok, body, err);
+    }
+
+    public async Task<BaileysHistoryRun> FetchHistoryAsync(string a, int depth, string? waId,
+        IReadOnlyList<BaileysHistorySeed> seeds, CancellationToken ct = default)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["depth"] = depth,
+            ["chats"] = (seeds ?? Array.Empty<BaileysHistorySeed>()).Select(s => new
+            {
+                wa_id = s.WaId, msg_id = s.MsgId, from_me = s.FromMe, ts = s.Seconds,
+            }).ToList(),
+        };
+        if (!string.IsNullOrWhiteSpace(waId)) payload["wa_id"] = waId.Trim();
+        var (ok, body, err) = await CallAsync(HttpMethod.Post,
+            $"/accounts/{Uri.EscapeDataString(a)}/history-fetch", payload, ct, timeoutSeconds: 30);
+        return ToRun(ok, body, err);
+    }
+
+    public async Task<BaileysHistoryRun> StopHistoryAsync(string a, CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Post,
+            $"/accounts/{Uri.EscapeDataString(a)}/history-fetch-stop", new { }, ct, timeoutSeconds: 10);
+        return ToRun(ok, body, err);
     }
 
     public async Task<BaileysStatus> LogoutAsync(string a, CancellationToken ct = default)

@@ -78,6 +78,14 @@ public static class Providers
     public const string Twilio = "twilio";
     /// <summary>Zernio — the social-media API behind the <see cref="Channels.Social"/> channel.</summary>
     public const string Zernio = "zernio";
+    /// <summary>
+    /// WAHA (github.com/devlikeapro/waha) — an operator-run, self-hosted WhatsApp HTTP API
+    /// driving WhatsApp Web. UNOFFICIAL, like <see cref="Baileys"/>: no templates, no Meta
+    /// 24h window, and using it may breach WhatsApp's Terms (the number can be banned).
+    /// Unlike Baileys it is NOT a ChatBranch sidecar — the operator points us at their own
+    /// base URL.
+    /// </summary>
+    public const string Waha = "waha";
 }
 
 public static class Health

@@ -130,10 +130,42 @@ must fire relative to a date, also sync it into a contact custom field (below).
 (→ `{{tracking_url}}`), `link`/`url` (→ `{{link}}`).
 
 **Custom fields** (Settings → Custom fields) — facts about the *person* the
-fixed columns don't cover. Northwind adds `loyalty_tier` (select),
+fixed columns don't cover. Kinds: text · select · multiselect · number ·
+yes/no · **date** · **json**. Northwind adds `loyalty_tier` (select),
 `first_order_at` (date) and `next_delivery` (date — written by their own
 system through `PATCH /api/v1/contacts/{id}` `{"attributes": {...}}`, used by the
 delivery-reminder flow). Values render as `{{cf_loyalty_tier}}`.
+
+A **date** field is stored as one calendar day, `YYYY-MM-DD` — whatever the
+form, the CSV or the API sent is canonicalised on write (day-first for
+`02/04/2026`; a timestamp is reduced to its day in the business time zone) and
+refused when it isn't a date. That one form is what journey conditions compare
+(before · after · within the last / next N days) and what the "Date field"
+trigger counts from.
+
+A **json** field holds a JSON *object* (≤ 8000 characters) for structured data
+another system syncs in — a service history, whatever that system holds. It is
+never shown raw: templates, journey conditions and the AI all see it flattened
+to `key: value; key: value`, so `{{cf_sync}}` can't carry braces into a
+customer's message.
+
+**Show to AI** — tick it on a field and its value is added to the AI's CONTACT
+block ("Service date: 2026-04-02"), so the bot can use it when it answers that
+customer. It is **off by default**: an internal field (credit risk, a churn
+score) stays out of a customer-facing prompt until someone says otherwise. Every
+value goes in as one guarded, capped line, at most ten fields and 600
+characters in all (knowledge and memory keep their room). The same tick governs
+a journey's **Let AI decide** prompt and `ctx.contact.fields` in a code skill, so
+one switch covers everything a model can read.
+
+**Scoping a field to an outlet** is a privacy boundary, not a label: pick an
+entity on the field and only that entity's **company** ever sees it — in the
+prompt, in a Let AI decide step, and inside a code skill's sandbox. In an
+organization holding several unrelated client companies, that is how a field
+stays private; a field with no entity is organization-wide and shared by design.
+A code skill that genuinely needs a field you did NOT tick for the AI reads it as
+`ctx.contact.internalFields.<key>` (still only its own company's fields) —
+`ctx.contact.fields` holds the ticked ones.
 
 **Tags** (`/tags`) — what a contact *is*, and anything you branch on. Northwind
 creates `vip`, `wholesale` and a **group** "Customer type" holding exactly one
@@ -141,7 +173,8 @@ of `retail` / `trade`. A tag can carry **attributes**: `wholesale` gets
 `account_manager` (text) and `credit_limit` (number), rendered as
 `{{tag_wholesale_account_manager}}`. Conversation tags (`refund`, `damaged`,
 `urgent`) label threads in the inbox. The AI sees tag *names* in its contact
-context; tag attributes and custom fields are not in the prompt.
+context, and the custom fields whose "Show to AI" is on and whose scope the
+answering company shares; tag attributes are not in the prompt.
 
 ### 2.2 Set the voice
 
@@ -248,6 +281,18 @@ score) — the answer to "why did the bot say that?".
   numbers are normalised to E.164 with Setting `default_country_code` (default
   `60`). The API is `POST /api/contacts/import` with a `?preview=1` dry run that
   shows created / updated / skipped before you commit.
+- **Link the chats you already have** — `/contacts` → **Link existing
+  conversations** (`POST /api/contacts/link-conversations`, `?preview=1` or
+  `{preview: true}` for a dry run). A conversation is linked to a contact when a
+  message ARRIVES, so chats that a WhatsApp history import opened before the
+  contacts existed keep showing a bare number — an import writes contacts, not
+  conversations. This runs the inbound path's own matching (email by address,
+  WhatsApp / SMS by the last 8 digits) over the conversations already on file:
+  only inside the receiving **company** (one client company's contact is never
+  attached to another's conversation), only where the conversation has no contact
+  yet, never on groups or broadcasts, and running it twice changes nothing. The
+  answer counts what it linked, what already had a contact, what matched nobody
+  and what it left alone because the number belongs to another company.
 - **Bulk sync** — `POST /api/v1/sync/records` (admin role or an API key), one
   object per record with an optional contact; contacts match by phone, records
   by `(type, external_id)`. See [record-sync.md](record-sync.md).
@@ -317,7 +362,18 @@ per outlet or organization-wide): on, off, or on a weekly **schedule** (only
 inside — or only outside — the windows, e.g. "evenings and weekends, when the
 shop is closed"). Contacts can be set to "never" or "always" AI, and **never-AI
 tags** (`vip`, `legal-hold`…) keep the AI away from everyone carrying them. A
-branch inherits its head office's switch unless it sets its own. Whenever the
+branch inherits its head office's switch unless it sets its own.
+
+One **inbox** (a number, mailbox, bot, page or widget — the inbox picker next to
+the outlet picker on the same card) can have its own switch too, and it only
+ever SUBTRACTS: it may switch the AI off for that inbox, or narrow its hours, and
+its never-AI tags add to the ones above. It can never switch the AI on while the
+outlet or the organization is off or outside its own schedule — "off anywhere up
+the tree wins". That is the opposite of the AI *behaviour* settings, where the
+nearest level wins. Not to be confused with step 3's **AI default** above: that
+one is stamped on a conversation when it is created and an operator's per-chat
+tick beats it, while the master switch is a live gate on every message — the
+card says which is which. Whenever the
 AI passes a conversation to a person — a failed check, "a colleague will help
 you", a reply that couldn't be sent, a failed booking — it shows up under
 **Needs human** in `/chats`; a person's reply or resolving it closes it.
@@ -431,7 +487,8 @@ Northwind's three:
 and either answers a yes/no question you write in plain words ("Is the customer
 ready to book a viewing?") or picks one of 2–6 paths you name ("Wants to buy",
 "Has a complaint", "Just asking"), plus an automatic "None of these". It reads
-the contact (name, language, tags, custom fields) and the last N messages (20 by
+the contact (name, language, tags, and the custom fields whose "Show to AI" is on
+and whose scope this journey's company shares) and the last N messages (20 by
 default, 5–100) — of all channels, of this journey's channel, or only the
 conversation that started the run — optionally only since the contact entered
 the journey; private notes never. It only classifies: it never writes to the

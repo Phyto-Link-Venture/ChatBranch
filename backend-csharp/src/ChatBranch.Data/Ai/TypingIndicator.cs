@@ -196,9 +196,11 @@ public sealed class LiveTypingIndicator : ITypingIndicator
             }
 
             if (string.IsNullOrEmpty(account.AccessToken) || string.IsNullOrEmpty(account.ExternalId)) return;
-            // Twilio's WhatsApp API has no typing indicator: nothing to send
+            // Twilio's WhatsApp API has no typing indicator: nothing to send. WAHA has its
+            // own (POST /api/startTyping) but it is not wired here — and it must NEVER fall
+            // through to Meta's Graph, which would send a WAHA key to graph.facebook.com.
             var provider = WhatsAppProviders.Of(account);
-            if (provider == Providers.Twilio) return;
+            if (provider is Providers.Twilio or Providers.Waha) return;
             // the typing indicator rides on the read receipt of the customer's latest message
             var wamid = _db.Messages.AsNoTracking()
                 .Where(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In && m.ExternalId != "")

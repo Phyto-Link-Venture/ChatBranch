@@ -3,7 +3,7 @@
 import { API } from '@/lib/apiBase'
 import { Suspense, useCallback, useMemo, useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react'
+import { Link2, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
 import { useEntity } from '@/lib/EntityContext'
 import { authHeaders, expireSessionOn401, hasCap } from '@/lib/auth'
@@ -17,6 +17,7 @@ import { Select } from '@/components/ui/Select'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ContactImportModal } from '@/components/contacts/ContactImportModal'
+import { LinkConversationsModal } from '@/components/contacts/LinkConversationsModal'
 import { AccessRequestsPanel, RequestAccessOffer } from '@/components/contacts/AccessRequestsPanel'
 import { CustomFieldsInputs } from '@/components/CustomFieldsInputs'
 import { fetchCustomFields, type FieldDef } from '@/lib/customFields'
@@ -465,6 +466,9 @@ function ContactsList() {
   const [editing, setEditing] = useState<Contact | null>(null)
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  /** "Link existing conversations": the backfill that puts contacts on chats
+   *  that were already here when the contact book was imported. */
+  const [linkOpen, setLinkOpen] = useState(false)
   // "Access requests": reloaded after the Add-contact form sends one; `?access=<id>`
   // (a notification's link) opens it
   const [accessRefresh, setAccessRefresh] = useState(0)
@@ -709,6 +713,9 @@ function ContactsList() {
               <Button data-tour="contacts-import" variant="secondary" onClick={() => setImportOpen(true)}>
                 <Upload size={14} aria-hidden /> {t('contacts.list.import')}
               </Button>
+              <Button variant="secondary" onClick={() => setLinkOpen(true)}>
+                <Link2 size={14} aria-hidden /> {t('contacts.linkChats.title')}
+              </Button>
               <Button data-tour="contacts-add" variant="primary" onClick={openCreate}>
                 <Plus size={14} aria-hidden /> {t('contacts.list.addContact')}
               </Button>
@@ -721,6 +728,14 @@ function ContactsList() {
       <ContactImportModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
+        onDone={async () => {
+          await Promise.all([load(), reloadContacts()])
+        }}
+      />
+
+      <LinkConversationsModal
+        open={linkOpen}
+        onClose={() => setLinkOpen(false)}
         onDone={async () => {
           await Promise.all([load(), reloadContacts()])
         }}

@@ -185,54 +185,20 @@ public partial class FlowEngine
     private List<(string key, string kind)> CustomFieldSchema() =>
         CustomFieldDefs().Select(f => (f.key, f.kind)).ToList();
 
-    /// <summary>The customer custom fields with their labels (key, label, kind).</summary>
-    private List<(string key, string label, string kind)> CustomFieldDefs()
-    {
-        var customer = new List<(string, string, string)>();
-        var raw = _scoping.SettingValue("custom_fields");
-        if (string.IsNullOrWhiteSpace(raw)) return customer;
-        using var doc = JsonDocument.Parse(raw);
-        if (!doc.RootElement.TryGetProperty("customer", out var arr)
-            || arr.ValueKind != JsonValueKind.Array) return customer;
-        foreach (var f in arr.EnumerateArray())
-        {
-            var key = f.TryGetProperty("key", out var k) ? k.GetString() ?? "" : "";
-            if (key.Length == 0) continue;
-            var label = f.TryGetProperty("label", out var l) && l.ValueKind == JsonValueKind.String ? l.GetString() ?? "" : "";
-            var kind = f.TryGetProperty("kind", out var kd) ? kd.GetString() ?? "text" : "text";
-            customer.Add((key, label.Length > 0 ? label : key, kind));
-        }
-        return customer;
-    }
+    /// <summary>The customer custom fields with their labels (key, label, kind) —
+    /// the shared reader (<see cref="Contacts.ContactCustomFields.Customer"/>).</summary>
+    private List<(string key, string label, string kind)> CustomFieldDefs() =>
+        Contacts.ContactCustomFields.Customer(_scoping)
+            .Select(f => (key: f.Key, label: f.Label.Length > 0 ? f.Label : f.Key, kind: f.Kind)).ToList();
 
     /// <summary>Render one stored attribute the way the dashboard shows it
     /// (frontend lib/customFields.ts formatFieldValue): booleans as Yes/No,
-    /// multi-select as a comma list.</summary>
-    private static string FormatAttribute(Dictionary<string, object?> attributes, string key, string kind)
-    {
-        if (!attributes.TryGetValue(key, out var raw) || raw == null) return "";
-        if (raw is JsonElement el)
-        {
-            switch (el.ValueKind)
-            {
-                case JsonValueKind.Null or JsonValueKind.Undefined: return "";
-                case JsonValueKind.True: return "Yes";
-                case JsonValueKind.False: return "No";
-                case JsonValueKind.Array:
-                    return string.Join(", ", el.EnumerateArray()
-                        .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() ?? "" : x.ToString())
-                        .Where(x => x.Length > 0));
-                case JsonValueKind.String: return el.GetString() ?? "";
-                default: return el.ToString();
-            }
-        }
-        if (raw is bool b) return b ? "Yes" : "No";
-        if (raw is System.Collections.IEnumerable seq and not string)
-            return string.Join(", ", seq.Cast<object?>().Select(x => x?.ToString() ?? "").Where(x => x.Length > 0));
-        if (kind == "boolean")
-            return string.Equals(raw.ToString(), "true", StringComparison.OrdinalIgnoreCase) ? "Yes" : "No";
-        return raw.ToString() ?? "";
-    }
+    /// multi-select as a comma list, a date its canonical YYYY-MM-DD, a json field
+    /// FLATTENED to "key: value; key: value" — a template variable never carries raw
+    /// JSON into a customer's message. One implementation:
+    /// <see cref="Contacts.ContactCustomFields.Display"/>.</summary>
+    private static string FormatAttribute(Dictionary<string, object?> attributes, string key, string kind) =>
+        Contacts.ContactCustomFields.Display(attributes, key, kind);
 
     // ---- trigger matching ---------------------------------------------------
     //

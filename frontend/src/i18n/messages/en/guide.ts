@@ -1069,8 +1069,8 @@ export const guide = {
           body: 'A worked example with your numbers, so you can check the result makes sense.',
         },
         s4: {
-          title: 'Per-company terms',
-          body: 'Give one company its own markup or fee. Leave a box empty to use the default.',
+          title: 'Who is on which plan',
+          body: 'Search, filter and page through your companies: each row shows the price book that governs it, whether that plan is inherited from a parent, this month\'s real usage and the resulting bill. Tick several rows to put them all on one plan in a single step, or give one company its own markup or fee.',
         },
         s5: {
           title: 'Save',

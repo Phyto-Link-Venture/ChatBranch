@@ -115,11 +115,15 @@ public static class ContactsEndpoints
                 return Results.Json(new { detail = "That email address doesn't look right." }, statusCode: 400);
             var entityIds = CreationEntities(db, sc, me, new List<int>());
             if (await DuplicateError(db, sc, me, TenantId(me), phone, email, entityIds) is { } dup) return dup;
+            // typed custom fields (date → YYYY-MM-DD, json → an object within its cap)
+            var attributes = b.Attributes ?? new();
+            if (ContactCustomFields.Apply(sc, attributes) is { } bad)
+                return Results.Json(new { detail = bad }, statusCode: 400);
             var row = new Contact
             {
                 Name = name, Phone = phone, Email = email, Language = b.Language ?? "en",
                 CompanyName = b.Company ?? "", Tags = b.Tags ?? new(),
-                Attributes = b.Attributes ?? new(),
+                Attributes = attributes,
                 TenantId = TenantId(me),
                 CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
             };
@@ -169,6 +173,9 @@ public static class ContactsEndpoints
             if (b.Tags != null) c.Tags = b.Tags;
             if (b.Attributes != null)
             {
+                // the typed kinds are canonicalised / refused before anything is written
+                if (ContactCustomFields.Apply(sc, b.Attributes) is { } badField)
+                    return Results.Json(new { detail = badField }, statusCode: 400);
                 // Merge (not replace) so fields this form doesn't know about survive.
                 foreach (var kv in b.Attributes) c.Attributes[kv.Key] = kv.Value;
             }
@@ -260,8 +267,8 @@ public static class ContactsEndpoints
                     {
                         if (row == null)
                             windowOpen = true;                       // sandbox thread — no Meta window
-                        else if (row.Provider == Providers.Baileys)
-                            windowOpen = true;                       // WhatsApp Web has no 24h window
+                        else if (ChatBranch.Data.Channels.WhatsAppProviders.IsUnofficial(row))
+                            windowOpen = true;                       // Baileys / WAHA: WhatsApp Web has no 24h window
                         else
                             windowOpen = agg?.LastIn is DateTime lin &&
                                          DateTime.UtcNow - lin < TimeSpan.FromHours(24);

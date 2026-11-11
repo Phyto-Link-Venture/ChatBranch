@@ -130,6 +130,8 @@ export const settings = {
       multiselect: 'Multi-select (pick many)',
       number: 'Number',
       boolean: 'Yes / No',
+      date: 'Date',
+      json: 'JSON (structured data)',
     },
     customer: {
       title: 'Customers',
@@ -140,7 +142,7 @@ export const settings = {
     },
     loading: 'Loading custom fields…',
     intro:
-      'Define the labels that appear on the Customer form — so the app fits your vertical instead of the other way round. Values are visible to the AI, so a customer’s {grade} informs its replies. Details that only apply to some contacts (a driver’s licence number, an outside company’s contract end) belong on a {tag} with attributes instead.',
+      'Define the labels that appear on the Customer form — so the app fits your vertical instead of the other way round. Switch “Show to AI” on for a field and its value reaches the AI, so a customer’s {grade} informs its replies; leave it off for anything internal. Details that only apply to some contacts (a driver’s licence number, an outside company’s contract end) belong on a {tag} with attributes instead.',
     introGrade: 'Grade',
     introTag: 'tag',
     loadError: 'Couldn’t load saved fields ({error}) — showing an empty schema.',
@@ -149,6 +151,21 @@ export const settings = {
     labelPlaceholder: 'e.g. Language',
     optionsHint: '(type one, press Enter to add)',
     optionPlaceholder: 'e.g. English',
+    scope: 'Belongs to',
+    scopeHint: '(only this company’s AI sees the value)',
+    showToAi: 'Show to AI',
+    showToAiHint:
+      'Off by default. When on, this field’s value is added to the AI’s notes about the customer, so it can use it when it answers them — keep internal fields (credit risk, a churn score) off.',
+    showToAiOn: 'The AI answering this customer can see this field’s value.',
+    dateHint:
+      'Stored as one calendar date (YYYY-MM-DD) and shown in your own format. Journeys can compare it — “service date more than 6 months ago”, “renewal in the next 14 days” — and the “Date field” trigger can fire relative to it.',
+    jsonKindHint:
+      'For structured data another system syncs in through the API: a JSON object ({max} characters max). It is never shown raw — anywhere a value appears (templates, the AI, journey conditions) it reads as “key: value” pairs.',
+    jsonHint: 'A JSON object, e.g. {"last_service": "2026-04-02", "plan": "gold"}.',
+    jsonPlaceholder: '{\n  "last_service": "2026-04-02"\n}',
+    jsonInvalid: 'That isn’t valid JSON yet — nothing is saved until it parses.',
+    jsonNotObject: 'The top level must be a JSON object, e.g. {"key": "value"}.',
+    jsonTooLong: 'Too long — a JSON field holds at most {max} characters.',
   },
   notifCategories: {
     messages: { label: 'Customer messages', description: 'A customer wrote in, on any chat channel' },

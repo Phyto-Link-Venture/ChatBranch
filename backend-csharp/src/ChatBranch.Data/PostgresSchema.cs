@@ -75,11 +75,19 @@ public static partial class PostgresSchema
                         Execute(conn, AddColumn(table, column));
             }
 
-            // 3. indexes the model has and the database doesn't
+            // 3. indexes the model has and the database doesn't. A UNIQUE index the
+            // live data already violates must NOT take the boot down with it (Sync
+            // runs on every container start): log the clash and leave the database
+            // as it is — the same tolerance Seed's SQLite helper is called with.
             foreach (var sql in script)
                 if (CreatedIndex(sql) is { } ix && !created.Contains(ix.Table) && tables.Contains(ix.Table)
                     && !indexes.Contains(ix.Index))
-                    Execute(conn, sql);
+                    try { Execute(conn, sql); }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine(
+                            $"[schema] index {ix.Index} on {ix.Table} not created: {ex.Message}");
+                    }
         }
         finally
         {

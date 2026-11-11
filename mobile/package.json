@@ -6,15 +6,17 @@
   "scripts": {
     "add:android": "cap add android",
     "add:ios": "cap add ios",
-    "sync": "cap sync",
+    "sync": "cap sync && node scripts/permissions.mjs",
     "icons": "node scripts/icons.mjs",
+    "permissions": "node scripts/permissions.mjs",
     "open:android": "cap open android",
     "open:ios": "cap open ios",
-    "run:android": "cap run android",
-    "run:ios": "cap run ios",
+    "run:android": "node scripts/permissions.mjs && cap run android",
+    "run:ios": "node scripts/permissions.mjs && cap run ios",
     "doctor": "cap doctor"
   },
   "dependencies": {
+    "@capacitor-community/contacts": "8.0.0",
     "@capacitor/android": "8.6.0",
     "@capacitor/app": "8.1.2",
     "@capacitor/core": "8.6.0",

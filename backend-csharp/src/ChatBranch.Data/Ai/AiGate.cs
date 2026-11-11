@@ -1046,7 +1046,8 @@ public class AiGate
     {
         if (thread.Channel != ChatBranch.Domain.Channels.WhatsApp) return false;
         var account = Account(accountId ?? thread.AccountId);
-        if (account == null || account.Provider == Providers.Baileys) return false;
+        // only an OFFICIAL number is bound by it — Baileys and WAHA are WhatsApp Web
+        if (!WhatsAppProviders.WindowApplies(account)) return false;
         if (!_sender.WouldSendLive(thread, account.Id)) return false;
         var lastIn = _db.Messages.AsNoTracking()
             .Where(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In)

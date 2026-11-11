@@ -6,15 +6,21 @@ import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Toggle } from '@/components/ui/Toggle'
 import { EntityPicker } from '@/components/ui/EntityPicker'
-import { MultiSelect } from '@/components/ui/Select'
+import { MultiSelect, Select, type SelectOption } from '@/components/ui/Select'
+import { useChannelLabel } from '@/components/ui/ChannelLogo'
 import { useEntity } from '@/lib/EntityContext'
 import { useTags } from '@/lib/tags'
+// the same inbox list the AI behaviour settings pick from (one read of the
+// accounts endpoint: numbers, mailboxes, bots, pages and website widgets)
+import { listBehaviourInboxes, type BehaviourInbox } from '@/lib/aiMonitor'
 import {
   describeSchedule,
   emptySchedule,
   weekdayDate,
   getAiControls,
   putAiControls,
+  resetAiControls,
+  type AiControlKey,
   type AiControls,
   type AiControlsWrite,
   type AiMasterMode,
@@ -65,13 +71,29 @@ function Segmented<T extends string>({
   )
 }
 
+/** Where the value on screen comes from: "Set for this inbox" /
+ *  "Inherited from Head Office (off)." — handing it back is the link beside it. */
+function Origin({ own, here, inherited }: { own: boolean; here: string; inherited: string }) {
+  return <p className="text-[12px] text-text-muted">{own ? here : inherited}</p>
+}
+
 /**
  * The AI master switch — ONE prominent "AI is ON for <scope>" card at the top
- * of the AI monitor: per outlet (entity picker) or organization-wide, on · off ·
+ * of the AI monitor: per outlet (entity picker), per INBOX (the inbox picker,
+ * the same list the AI behaviour settings offer) or organization-wide, on · off ·
  * on a schedule (per-weekday hours, AI inside or outside them, org timezone),
  * plus the never-AI contact tags. Off = no AI replies, follow-ups or AI flow
  * messages anywhere in that scope. Editing needs ai.behaviour.manage; everyone
  * else sees the state.
+ *
+ * The inbox level is NOT nearest-level-wins (the AI behaviour settings are):
+ * an inbox can only switch itself OFF or narrow its hours, and never answers
+ * while the outlet, the organization or the schedule above it says no — the
+ * copy says so wherever an inbox is picked.
+ *
+ * Nor is it the inbox's "ai_default" (Channels → Who answers it), which is
+ * stamped on a conversation when it is created and loses to an operator's
+ * per-chat switch. This is a live gate on every message.
  */
 export function AiMasterSwitch() {
   const t = useT()
@@ -79,9 +101,14 @@ export function AiMasterSwitch() {
   const dayLabel = (d: Weekday) => f.weekday(weekdayDate(d))
   const timeShort = (iso: string) => `${f.weekday(iso)} ${f.time(iso)}`
   // levelEntity: the ticked entity — for a person bound to entities never the organization
-  const { levelEntity, bound } = useEntity()
+  const { levelEntity, bound, entities } = useEntity()
   const [scope, setScope] = useState<string | null>(levelEntity?.slug ?? null)
   useEffect(() => setScope(levelEntity?.slug ?? null), [levelEntity?.slug])
+  // the one inbox being edited (null = the outlet / organization level)
+  const [account, setAccount] = useState<number | null>(null)
+  // null until the list answers, so "no inboxes yet" never flashes while loading
+  const [inboxes, setInboxes] = useState<BehaviourInbox[] | null>(null)
+  const [inboxError, setInboxError] = useState<string | null>(null)
 
   const [data, setData] = useState<AiControls | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
@@ -111,26 +138,92 @@ export function AiMasterSwitch() {
     setNeverTags(d.own.never_tags)
   }, [])
 
+  // an inbox is read at ITS OWN level, so the query drops ?entity= — the same
+  // rule as ?account= on /api/ai/behaviour
+  const level = useMemo(() => ({ entity: scope, account }), [scope, account])
+
   const load = useCallback(async () => {
     try {
-      adopt(await getAiControls(scope))
+      adopt(await getAiControls(level))
       setLoadErr(null)
     } catch (e) {
       setData(null)
       setLoadErr(e instanceof Error ? e.message : String(e))
     }
-  }, [scope, adopt])
+  }, [level, adopt])
 
   useEffect(() => {
     setMsg(null)
     void load()
   }, [load])
 
+  // the inboxes to choose from: every number, mailbox, bot, page and widget
+  // this viewer can see
+  useEffect(() => {
+    let cancelled = false
+    listBehaviourInboxes()
+      .then((rows) => {
+        if (cancelled) return
+        setInboxes(rows)
+        setInboxError(null)
+      })
+      .catch((e) => {
+        if (!cancelled) setInboxError(e instanceof Error ? e.message : String(e))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // a bound viewer may edit an inbox only at a level inside their own scope;
+  // the accounts list also offers the inboxes their outlets inherit from above,
+  // which the endpoint answers with a 404 — leave those out rather than offer a
+  // dead end. Organization-wide inboxes stay (readable, read-only for them).
+  const mine = useMemo(() => new Set(entities.map((e) => e.slug)), [entities])
+  const choosable = useMemo(
+    () => (inboxes ?? []).filter((i) => !bound || !i.entity || mine.has(i.entity)),
+    [inboxes, bound, mine],
+  )
+  const inbox = useMemo(() => choosable.find((i) => i.id === account) ?? null, [choosable, account])
+  const channelName = useChannelLabel()
+  // grouped by the outlet that owns the inbox, so "which of my widgets?" is one glance
+  const inboxOptions = useMemo<SelectOption[]>(
+    () => [
+      { value: '', label: t('chats.aiControls.inboxAll') },
+      ...choosable.map((i) => ({
+        value: String(i.id),
+        label: i.name,
+        hint: channelName(i.channel),
+        group: i.entity_name || t('chats.aiControls.inboxOrgWide'),
+      })),
+    ],
+    [choosable, channelName, t],
+  )
+  // an inbox belongs to one outlet (or to none = the whole organization), and
+  // that is the level it inherits from: the outlet picker follows the inbox
+  useEffect(() => {
+    if (inbox && scope !== inbox.entity) setScope(inbox.entity)
+  }, [inbox, scope])
+
   const save = async (body: AiControlsWrite, okText: string) => {
     setBusy(true)
     setMsg(null)
     try {
-      adopt(await putAiControls(scope, body))
+      adopt(await putAiControls(level, body))
+      setMsg({ ok: true, text: okText })
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Hand this level's own value (or all four) back to the level above. */
+  const reset = async (key: AiControlKey | undefined, okText: string) => {
+    setBusy(true)
+    setMsg(null)
+    try {
+      adopt(await resetAiControls(level, key))
       setMsg({ ok: true, text: okText })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
@@ -141,7 +234,21 @@ export function AiMasterSwitch() {
 
   const canManage = !!data?.can_manage
   const on = !!data?.now_on
-  const scopeName = data?.entity_name ?? (scope ? scope : t('chats.aiControls.theOrganization'))
+  const isInbox = !!account
+  const scopeName = isInbox
+    ? data?.account?.name ?? inbox?.name ?? ''
+    : data?.entity_name ?? (scope ? scope : t('chats.aiControls.theOrganization'))
+  // what this level follows when it sets nothing of its own
+  const inheritName =
+    (isInbox ? (inbox ? inbox.entity_name : data?.entity_name) : data?.entity_name) ||
+    t('chats.aiControls.theOrganization')
+  // an inbox can only subtract: when the level above is off (or out of hours)
+  // nothing here can switch the AI back on
+  const blockedAbove = !!data && isInbox && !data.inherited.now_on
+  // does the level on screen set anything of its own?
+  const hasOwn =
+    !!data &&
+    (!!data.own.mode || !!data.own.schedule || !!data.own.schedule_mode || data.own.never_tags.length > 0)
   const isSchedule = data?.mode === 'schedule'
 
   const hours = data ? describeSchedule(data.schedule, t, dayLabel) : ''
@@ -150,24 +257,39 @@ export function AiMasterSwitch() {
     : ''
   const subline = !data
     ? ''
-    : data.mode === 'off'
-      ? t('chats.aiControls.subOff')
-      : data.mode === 'schedule'
-        ? data.next_change_at
-          ? t('chats.aiControls.subScheduleNext', {
-              window: aiWindow,
-              tz: data.timezone,
-              next: t(on ? 'chats.aiControls.nextOff' : 'chats.aiControls.nextOn', { time: timeShort(data.next_change_at) }),
-            })
-          : t('chats.aiControls.subSchedule', { window: aiWindow, tz: data.timezone })
-        : t('chats.aiControls.subOn')
+    : // an inbox the level above has silenced says so first — "AI answers here"
+      // would be a lie, and that is exactly the confusion to avoid
+      blockedAbove
+      ? t(
+          data.inherited.mode === 'off'
+            ? 'chats.aiControls.inboxBlockedOff'
+            : 'chats.aiControls.inboxBlockedHours',
+          { name: data.inherited.mode_set_at ?? inheritName },
+        )
+      : data.mode === 'off'
+        ? t('chats.aiControls.subOff')
+        : data.mode === 'schedule'
+          ? data.next_change_at
+            ? t('chats.aiControls.subScheduleNext', {
+                window: aiWindow,
+                tz: data.timezone,
+                next: t(on ? 'chats.aiControls.nextOff' : 'chats.aiControls.nextOn', {
+                  time: timeShort(data.next_change_at),
+                }),
+              })
+            : t('chats.aiControls.subSchedule', { window: aiWindow, tz: data.timezone })
+          : t('chats.aiControls.subOn')
   const provenance = !data
     ? ''
-    : data.mode_from === 'inherited'
-      ? t('chats.aiControls.setOn', { name: data.mode_set_at ?? '' })
-      : data.mode_from === 'organization' && data.entity
-        ? t('chats.aiControls.followingOrg')
-        : ''
+    : isInbox
+      ? data.own.mode
+        ? t('chats.aiControls.inboxSetHere', { name: inheritName })
+        : t('chats.aiControls.inboxFollows', { name: inheritName })
+      : data.mode_from === 'inherited'
+        ? t('chats.aiControls.setOn', { name: data.mode_set_at ?? '' })
+        : data.mode_from === 'organization' && data.entity
+          ? t('chats.aiControls.followingOrg')
+          : ''
 
   const tone = !data ? 'bg-fill text-text-muted' : on ? 'bg-green/15 text-[color:var(--green-ink)]' : isSchedule ? 'bg-amber/15 text-[color:var(--amber-ink)]' : 'bg-red/10 text-[color:var(--red-ink)]'
 
@@ -205,26 +327,58 @@ export function AiMasterSwitch() {
         <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
           <EntityPicker
             value={scope}
-            onChange={setScope}
+            onChange={(v) => {
+              setAccount(null) // a level up: the inbox pick goes with it
+              setScope(v)
+            }}
             size="sm"
             globalLabel={t('chats.aiControls.wholeOrg')}
             allowGlobal={!bound}
             ariaLabel={t('chats.aiControls.scopeAria')}
             className="min-w-0 flex-1 sm:w-[230px] sm:flex-none"
           />
+          <Select
+            value={account ? String(account) : ''}
+            onChange={(v) => setAccount(v ? Number(v) : null)}
+            options={inboxOptions}
+            size="sm"
+            className="min-w-0 flex-1 sm:w-[200px] sm:flex-none"
+            disabled={choosable.length === 0}
+            searchable={choosable.length > 6}
+            placeholder={t('chats.aiControls.inboxAll')}
+            ariaLabel={t('chats.aiControls.inboxAria')}
+          />
           <Toggle
-            on={!!data && data.mode !== 'off'}
+            // an inbox has no "on": switching it back on just hands the switch
+            // to the level above again (it can never answer against it)
+            on={!!data && (isInbox ? data.own.mode !== 'off' : data.mode !== 'off')}
             disabled={!canManage || busy || !data}
             onChange={(v) =>
-              save(
-                { mode: v ? 'on' : 'off' },
-                t(v ? 'chats.aiControls.switchedOn' : 'chats.aiControls.switchedOff', { scope: scopeName }),
-              )
+              isInbox
+                ? v
+                  ? reset('ai_enabled', t('chats.aiControls.inboxFollowsAgain', { scope: scopeName, name: inheritName }))
+                  : save({ mode: 'off' }, t('chats.aiControls.switchedOff', { scope: scopeName }))
+                : save(
+                    { mode: v ? 'on' : 'off' },
+                    t(v ? 'chats.aiControls.switchedOn' : 'chats.aiControls.switchedOff', { scope: scopeName }),
+                  )
             }
             label={t('chats.aiControls.toggleLabel', { scope: scopeName })}
           />
         </div>
       </div>
+
+      {isInbox && (
+        <div className="mx-4 mb-3 flex flex-col gap-1 rounded-md bg-amber/10 px-3 py-2 text-[12px] leading-relaxed text-text-mid sm:mx-5">
+          <span className="font-semibold text-text-high">{t('chats.aiControls.inboxOnlyOff')}</span>
+          <span>{t('chats.aiControls.inboxNotDefault')}</span>
+        </div>
+      )}
+      {inboxError && (
+        <div role="alert" className="mx-4 mb-3 text-[12px] text-[color:var(--red-ink)] sm:mx-5">
+          {t('chats.aiControls.inboxesError', { error: inboxError })}
+        </div>
+      )}
 
       {msg && !open && (
         <div
@@ -282,21 +436,54 @@ export function AiMasterSwitch() {
             <div className="flex flex-wrap items-center gap-3">
               <Segmented
                 value={mode}
-                options={MODES.map((m) => ({ value: m.value, label: t(m.label) }))}
+                options={MODES.map((m) => ({
+                  value: m.value,
+                  // on an inbox "on" adds nothing — it only stops this inbox
+                  // from switching itself off
+                  label: isInbox && m.value === 'on' ? t('chats.aiControls.inboxModeOn') : t(m.label),
+                }))}
                 onChange={setMode}
                 label={t('chats.aiControls.modeAria')}
                 disabled={!canManage}
               />
-              {data.entity && data.own.mode && canManage && (
+              {(data.entity || isInbox) && data.own.mode && canManage && (
                 <button
                   type="button"
-                  onClick={() => save({ mode: 'inherit' }, t('chats.aiControls.followsParent', { scope: scopeName }))}
+                  onClick={() =>
+                    save(
+                      { mode: 'inherit' },
+                      isInbox
+                        ? t('chats.aiControls.inboxFollowsAgain', { scope: scopeName, name: inheritName })
+                        : t('chats.aiControls.followsParent', { scope: scopeName }),
+                    )
+                  }
                   className="text-[12.5px] font-semibold text-[color:var(--brand-ink)] hover:underline"
                 >
-                  {t('chats.aiControls.useParent')}
+                  {isInbox ? t('chats.aiControls.useAbove') : t('chats.aiControls.useParent')}
                 </button>
               )}
             </div>
+            {data.level !== 'organization' && (
+              <Origin
+                own={!!data.own.mode}
+                here={t(isInbox ? 'chats.aiControls.setForInbox' : 'chats.aiControls.setForOutlet')}
+                inherited={t('chats.aiControls.inheritedFrom', {
+                  name: data.inherited.mode_set_at ?? inheritName,
+                  value: t(
+                    data.inherited.mode === 'off'
+                      ? 'common.status.off'
+                      : data.inherited.mode === 'schedule'
+                        ? 'chats.aiControls.modeSchedule'
+                        : 'common.status.on',
+                  ),
+                })}
+              />
+            )}
+            {blockedAbove && (
+              <p className="text-[12px] font-semibold text-[color:var(--amber-ink)]">
+                {t('chats.aiControls.inboxCannotTurnOn', { name: data.inherited.mode_set_at ?? inheritName })}
+              </p>
+            )}
           </div>
 
           {mode === 'schedule' && (
@@ -318,6 +505,14 @@ export function AiMasterSwitch() {
                 {t(scheduleMode === 'inside' ? 'chats.aiControls.insideHint' : 'chats.aiControls.outsideHint')}{' '}
                 {t('chats.aiControls.approvedStillGoes')}
               </p>
+              {isInbox && (
+                <p className="text-[12px] text-text-muted">
+                  {t('chats.aiControls.inboxHoursNarrow', {
+                    name: inheritName,
+                    hours: describeSchedule(data.inherited.schedule, t, dayLabel),
+                  })}
+                </p>
+              )}
               <AiScheduleEditor value={schedule} onChange={setSchedule} disabled={!canManage} />
             </div>
           )}
@@ -340,10 +535,28 @@ export function AiMasterSwitch() {
                 {t('chats.aiControls.alsoFromAbove', { tags: data.inherited_never_tags.join(', ') })}
               </p>
             )}
+            {isInbox && <p className="text-[12px] text-text-muted">{t('chats.aiControls.inboxTagsAddUp')}</p>}
           </div>
 
           {canManage ? (
-            <div className="flex flex-wrap justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {data.level !== 'organization' && hasOwn && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void reset(
+                      undefined,
+                      isInbox
+                        ? t('chats.aiControls.inboxFollowsAgain', { scope: scopeName, name: inheritName })
+                        : t('chats.aiControls.followsParent', { scope: scopeName }),
+                    )
+                  }
+                  disabled={busy}
+                  className="mr-auto text-[12.5px] font-semibold text-text-mid underline underline-offset-2 hover:text-text-high"
+                >
+                  {t('chats.aiControls.removeAllOverrides')}
+                </button>
+              )}
               <Button variant="secondary" size="sm" onClick={() => adopt(data)} disabled={busy}>
                 {t('common.actions.discard')}
               </Button>

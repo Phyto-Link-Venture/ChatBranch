@@ -5,8 +5,10 @@
  * and commit share the same pipeline, so the numbers shown are the numbers
  * written):
  *
- *   1 Source     — a file (.csv / .xlsx / .vcf from a phone) or the caller's
- *                  own Google Contacts (GET /api/contacts/import/google)
+ *   1 Source     — a file (.csv / .xlsx / .vcf from a phone), the contacts on
+ *                  THIS phone (the app's contact picker — DeviceContactsPicker,
+ *                  hidden where the plugin or the browser picker is absent), or
+ *                  the caller's own Google Contacts (GET /api/contacts/import/google)
  *   2 Map        — one Select per column: contact field, custom field, tags,
  *                  entity, or "don't import"; sample values alongside
  *   3 Duplicates — skip / fill empty fields / overwrite, with live counts;
@@ -18,7 +20,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, CheckCircle, Download, FileSpreadsheet, Loader2, Upload, Users } from 'lucide-react'
+import { AlertTriangle, CheckCircle, Download, FileSpreadsheet, Loader2, Smartphone, Upload, Users } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Select, type SelectOption } from '@/components/ui/Select'
@@ -28,6 +30,8 @@ import { Advanced } from '@/components/ui/Advanced'
 import { Toggle } from '@/components/ui/Toggle'
 import { useEntity } from '@/lib/EntityContext'
 import { cApi, downloadIssuesCsv, errText, type ImportResult } from '@/lib/contactIdentity'
+import { DEVICE_IMPORT_SOURCE, deviceContactsSupported } from '@/lib/deviceContacts'
+import { DeviceContactsPicker } from '@/components/contacts/DeviceContactsPicker'
 import { Trans, useFormat, useT, type MessageKey } from '@/i18n'
 
 type Step = 1 | 2 | 3 | 4
@@ -67,7 +71,23 @@ export function ContactImportModal({
   const t = useT()
   const [step, setStep] = useState<Step>(1)
   const [file, setFile] = useState<File | null>(null)
-  const [googleRows, setGoogleRows] = useState<Record<string, string>[] | null>(null)
+  /**
+   * Rows that reach the importer as JSON rather than as an upload: the caller's
+   * Google Contacts, or the contacts they ticked on this phone. `source` is only
+   * a label the server echoes back, but it is what tells the two apart here.
+   */
+  const [json, setJson] = useState<{ source: string; rows: Record<string, string>[] } | null>(null)
+  /** Step 1 has handed over to the phone's contact picker. */
+  const [deviceOpen, setDeviceOpen] = useState(false)
+  /**
+   * Is there an address book on this device at all? Checked in an effect, not
+   * during render: the answer needs `window`, and a browser must not flash a
+   * button it cannot honour.
+   */
+  const [deviceReady, setDeviceReady] = useState(false)
+  useEffect(() => {
+    setDeviceReady(deviceContactsSupported())
+  }, [])
   const [preview, setPreview] = useState<ImportResult | null>(null)
   const [mapping, setMapping] = useState<Record<string, string>>({})
   const [opts, setOpts] = useState<Options>({ mode: 'update_empty', entity: null, tags: [], discover: true })
@@ -90,7 +110,8 @@ export function ContactImportModal({
     if (!open) {
       setStep(1)
       setFile(null)
-      setGoogleRows(null)
+      setJson(null)
+      setDeviceOpen(false)
       setPreview(null)
       setMapping({})
       setOpts({ mode: 'update_empty', entity: null, tags: [], discover: true })
@@ -101,8 +122,18 @@ export function ContactImportModal({
     }
   }, [open])
 
-  /** One call to the importer: the file (multipart) or the Google rows (JSON). */
-  const run = async (commit: boolean, map: Record<string, string> | null, o: Options, src?: File | null) => {
+  /**
+   * One call to the importer: the file (multipart), or a batch of rows (JSON)
+   * from Google Contacts / this phone. `src` and `batch` let a freshly picked
+   * source be used before its state has settled.
+   */
+  const run = async (
+    commit: boolean,
+    map: Record<string, string> | null,
+    o: Options,
+    src?: File | null,
+    batch?: { source: string; rows: Record<string, string>[] },
+  ) => {
     const upload = src === undefined ? file : src
     const qs = commit ? '' : '?preview=1'
     if (upload) {
@@ -115,11 +146,12 @@ export function ContactImportModal({
       fd.append('discover', o.discover ? '1' : '0')
       return cApi<ImportResult>(`contacts/import${qs}`, { method: 'POST', body: fd })
     }
+    const rows = batch ?? json
     return cApi<ImportResult>(`contacts/import${qs}`, {
       method: 'POST',
       body: JSON.stringify({
-        rows: googleRows ?? [],
-        source: 'google',
+        rows: rows?.rows ?? [],
+        source: rows?.source ?? 'json',
         column_mapping: map ?? undefined,
         mode: o.mode,
         entity: o.entity ?? undefined,
@@ -137,7 +169,7 @@ export function ContactImportModal({
       return
     }
     setFile(picked)
-    setGoogleRows(null)
+    setJson(null)
     setBusy('contacts.import.reading')
     try {
       const r = await run(false, null, opts, picked)
@@ -159,7 +191,7 @@ export function ContactImportModal({
     try {
       const r = await cApi<ImportResult>('contacts/import/google')
       setFile(null)
-      setGoogleRows(r.rows ?? [])
+      setJson({ source: 'google', rows: r.rows ?? [] })
       setPreview(r)
       setMapping(r.column_mapping)
       if (r.warning) setError(r.warning)
@@ -168,6 +200,31 @@ export function ContactImportModal({
       const status = (e as { status?: number }).status
       if (status === 409) setNeedsGoogle(true)
       else setError(errText(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /**
+   * The contacts ticked in the phone's picker. Only these rows ever leave the
+   * device, and they join the same pipeline as a file: preview first (nothing is
+   * written), then the mapping and duplicate steps, then the import.
+   */
+  const usePicked = async (rows: Record<string, string>[]) => {
+    setError(null)
+    setNeedsGoogle(false)
+    setBusy('contacts.import.reading')
+    const batch = { source: DEVICE_IMPORT_SOURCE, rows }
+    try {
+      const r = await run(false, null, opts, null, batch)
+      setFile(null)
+      setJson(batch)
+      setPreview(r)
+      setMapping(r.column_mapping)
+      setDeviceOpen(false)
+      setStep(2)
+    } catch (e) {
+      setError(errText(e))
     } finally {
       setBusy(null)
     }
@@ -214,7 +271,13 @@ export function ContactImportModal({
   const mapped = Object.values(mapping)
   const reachable = mapped.some((x) => REACH.has(x))
   const named = mapped.some((x) => x === 'name' || x === 'first_name' || x === 'last_name')
-  const sourceName = file ? file.name : googleRows ? t('contacts.import.googleContacts') : ''
+  const sourceName = file
+    ? file.name
+    : json?.source === DEVICE_IMPORT_SOURCE
+      ? t('contacts.device.title')
+      : json
+        ? t('contacts.import.googleContacts')
+        : ''
 
   const setOpt = (patch: Partial<Options>, recount = false) => {
     const next = { ...opts, ...patch }
@@ -225,6 +288,11 @@ export function ContactImportModal({
   // ── footer ────────────────────────────────────────────────────────────────
   const footer = (
     <>
+      {step === 1 && deviceOpen && (
+        <Button variant="ghost" size="sm" onClick={() => setDeviceOpen(false)} disabled={!!busy}>
+          {t('common.actions.back')}
+        </Button>
+      )}
       {step > 1 && step < 4 && (
         <Button variant="ghost" size="sm" onClick={() => setStep((step - 1) as Step)} disabled={!!busy}>
           {t('common.actions.back')}
@@ -286,8 +354,11 @@ export function ContactImportModal({
         ))}
       </ol>
 
+      {/* 1 — source: the phone's own contacts, in place of the source list */}
+      {step === 1 && deviceOpen && <DeviceContactsPicker busy={!!busy} onUse={(rows) => void usePicked(rows)} />}
+
       {/* 1 — source */}
-      {step === 1 && (
+      {step === 1 && !deviceOpen && (
         <div className="flex flex-col gap-3">
           <button
             type="button"
@@ -316,6 +387,28 @@ export function ContactImportModal({
               }}
             />
           </button>
+          {/* Only where there is an address book to read: the phone app, or
+              Chrome on Android. A plain browser never sees this. */}
+          {deviceReady && (
+            <button
+              type="button"
+              onClick={() => {
+                setError(null)
+                setNeedsGoogle(false)
+                setDeviceOpen(true)
+              }}
+              disabled={!!busy}
+              className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-line bg-card px-4 py-3 text-left transition-colors hover:bg-fill-hover disabled:cursor-wait"
+            >
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-fill text-text-high">
+                <Smartphone size={16} aria-hidden />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[13px] font-semibold text-text-high">{t('contacts.device.title')}</span>
+                <span className="block text-[11.5px] text-text-muted">{t('contacts.device.hint')}</span>
+              </span>
+            </button>
+          )}
           <button
             type="button"
             onClick={pickGoogle}

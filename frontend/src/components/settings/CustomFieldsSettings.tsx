@@ -8,9 +8,12 @@ import { Select } from '@/components/ui/Select'
 import { TagListInput } from '@/components/ui/TagListInput'
 import { CustomFieldsInputs } from '@/components/CustomFieldsInputs'
 import { hasCap } from '@/lib/auth'
+import { useEntity } from '@/lib/EntityContext'
 import {
   EMPTY_SCHEMA,
+  JSON_MAX_CHARS,
   KIND_LABELS,
+  NEEDS_OPTIONS,
   fetchCustomFields,
   saveCustomFields,
   type CustomFieldsSchema,
@@ -33,8 +36,6 @@ const TARGET_META: Record<FieldTarget, { title: MessageKey; blurb: MessageKey; e
   },
 }
 
-const NEEDS_OPTIONS: FieldKind[] = ['select', 'multiselect']
-
 /**
  * Settings → Custom Fields: define the per-vertical labels that appear on the
  * Customer form. This is CONFIGURATION (what fields exist); the contacts
@@ -45,6 +46,9 @@ const NEEDS_OPTIONS: FieldKind[] = ['select', 'multiselect']
  */
 export function CustomFieldsSettings() {
   const t = useT()
+  // a field may belong to one company: only that company's AI sees its value
+  const { entities } = useEntity()
+  const companies = entities.filter((e) => !e.parent && e.id != null)
   // read after mount (localStorage) — same capability the PUT checks
   const [canEdit, setCanEdit] = useState(false)
   useEffect(() => setCanEdit(hasCap('settings.custom_fields.manage')), [])
@@ -86,7 +90,16 @@ export function CustomFieldsSettings() {
   const addField = (tg: FieldTarget) =>
     update(tg, [
       ...fieldsOf(tg),
-      { key: '', label: '', kind: 'text', options: [], required: false, position: fieldsOf(tg).length },
+      {
+        key: '',
+        label: '',
+        kind: 'text',
+        options: [],
+        required: false,
+        show_to_ai: false,
+        entity_id: null,
+        position: fieldsOf(tg).length,
+      },
     ])
 
   const patchField = (tg: FieldTarget, i: number, patch: Partial<FieldDef>) =>
@@ -240,6 +253,19 @@ export function CustomFieldsSettings() {
                           />
                           {t('common.status.required')}
                         </label>
+                        <label
+                          className="mr-1 flex cursor-pointer items-center gap-1.5 text-[11px] text-text-muted"
+                          title={t('settings.customFields.showToAiHint')}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!!f.show_to_ai}
+                            disabled={!canEdit}
+                            onChange={(e) => patchField(tg, i, { show_to_ai: e.target.checked })}
+                            className="h-3.5 w-3.5 accent-[color:var(--primary)]"
+                          />
+                          {t('settings.customFields.showToAi')}
+                        </label>
                         {canEdit && (
                           <>
                             <button
@@ -275,6 +301,36 @@ export function CustomFieldsSettings() {
                         )}
                       </div>
                     </div>
+                    {companies.length > 1 && (
+                      <label className="mt-2 block">
+                        <span className="mb-1 block text-[10.5px] font-bold text-text-high">
+                          {t('settings.customFields.scope')}{' '}
+                          <span className="font-normal text-text-muted">{t('settings.customFields.scopeHint')}</span>
+                        </span>
+                        <Select
+                          value={f.entity_id == null ? '' : String(f.entity_id)}
+                          disabled={!canEdit}
+                          onChange={(v) => patchField(tg, i, { entity_id: v === '' ? null : Number(v) })}
+                          options={[
+                            { value: '', label: t('settings.scope.globalLabel') },
+                            ...companies.map((e) => ({ value: String(e.id), label: e.name })),
+                          ]}
+                          size="md"
+                          ariaLabel={t('settings.customFields.scope')}
+                        />
+                      </label>
+                    )}
+                    {f.kind === 'date' && (
+                      <p className="mt-2 text-[10.5px] text-text-faint">{t('settings.customFields.dateHint')}</p>
+                    )}
+                    {f.kind === 'json' && (
+                      <p className="mt-2 text-[10.5px] text-text-faint">
+                        {t('settings.customFields.jsonKindHint', { max: JSON_MAX_CHARS })}
+                      </p>
+                    )}
+                    {!!f.show_to_ai && (
+                      <p className="mt-1 text-[10.5px] text-brand-200">{t('settings.customFields.showToAiOn')}</p>
+                    )}
                     {NEEDS_OPTIONS.includes(f.kind) && (
                       <label className="mt-2 block">
                         <span className="mb-1 block text-[10.5px] font-bold text-text-high">

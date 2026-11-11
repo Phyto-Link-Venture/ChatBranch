@@ -491,7 +491,9 @@ public class OutboundSender
         catch { /* registry unreachable: send by name, let Meta validate */ }
         var rendered = WhatsAppTemplateCatalog.Render(def, name, args);
 
-        if (CloudLive(thread, account))
+        // only an OFFICIAL number sends a real template message; an unofficial one
+        // (Baileys, WAHA) renders it as free text, because WhatsApp Web has no templates
+        if (CloudLive(thread, account) && WhatsAppProviders.IsOfficial(account!))
         {
             var template = WhatsAppTemplateCatalog.BuildMessage(def, name, language, args);
             var outcome = _whatsapp.SendTemplateAsync(account!, thread.Key, template).GetAwaiter().GetResult();

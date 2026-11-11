@@ -357,12 +357,13 @@ public static class MessagingNotifyEndpoints
     private static string AccountRole(ChannelAccount account) =>
         account.Config.TryGetValue("role", out var raw) && (raw?.ToString() ?? "") is { Length: > 0 } role
             ? role
-            : account.Provider == Providers.Baileys ? "conversation" : "reminder";
+            : WhatsAppProviders.IsOfficial(account) ? "reminder" : "conversation";
 
-    /// <summary>The 24h window as of now — Baileys and sandbox have none.</summary>
+    /// <summary>The 24h window as of now — Baileys, WAHA and sandbox have none.</summary>
     private static bool WindowOpen(AppDbContext db, Thread thread, ChannelAccount? account)
     {
-        if (account == null || account.Provider == Providers.Baileys) return true;
+        // only an OFFICIAL number is bound by Meta's window (Baileys / WAHA are WhatsApp Web)
+        if (!WhatsAppProviders.WindowApplies(account)) return true;
         var lastIn = db.Messages.AsNoTracking()
             .Where(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In)
             .Max(m => (DateTime?)m.CreatedAt);

@@ -132,6 +132,8 @@ export const settings: Dict<typeof source> = {
       multiselect: 'Pilihan berbilang (pilih banyak)',
       number: 'Nombor',
       boolean: 'Ya / Tidak',
+      date: 'Tarikh',
+      json: 'JSON (data berstruktur)',
     },
     customer: {
       title: 'Pelanggan',
@@ -142,7 +144,7 @@ export const settings: Dict<typeof source> = {
     },
     loading: 'Memuatkan medan tersuai…',
     intro:
-      'Tentukan label yang muncul pada borang Pelanggan — supaya aplikasi menyesuaikan diri dengan industri anda, bukan sebaliknya. Nilainya boleh dilihat oleh AI, jadi {grade} pelanggan mempengaruhi balasannya. Butiran yang hanya berkaitan dengan sesetengah kenalan (nombor lesen pemandu, tarikh tamat kontrak syarikat luar) sepatutnya diletakkan pada {tag} dengan atribut.',
+      'Tentukan label yang muncul pada borang Pelanggan — supaya aplikasi menyesuaikan diri dengan industri anda, bukan sebaliknya. Hidupkan “Tunjuk kepada AI” pada satu medan dan nilainya sampai kepada AI, jadi {grade} pelanggan mempengaruhi balasannya; biarkan ia dimatikan untuk apa-apa yang dalaman. Butiran yang hanya berkaitan dengan sesetengah kenalan (nombor lesen pemandu, tarikh tamat kontrak syarikat luar) sepatutnya diletakkan pada {tag} dengan atribut.',
     introGrade: 'Gred',
     introTag: 'tag',
     loadError: 'Tidak dapat memuatkan medan yang disimpan ({error}) — memaparkan skema kosong.',
@@ -151,6 +153,21 @@ export const settings: Dict<typeof source> = {
     labelPlaceholder: 'cth. Bahasa',
     optionsHint: '(taip satu, tekan Enter untuk menambah)',
     optionPlaceholder: 'cth. Bahasa Inggeris',
+    scope: 'Milik',
+    scopeHint: '(hanya AI syarikat ini melihat nilainya)',
+    showToAi: 'Tunjuk kepada AI',
+    showToAiHint:
+      'Dimatikan secara lalai. Apabila dihidupkan, nilai medan ini dimasukkan ke dalam nota AI tentang pelanggan, jadi ia boleh menggunakannya semasa menjawab — biarkan medan dalaman (risiko kredit, skor churn) dimatikan.',
+    showToAiOn: 'AI yang menjawab pelanggan ini dapat melihat nilai medan ini.',
+    dateHint:
+      'Disimpan sebagai satu tarikh kalendar (YYYY-MM-DD) dan dipaparkan dalam format anda sendiri. Perjalanan boleh membandingkannya — “tarikh servis lebih 6 bulan lalu”, “pembaharuan dalam 14 hari akan datang” — dan pencetus “Medan tarikh” boleh berjalan relatif kepadanya.',
+    jsonKindHint:
+      'Untuk data berstruktur yang disegerakkan oleh sistem lain melalui API: satu objek JSON (maksimum {max} aksara). Ia tidak pernah dipaparkan mentah — di mana-mana nilainya muncul (templat, AI, syarat perjalanan) ia dibaca sebagai pasangan “kunci: nilai”.',
+    jsonHint: 'Satu objek JSON, cth. {"last_service": "2026-04-02", "plan": "gold"}.',
+    jsonPlaceholder: '{\n  "last_service": "2026-04-02"\n}',
+    jsonInvalid: 'Itu belum JSON yang sah — tiada apa disimpan sebelum ia boleh dibaca.',
+    jsonNotObject: 'Aras atasnya mesti objek JSON, cth. {"key": "value"}.',
+    jsonTooLong: 'Terlalu panjang — medan JSON menyimpan paling banyak {max} aksara.',
   },
   notifCategories: {
     messages: { label: 'Mesej pelanggan', description: 'Pelanggan menghantar mesej, di mana-mana saluran sembang' },

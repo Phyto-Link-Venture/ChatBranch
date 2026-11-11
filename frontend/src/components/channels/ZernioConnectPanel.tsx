@@ -33,6 +33,7 @@ import { errMessage, isNotSetUp, socialApi, SocialApiError } from '@/lib/social'
 import { CopyRow, inputCls } from '@/components/settings/WhatsAppSettings'
 import { useT } from '@/i18n'
 import type { MethodDef } from './catalog'
+import { WhatsAppSignupPanel } from './WhatsAppSignupPanel'
 
 interface ConnectField {
   key?: string
@@ -105,20 +106,28 @@ function apiPath(p?: string): string | null {
   return s.replace(/^\/?(api\/)?/, '')
 }
 
-export function ZernioConnectPanel({
-  channelName,
-  method,
-  onChanged,
-  onAnother,
-  onClose,
-}: {
+interface ZernioPanelProps {
   /** The channel's display name ("WhatsApp", "YouTube"…). */
   channelName: string
   method: MethodDef
   onChanged: () => void
   onAnother: () => void
   onClose: () => void
-}) {
+}
+
+/**
+ * WhatsApp has its own panel: the Embedded Signup MODE decides whether the number keeps
+ * working in the WhatsApp Business app, so it is chosen — and its consequences
+ * acknowledged — before the browser leaves this page. Every other platform keeps the
+ * generic flow below.
+ */
+export function ZernioConnectPanel(props: ZernioPanelProps) {
+  if (props.method.zernio?.platform === 'whatsapp' && (props.method.zernio.purpose ?? 'inbox') === 'inbox')
+    return <WhatsAppSignupPanel onChanged={props.onChanged} onAnother={props.onAnother} onClose={props.onClose} />
+  return <ZernioHostedPanel {...props} />
+}
+
+function ZernioHostedPanel({ channelName, method, onChanged, onAnother, onClose }: ZernioPanelProps) {
   const t = useT()
   const { can } = useAccess()
   const canManage = can('social.manage')

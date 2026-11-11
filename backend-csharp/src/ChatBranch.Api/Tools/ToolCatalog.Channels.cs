@@ -146,6 +146,48 @@ public static partial class ToolCatalog
                 A.Str("identify_message", "Custom question."),
             }, idempotent: true);
 
+        // ---- a QR number's own older history (the Baileys gateway's on-demand fetch) ----
+        // Pairing is excluded from the MCP (it hands out a QR / a pairing code), but
+        // DEEPENING an already-linked number's chats is ordinary operator work, so it
+        // gets tools. The descriptions carry the two things a model must not forget:
+        // the ceiling is WhatsApp's, and the transport is unofficial.
+        yield return T(ch, "channels_get_history_fetch", "History fetch progress",
+            "Where a WhatsApp-by-QR number's 'fetch older messages' run is: requests made (and the cap), "
+            + "messages WhatsApp served, messages imported, per-chat rows, and why it stopped. Reads only the "
+            + "gateway's own bookkeeping — it asks WhatsApp for nothing.",
+            "GET", "/api/whatsapp/accounts/{id:int}/baileys/history-fetch", chView,
+            new[] { A.Int("account_id", "The WhatsApp-by-QR number's account id (channels_list_accounts).",
+                req: true, @as: "id") },
+            link: (_, _) => Page("Open channels", "/channels"));
+
+        yield return T(ch, "channels_fetch_older_history", "Fetch older WhatsApp history",
+            "Ask a linked WhatsApp-by-QR number for the OLDER messages its first import did not bring, chat by "
+            + "chat. The gateway paces the requests (a jittered 20–45 s apart), caps them (50 messages a request, "
+            + "6 requests a chat, 20 a run, 60 per number per day, 15 minutes between runs) and stops when "
+            + "WhatsApp stops serving — the ceiling is what the paired phone still holds, so this never promises "
+            + "a full archive, and that phone must be ONLINE. One run at a time per number; a second is refused. Only 1:1 chats, only text and placeholders — historical "
+            + "files are never downloaded. The transport is unofficial, so run it when someone asks for it, never "
+            + "on a schedule.",
+            "POST", "/api/whatsapp/accounts/{id:int}/baileys/history-fetch", chManage,
+            new[]
+            {
+                A.Int("account_id", "The WhatsApp-by-QR number's account id (channels_list_accounts).",
+                    req: true, @as: "id"),
+                A.Int("depth", $"Messages per chat to ask for (1–{ChatBranch.Data.Channels.WhatsAppHistoryFetch.MaxDepth}; "
+                    + $"default {ChatBranch.Data.Channels.WhatsAppHistoryFetch.DefaultDepth}).",
+                    min: 1, max: ChatBranch.Data.Channels.WhatsAppHistoryFetch.MaxDepth),
+                A.Str("wa_id", "One customer's number, to deepen just that chat. Omit for every chat that has "
+                    + "something to anchor on."),
+            }, outside: true);
+
+        yield return T(ch, "channels_stop_history_fetch", "Stop a history fetch",
+            "Stop the 'fetch older messages' run in progress for a WhatsApp-by-QR number. What already landed "
+            + "stays, and the per-chat cursors stay too, so a later run continues where this one stopped.",
+            "POST", "/api/whatsapp/accounts/{id:int}/baileys/history-fetch/stop", chManage,
+            new[] { A.Int("account_id", "The WhatsApp-by-QR number's account id (channels_list_accounts).",
+                req: true, @as: "id") },
+            outside: true, idempotent: true);
+
         // ---- marketplace shops (the seller-service bridge) -------------------------
         // The shops themselves are connected in the seller service, which holds the
         // marketplace grant; these three are the ChatBranch side of that bridge.

@@ -37,7 +37,7 @@ public sealed class SocialSyncClock
 /// </list>
 /// Not configured ⇒ 409 <c>{code: "zernio_not_configured"}</c> on everything that needs Zernio.
 /// </summary>
-public static class SocialEndpoints
+public static partial class SocialEndpoints
 {
     public const string NotConfiguredCode = "zernio_not_configured";
     public const string WebhookSecretSetting = "zernio_webhook_secret";
@@ -67,6 +67,7 @@ public static class SocialEndpoints
     {
         MapZernio(app);
         MapAccounts(app);
+        MapWhatsAppOnboarding(app);   // SocialEndpoints.WhatsApp.cs
         MapThreadActions(app);
         MapPosts(app);
     }
@@ -390,6 +391,12 @@ public static class SocialEndpoints
                 });
             }
 
+            // WhatsApp runs Embedded Signup: the mode (Cloud-API-only / coexistence), the
+            // hosted number picker, the state round-trip and its own callback live in
+            // SocialEndpoints.WhatsApp.cs — everything else keeps the plain hosted connect.
+            if (platform == "whatsapp")
+                return await StartWhatsAppSignupAsync(body, db, sc, zernio, ctx, entityId, profileId, common);
+
             var redirect = Dashboard(ctx, sc) + "/channels?zernio=connected" + (purpose.Length > 0 ? "&purpose=" + purpose : "");
             var hosted = await zernio.ConnectUrlAsync(platform, profileId, redirect);
             if (!hosted.Ok) return Results.Json(new { detail = hosted.Error, code = "zernio_error" }, statusCode: 502);
@@ -397,23 +404,6 @@ public static class SocialEndpoints
             if (url.Length == 0) return Results.Json(new { detail = "No connect URL came back." }, statusCode: 502);
             AuditTrail.Write(db, "social.connect", platform, "managed connection started", entityId: entityId);
             var outv = new Dictionary<string, object?>(common) { ["flow"] = "hosted", ["url"] = url };
-            if (platform == "whatsapp")
-                outv["alternatives"] = new object[]
-                {
-                    new
-                    {
-                        flow = "fields",
-                        label = "Use my own WhatsApp Business credentials",
-                        submit_url = "/api/social/connect/whatsapp",
-                        fields = new object[]
-                        {
-                            new { key = "access_token", label = "Permanent access token (System User)", type = "password", secret = true, required = true, help = "Meta Business Suite → System users", placeholder = "EAAB…" },
-                            new { key = "waba_id", label = "WhatsApp Business Account ID", type = "text", secret = false, required = true, help = "", placeholder = "" },
-                            new { key = "phone_number_id", label = "Phone number ID", type = "text", secret = false, required = true, help = "", placeholder = "" },
-                            new { key = "pin", label = "Two-step verification PIN (6 digits)", type = "text", secret = true, required = false, help = "Only when two-step verification is on for the number", placeholder = "123456" },
-                        },
-                    },
-                };
             return Results.Ok(outv);
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("social.manage", "channels.manage");
 

@@ -192,7 +192,7 @@ conversation route.
 
 <!-- tools:start -->
 
-#### contacts (29)
+#### contacts (30)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -216,6 +216,7 @@ conversation route.
 | `contacts_remove_entity` | Remove a contact from an entity | write · **destructive** | `contacts.manage` |
 | `contacts_run_identity_checks` | Run WhatsApp number checks | write · open-world | `contacts.manage` |
 | `contacts_import` | Import contacts | write | `contacts.manage` |
+| `contacts_link_conversations` | Link existing conversations to contacts | write | `contacts.manage` |
 | `contacts_preview_google_import` | Preview a Google Contacts import | read · open-world | `contacts.manage` |
 | `contacts_get_conversation_history` | Read a contact's messages | read | `contacts.view` or `chats.view` |
 | `contacts_get_timeline` | Get a communications timeline | read | `contacts.view` or `chats.view` |
@@ -316,7 +317,7 @@ conversation route.
 | `flows_enqueue_job` | Queue an outbound message | write · open-world | `flows.manage` |
 | `flows_run_due_steps` | Run due flow steps now | write · open-world | `flows.manage` |
 
-#### analytics (11)
+#### analytics (17)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -327,8 +328,14 @@ conversation route.
 | `billing_get_ai_bill` | AI usage bill | read | `billing.view` |
 | `billing_get_settings` | Read the AI billing terms | read | `billing.manage` |
 | `billing_set_settings` | Set the AI billing terms | write | `billing.manage` |
+| `billing_get_price_books` | AI price books (plans) | read | `billing.manage` |
+| `billing_save_price_book` | Create or change an AI price book | write | `billing.manage` |
+| `billing_delete_price_book` | Delete an AI price book | write · **destructive** | `billing.manage` |
 | `billing_get_ai_quotas` | AI usage quotas | read | `billing.view` or `billing.manage` |
 | `billing_set_ai_quotas` | Set AI usage quotas | write | `billing.quotas.manage` or `billing.manage` |
+| `billing_get_ai_credit` | Prepaid AI credit balances | read | `billing.view` or `billing.manage` |
+| `billing_grant_ai_credit` | Grant AI credit | write | `billing.manage` |
+| `billing_adjust_ai_credit` | Correct an AI credit balance | write | `billing.manage` |
 | `analytics_get_engagement` | Engagement tiles | read | `analytics.view` |
 | `analytics_get_live` | What's live right now | read | signed in |
 
@@ -355,7 +362,7 @@ conversation route.
 | `entities_get_tags` | Get an entity's tags | read | `tags.view` |
 | `entities_set_tags` | Set an entity's tags | write | `tags.manage` |
 
-#### ai (42)
+#### ai (43)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -373,6 +380,7 @@ conversation route.
 | `ai_reset_behaviour` | Reset an AI behaviour override | write · **destructive** | `ai.behaviour.manage` |
 | `ai_get_controls` | Read the AI master switch | read | `ai.monitor` or `ai.behaviour.manage` or `chats.view` |
 | `ai_set_controls` | Set the AI master switch | write | `ai.behaviour.manage` |
+| `ai_reset_controls` | Reset an AI master-switch override | write · **destructive** | `ai.behaviour.manage` |
 | `ai_get_persona` | Read the AI persona and house rules | read | `settings.ai.manage` |
 | `ai_set_persona` | Set the AI persona or house rules | write | `settings.ai.manage` |
 | `ai_rate_reply` | Rate an AI reply | write | `ai.monitor` |
@@ -501,8 +509,8 @@ conversation route.
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
 | `bindings_get_catalog` | Bindings overview | read | `users.view` or `tags.view` |
-| `bindings_get` | Read one binding | read | `users.view` or `contacts.view` or `tags.view` |
-| `bindings_apply` | Change a binding | write | `users.manage` or `contacts.manage` or `tags.manage` or `channels.manage` |
+| `bindings_get` | Read one binding | read | `users.view` or `contacts.view` or `tags.view` or `billing.manage` |
+| `bindings_apply` | Change a binding | write | `users.manage` or `contacts.manage` or `tags.manage` or `channels.manage` or `billing.manage` |
 
 #### settings (7)
 
@@ -540,7 +548,7 @@ conversation route.
 | `views_delete` | Delete a saved view | write · **destructive** | signed in |
 | `views_reorder` | Reorder saved views | write | signed in |
 
-#### channels (23)
+#### channels (26)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -564,6 +572,9 @@ conversation route.
 | `channels_delete_widget` | Delete a website chat widget | write · **destructive** | `channels.manage` |
 | `channels_get_unknown_customers` | Read an inbox's unknown-customer setting | read | `channels.view` |
 | `channels_set_unknown_customers` | Set an inbox's unknown-customer setting | write | `channels.manage` |
+| `channels_get_history_fetch` | History fetch progress | read | `channels.view` |
+| `channels_fetch_older_history` | Fetch older WhatsApp history | write · open-world | `channels.manage` |
+| `channels_stop_history_fetch` | Stop a history fetch | write · open-world | `channels.manage` |
 | `commerce_get_status` | Marketplace bridge status | read | `channels.view` |
 | `commerce_sync_shops` | Sync marketplace shops | write | `channels.manage` |
 | `commerce_poll_chats` | Fetch marketplace chats now | write | `channels.manage` |
@@ -612,12 +623,13 @@ conversation route.
 | `voice_get_pronunciation` | Read the pronunciation list | read | signed in |
 | `voice_set_pronunciation` | Set the pronunciation list | write | `pronunciation.manage` |
 
-#### social (18)
+#### social (19)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
 | `social_list_accounts` | List social accounts | read | `social.view` or `channels.view` |
 | `social_connect_url` | Start connecting an account | write · open-world | `social.manage` or `channels.manage` |
+| `social_list_phone_numbers` | List managed phone numbers and prices | read | `social.manage` or `channels.manage` |
 | `social_telegram_status` | Check a Telegram connection code | read | `social.manage` or `channels.manage` |
 | `social_connect_telegram_chat` | Connect a Telegram group or channel by id | write · open-world | `social.manage` or `channels.manage` |
 | `social_connect_sms` | Turn on SMS for a number | write · open-world | `social.manage` or `channels.manage` |
@@ -672,6 +684,8 @@ conversation route.
 | `POST /api/zernio/webhook/register` | credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets (it generates and stores the Zernio webhook signing secret) |
 | `POST /api/social/connect/whatsapp` | credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets (a business's own Meta System User token for a managed WhatsApp connection — typed by a person, never by an assistant) |
 | `POST /api/social/media` | binary upload (multipart) of a post's photo or video — social_create_post takes public https media URLs instead |
+| `POST /api/social/phone-numbers/purchase` | spends the owner's money: buying a number starts a recurring monthly charge on their bill. A person decides that in the dashboard with the price in front of them (social_list_phone_numbers quotes it) |
+| `DELETE /api/social/phone-numbers/{id}` | irreversible: releasing a number returns it to the carrier pool and it cannot be taken back (any inbox on it stops working). A person confirms it in the dashboard by typing the number out |
 | `POST /api/media/library` | binary upload (multipart): a person drops a file in from the dashboard or their phone. An AI caller asks for an upload link with media_create_upload and PUTs to it, then sends by file_id |
 | `GET /api/media/library/{fileId}/file` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file — media_list returns each file's id, name and type |
 | `GET /api/oauth/authorize/{request}` | connecting an AI app: a person approves it in their browser and manages their own connections — an AI acting as them must not be able to grant, read or revoke its own access |
@@ -714,6 +728,11 @@ conversation route.
 | `POST /api/whatsapp/accounts/{id:int}/baileys/start` | pairing a personal WhatsApp number: needs a person at the phone, scanning a QR or typing a pairing code |
 | `POST /api/whatsapp/accounts/{id:int}/baileys/logout` | pairing a personal WhatsApp number: needs a person at the phone, scanning a QR or typing a pairing code |
 | `GET /api/whatsapp/accounts/{id:int}/baileys/status` | pairing a personal WhatsApp number: needs a person at the phone, scanning a QR or typing a pairing code (the status carries the pairing QR / code) |
+| `POST /api/whatsapp/accounts/waha` | WhatsApp number create through the operator's own WAHA server (its base URL + API key + webhook HMAC key) — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
+| `PUT /api/whatsapp/accounts/{id:int}/waha` | WAHA connection settings (base URL, API key, webhook HMAC key) — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
+| `POST /api/whatsapp/accounts/{id:int}/waha/start` | pairing a personal WhatsApp number: needs a person at the phone, scanning a QR or typing a pairing code |
+| `POST /api/whatsapp/accounts/{id:int}/waha/logout` | pairing a personal WhatsApp number: needs a person at the phone, scanning a QR or typing a pairing code |
+| `GET /api/whatsapp/accounts/{id:int}/waha/status` | pairing a personal WhatsApp number: needs a person at the phone, scanning a QR or typing a pairing code (the status carries the pairing QR / code) |
 | `PUT /api/auth/permissions` | RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one |
 | `POST /api/auth/roles` | RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one |
 | `PATCH /api/auth/roles/{slug}` | RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one |

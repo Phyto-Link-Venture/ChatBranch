@@ -136,10 +136,22 @@ public static class WidgetEndpoints
             await NotificationService.NotifyInboundMessageAsync(db, thread, text);
             inbound.MaybeAutoReply(thread, text);
 
-            return Results.Ok(new { message = WidgetMessage(msg) });
+            // Whether an AI reply is genuinely on its way, answered on the SEND
+            // itself so the typing indicator appears at once instead of up to one
+            // poll later. MaybeAutoReply has already queued (or not) by now.
+            return Results.Ok(new
+            {
+                message = WidgetMessage(msg),
+                typing = ChatBranch.Data.Ai.AiTypingSignal.Pending(db, store, thread, DateTime.UtcNow),
+            });
         }).AllowAnonymous().RequireCors("widget");
 
         // ---- visitor polls for replies ---------------------------------------
+        // The ONE poll also carries `typing`: whether an AI reply is genuinely on
+        // its way to THIS conversation (AiTypingSignal — read-only over the queue,
+        // no new endpoint, no extra round trip). The widget animates a three-dot
+        // bubble while it is true, which is the whole reason the channel may now
+        // keep the `ai_typing` pause instead of showing dead air.
         app.MapGet("/api/widget/{token}/messages", async (string token, string session, int? after,
             AppDbContext db, ThreadStore store) =>
         {
@@ -147,12 +159,16 @@ public static class WidgetEndpoints
             if (account == null) return Results.NotFound(new { detail = "Unknown widget." });
             var thread = await db.Threads.FirstOrDefaultAsync(
                 t => t.Channel == Channels.Website && t.Key == (session ?? "").Trim() && t.AccountId == account.Id);
-            if (thread == null) return Results.Ok(new { messages = Array.Empty<object>() });
+            if (thread == null) return Results.Ok(new { messages = Array.Empty<object>(), typing = false });
 
             var msgs = store.GetMessages(thread, 50, null)
                 .Where(m => !m.Private && (after is not int a || m.Id > a))
                 .Select(WidgetMessage).ToList();
-            return Results.Ok(new { messages = msgs });
+            return Results.Ok(new
+            {
+                messages = msgs,
+                typing = ChatBranch.Data.Ai.AiTypingSignal.Pending(db, store, thread, DateTime.UtcNow),
+            });
         }).AllowAnonymous().RequireCors("widget");
 
         // ---- the embeddable script -------------------------------------------
@@ -283,21 +299,21 @@ public static class WidgetEndpoints
   var I18N = {
     en: {
       open: 'Open chat', close: 'Close', title: 'Chat with us', greeting: 'Hi! How can we help?',
-      placeholder: 'Type your message…', send: 'Send', message: 'Message',
+      placeholder: 'Type your message…', send: 'Send', message: 'Message', typing: 'Typing…',
       sendFailed: "Couldn't send your message — check your connection and try again.",
       expired: 'This conversation has ended. Send your message again to start a new one.',
       offline: "We can't reach the chat right now. Please try again in a moment."
     },
     ms: {
       open: 'Buka sembang', close: 'Tutup', title: 'Sembang dengan kami', greeting: 'Hai! Apa yang boleh kami bantu?',
-      placeholder: 'Taip mesej anda…', send: 'Hantar', message: 'Mesej',
+      placeholder: 'Taip mesej anda…', send: 'Hantar', message: 'Mesej', typing: 'Sedang menaip…',
       sendFailed: 'Mesej anda tidak dapat dihantar — semak sambungan anda dan cuba lagi.',
       expired: 'Perbualan ini telah tamat. Hantar mesej anda sekali lagi untuk memulakan perbualan baharu.',
       offline: 'Sembang tidak dapat dihubungi buat masa ini. Sila cuba sebentar lagi.'
     },
     zh: {
       open: '打开聊天', close: '关闭', title: '与我们聊天', greeting: '您好！有什么可以帮您？',
-      placeholder: '输入消息…', send: '发送', message: '消息',
+      placeholder: '输入消息…', send: '发送', message: '消息', typing: '正在输入…',
       sendFailed: '消息发送失败——请检查网络连接后重试。',
       expired: '此对话已结束。请重新发送消息以开始新的对话。',
       offline: '暂时无法连接聊天，请稍后再试。'
@@ -327,6 +343,16 @@ public static class WidgetEndpoints
   var lang = pickLang(), L = I18N[lang];
   var session = load();
   var lastId = 0, open = false, poll = null;
+  // The typing indicator: shown only while the server says a reply is on its way
+  // (`typing` on the poll / send answer), never guessed locally — the AI stays
+  // silent on acknowledgements, can be off, can be handed to a person, and a
+  // reply can be held for review.
+  var typingEl = null, typingOn = false;
+  // While one is expected, poll closely for a BOUNDED stretch (a 4 s poll is too
+  // coarse for an indicator) and then fall back to the normal cadence, so an
+  // abandoned panel can never poll fast forever.
+  var FAST_MS = 1500, FAST_MAX = 20, fastLeft = 0, fastTimer = null;
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
 
   root.innerHTML =
     '<style>' +
@@ -349,6 +375,18 @@ public static class WidgetEndpoints
     '.err{display:none;padding:7px 12px;font-size:12px;line-height:1.4;color:#9f1d14;background:#fdf0ee;' +
       'border-top:1px solid #f6d5d0}' +
     '.err.on{display:block}' +
+    // the typing bubble: an ordinary incoming bubble with three dots in the
+    // widget's accent (currentColor), so it reads as "they are writing", not as a spinner
+    '.typing{align-self:flex-start;background:#fff;border:1px solid #e6e6e8;border-radius:12px;' +
+      'padding:11px 12px;display:flex;align-items:center;gap:4px;max-width:78%}' +
+    '.typing i{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.3;' +
+      'animation:cb-dot 1.25s infinite ease-in-out}' +
+    '.typing i:nth-child(2){animation-delay:.16s}' +
+    '.typing i:nth-child(3){animation-delay:.32s}' +
+    '.typing .word{font-size:12px;line-height:1.3;opacity:.75}' +
+    '@keyframes cb-dot{0%,65%,100%{transform:translateY(0);opacity:.28}30%{transform:translateY(-3px);opacity:.9}}' +
+    // a visitor who asked for less motion gets a still bubble, not a throbbing one
+    '@media (prefers-reduced-motion:reduce){.typing i{animation:none;opacity:.5}}' +
     '.ft{display:flex;gap:6px;padding:10px;border-top:1px solid #eee;background:#fff}' +
     '.ft input{flex:1;min-width:0;padding:9px 11px;border:1px solid #ddd;border-radius:9px;font-size:13px;outline:none}' +
     '.ft button{border:0;border-radius:9px;padding:0 14px;color:#fff;cursor:pointer;font-weight:600;white-space:nowrap}' +
@@ -381,6 +419,7 @@ public static class WidgetEndpoints
     panel.setAttribute('aria-label', cfg.title || L.title);
     input.placeholder = cfg.placeholder || L.placeholder;
     input.setAttribute('aria-label', L.message);
+    if (typingOn) setTyping(true);   // re-label / re-tint a visible typing bubble
   }
 
   function showErr(text) {
@@ -406,8 +445,60 @@ public static class WidgetEndpoints
     el.className = 'msg ' + (m.direction === 'in' ? 'in' : 'out');
     if (m.direction === 'in') el.style.background = cfg.accent;
     el.textContent = m.text;
-    log.appendChild(el);
+    // the typing bubble always stays last in the log
+    log.insertBefore(el, typingEl || null);
     log.scrollTop = log.scrollHeight;
+  }
+
+  // Show / hide the typing bubble. Dots when motion is welcome, the word itself
+  // (in the visitor's language) when it is not — both labelled for a screen reader.
+  function setTyping(on) {
+    typingOn = !!on;
+    if (!typingOn) {
+      if (typingEl && typingEl.parentNode) typingEl.parentNode.removeChild(typingEl);
+      typingEl = null;
+      return;
+    }
+    if (!typingEl) {
+      typingEl = document.createElement('div');
+      typingEl.className = 'typing';
+      typingEl.setAttribute('role', 'status');
+      if (reduce && reduce.matches) {
+        var w = document.createElement('span');
+        w.className = 'word';
+        typingEl.appendChild(w);
+      } else {
+        for (var i = 0; i < 3; i++) typingEl.appendChild(document.createElement('i'));
+      }
+    }
+    typingEl.style.color = cfg.accent;
+    typingEl.setAttribute('aria-label', L.typing);
+    typingEl.title = L.typing;
+    var word = typingEl.querySelector('.word');
+    if (word) word.textContent = L.typing;
+    log.appendChild(typingEl);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function stopFast() {
+    if (fastTimer) clearTimeout(fastTimer);
+    fastTimer = null;
+    fastLeft = 0;
+  }
+
+  // One close-attention poll, scheduled only while the panel is open and the
+  // budget lasts — the hard cap on "a reply is coming" polling.
+  function fast() {
+    if (fastTimer || !open || fastLeft <= 0) return;
+    fastTimer = setTimeout(function () { fastTimer = null; pump(); }, FAST_MS);
+  }
+
+  // The server's answer is the only source of truth for the indicator.
+  function applyTyping(on) {
+    if (on && !typingOn) fastLeft = FAST_MAX;   // it just started: watch closely, briefly
+    setTyping(on);
+    if (!on) { stopFast(); return; }
+    if (fastLeft > 0) { fastLeft--; fast(); }
   }
 
   // JSON in, JSON out; a non-2xx answer rejects with its status.
@@ -438,13 +529,20 @@ public static class WidgetEndpoints
   function pump() {
     if (!session) return;
     req('/messages?session=' + encodeURIComponent(session) + '&after=' + lastId)
-      .then(function (d) { (d.messages || []).forEach(add); })
-      .catch(function () {});
+      .then(function (d) {
+        (d.messages || []).forEach(add);
+        // typing is whatever the server says NOW: the reply landing, the job
+        // vanishing (failed, superseded, AI switched off) or a draft parked for
+        // review all clear it on the very next poll.
+        applyTyping(!!(d && d.typing));
+      })
+      .catch(function () { applyTyping(false); });
   }
 
   bubble.onclick = function () {
     open = !open;
     panel.classList.toggle('open', open);
+    if (!open) applyTyping(false);   // nothing to show behind a closed panel
     if (open) {
       if (!session) start().then(pump); else pump();
       // Polling, not websockets: it survives every proxy and needs no config.
@@ -452,7 +550,7 @@ public static class WidgetEndpoints
       input.focus();
     }
   };
-  closeBtn.onclick = function () { open = false; panel.classList.remove('open'); };
+  closeBtn.onclick = function () { open = false; panel.classList.remove('open'); applyTyping(false); };
 
   form.onsubmit = function (e) {
     e.preventDefault();
@@ -469,12 +567,16 @@ public static class WidgetEndpoints
       });
     }).then(function (d) {
       if (d && d.message) add(d.message);
-      setTimeout(pump, 1200);
+      // the send itself says whether a reply was queued, so the dots appear now
+      // rather than up to one poll later — and never when nothing is coming
+      applyTyping(!!(d && d.typing));
+      if (!typingOn) setTimeout(pump, 1200);
     }).catch(function (err) {
       input.value = text; // nothing typed is lost
+      applyTyping(false);
       if (err && err.status === 404) {
         // the conversation is gone server-side: the next send starts a new one
-        session = ''; save(''); lastId = 0; log.innerHTML = '';
+        session = ''; save(''); lastId = 0; log.innerHTML = ''; typingEl = null;
         showErr(L.expired);
       } else {
         showErr(L.sendFailed);

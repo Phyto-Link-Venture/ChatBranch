@@ -158,6 +158,12 @@ public static class ApiV1Endpoints
             if (await ContactsEndpoints.DuplicateError(db, sc, me, TenantId(me), phone, email, entityIds) is { } dup)
                 return dup;
 
+            // typed custom fields: a date becomes YYYY-MM-DD, a json field must be an
+            // object within its cap — an outside system syncing a contact in is told why
+            var attributes = JsonObject(body, "attributes") ?? new();
+            if (ChatBranch.Data.Contacts.ContactCustomFields.Apply(sc, attributes) is { } badField)
+                return V1Error("bad_request", badField, 400);
+
             var row = new Contact
             {
                 Name = name,
@@ -167,7 +173,7 @@ public static class ApiV1Endpoints
                 CompanyName = (Str(body, "company_name") ?? "").Trim(),
                 Notes = (Str(body, "notes") ?? "").Trim(),
                 Tags = StrList(body, "tags") ?? new(),
-                Attributes = JsonObject(body, "attributes") ?? new(),
+                Attributes = attributes,
                 TenantId = TenantId(me),
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
@@ -295,6 +301,8 @@ public static class ApiV1Endpoints
             }
             if (JsonObject(body, "attributes") is Dictionary<string, object?> attrs)
             {
+                if (ChatBranch.Data.Contacts.ContactCustomFields.Apply(sc, attrs) is { } badAttr)
+                    return V1Error("bad_request", badAttr, 400);
                 // merge, like the /api/contacts PATCH — custom fields this form
                 // doesn't render must survive an edit
                 var merged = new Dictionary<string, object?>(contact.Attributes);

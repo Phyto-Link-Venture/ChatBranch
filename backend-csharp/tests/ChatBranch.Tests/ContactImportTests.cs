@@ -402,6 +402,58 @@ public class ContactImportTests : IdentityApiBase, IClassFixture<IdentityFactory
         Assert.Equal("Legacy Lia", ByPhone("+" + p)!.Name);
     }
 
+    /// <summary>
+    /// The phone app's contact picker posts the contacts the operator ticked as
+    /// JSON rows under the SAME column names a vCard is presented with
+    /// (<c>frontend/src/lib/deviceContacts.ts</c> → <c>toImportRows</c>), so the
+    /// mapping step suggests itself and the raw numbers the address book holds are
+    /// normalised here rather than on the phone. This pins that contract — the
+    /// app's rows go through the importer with no mapping and no backend of their
+    /// own.
+    /// </summary>
+    [Fact]
+    public async Task The_phone_pickers_rows_map_themselves_and_the_server_normalises_the_numbers()
+    {
+        var admin = await Authed();
+        var (mobile, other) = (NewNumber(), NewNumber());
+        var row = new Dictionary<string, string>
+        {
+            [ImportReaders.ColName] = "Siti Nurhaliza",
+            [ImportReaders.ColFirst] = "Siti",
+            [ImportReaders.ColLast] = "Nurhaliza",
+            // as the phone holds it: a national number with the trunk 0 and spacing
+            [ImportReaders.ColPhone] = $"0{mobile[2..5]}-{mobile[5..8]} {mobile[8..]}",
+            [ImportReaders.ColOtherPhones] = "+" + other,
+            [ImportReaders.ColEmail] = "SITI@example.com",
+            [ImportReaders.ColOtherEmails] = "siti.work@example.com",
+            [ImportReaders.ColCompany] = "Kedai Siti",
+        };
+        var body = new { rows = new[] { row }, source = "device" };
+
+        var res = await admin.PostAsJsonAsync("/api/contacts/import?preview=1", body);
+        var preview = await res.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(res.IsSuccessStatusCode, preview.ToString());
+        Assert.Equal("device", preview.GetProperty("source").GetString());
+        Assert.Equal("name", Target(preview, ImportReaders.ColName));
+        Assert.Equal("first_name", Target(preview, ImportReaders.ColFirst));
+        Assert.Equal("last_name", Target(preview, ImportReaders.ColLast));
+        Assert.Equal("phone", Target(preview, ImportReaders.ColPhone));
+        Assert.Equal("other_phones", Target(preview, ImportReaders.ColOtherPhones));
+        Assert.Equal("email", Target(preview, ImportReaders.ColEmail));
+        Assert.Equal("other_emails", Target(preview, ImportReaders.ColOtherEmails));
+        Assert.Equal("company_name", Target(preview, ImportReaders.ColCompany));
+        Assert.Equal(1, preview.GetProperty("created").GetInt32());
+        Assert.Empty(preview.GetProperty("errors").EnumerateArray());
+        Assert.Null(ByPhone("+" + mobile));                                   // a preview writes nothing
+
+        (await admin.PostAsJsonAsync("/api/contacts/import", body)).EnsureSuccessStatusCode();
+        var siti = ByPhone("+" + mobile)!;                                    // E.164, with the org's country code
+        Assert.Equal("Siti Nurhaliza", siti.Name);
+        Assert.Equal("siti@example.com", siti.Email);
+        Assert.Equal("Kedai Siti", siti.CompanyName);
+        Assert.Equal("+" + other, siti.Attributes["other_phones"]?.ToString());
+    }
+
     // ---- Google Contacts ------------------------------------------------------------
 
     [Fact]

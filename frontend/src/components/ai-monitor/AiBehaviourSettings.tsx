@@ -6,10 +6,19 @@
  * long replies, leave acknowledgements alone, follow up when it goes quiet).
  *
  * Every field comes from the server catalog (GET /api/ai/behaviour), so labels
- * and validation can't drift from the engine. Organization defaults are edited
- * with no entity picked; picking an entity edits ITS overrides, each field
- * saying whether it inherits the organization value. A live example timeline
- * replays a sample conversation with the values on screen (saved or not).
+ * and validation can't drift from the engine. Three levels, narrowest first:
+ *
+ *   one inbox      ?account=<id>  the widget / number / mailbox's own overrides
+ *   one entity     ?entity=<slug> that outlet's overrides
+ *   organization   (no query)     the defaults everything else inherits
+ *
+ * Each field says whether it is inherited or set at the level on screen, and
+ * offers to hand it back ("use inherited" → DELETE …&key=, which is also what
+ * saving a blank value does on an inbox). Picking an inbox is absolute: it
+ * carries its own outlet, so the entity picker follows it. A live example
+ * timeline replays a sample conversation with the values on screen (saved or
+ * not) — the point of the inbox level is that a website visitor can be
+ * answered in a second while WhatsApp still waits out a burst.
  *
  * Reusable: rendered as the Settings tab of /ai-monitor and importable from
  * Settings → AI as <AiBehaviourSettings />.
@@ -22,9 +31,17 @@ import { Card, CardTitle } from '@/components/ui/Card'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { useEntity } from '@/lib/EntityContext'
 import { SaveBar } from '@/components/ui/BindingGrid'
-import { Select } from '@/components/ui/Select'
+import { Select, type SelectOption } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
-import { aiApi, type BehaviourField, type BehaviourPayload } from '@/lib/aiMonitor'
+import { useChannelLabel } from '@/components/ui/ChannelLogo'
+import {
+  aiApi,
+  behaviourQuery,
+  listBehaviourInboxes,
+  type BehaviourField,
+  type BehaviourInbox,
+  type BehaviourPayload,
+} from '@/lib/aiMonitor'
 import { useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
 
 const OPTION_LABELS: Record<string, Record<string, MessageKey>> = {
@@ -181,9 +198,12 @@ const ESSENTIAL = new Set([
   'ai_learning_mode',
 ])
 
-/** Customised = overridden at the picked entity, or differs from the engine default. */
-function customised(f: BehaviourField, value: string, entity: string | null): boolean {
-  return (!!entity && f.scope === 'entity') || value !== f.default
+/** Which level is on screen — the narrowest one picked. */
+type Level = 'organization' | 'entity' | 'account'
+
+/** Customised = set at the level on screen, or differs from the engine default. */
+function customised(f: BehaviourField, value: string, level: Level): boolean {
+  return (level !== 'organization' && f.scope === level) || value !== f.default
 }
 
 const inputCls =
@@ -198,11 +218,16 @@ function show(field: BehaviourField, v: string, t: TFunction): string {
 export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: string | null }) {
   const t = useT()
   // a person bound to their entities edits their entity's level, never the organization's
-  const { bound, levelEntity } = useEntity()
+  const { bound, levelEntity, entities } = useEntity()
   const start = initialEntity ?? levelEntity?.slug ?? null
   const [entity, setEntity] = useState<string | null>(start)
   // follow the switcher (and whoami's `bound` arriving after mount)
   useEffect(() => setEntity(start), [start])
+  // the one inbox being tuned (null = the entity / organization level)
+  const [account, setAccount] = useState<number | null>(null)
+  // null until the list answers, so "no inboxes yet" never flashes while loading
+  const [inboxes, setInboxes] = useState<BehaviourInbox[] | null>(null)
+  const [inboxError, setInboxError] = useState<string | null>(null)
   const [data, setData] = useState<BehaviourPayload | null>(null)
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -214,20 +239,80 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
     setDraft(Object.fromEntries(p.fields.map((f) => [f.key, f.value])))
   }
 
+  // an inbox is read at ITS OWN level, so the query drops ?entity= — picking
+  // another outlet while an inbox is selected can't reload the wrong level
+  const query = useMemo(() => behaviourQuery({ entity, account }), [entity, account])
+
   const load = useCallback(async () => {
     try {
-      apply(await aiApi<BehaviourPayload>(`ai/behaviour${entity ? `?entity=${encodeURIComponent(entity)}` : ''}`))
+      apply(await aiApi<BehaviourPayload>(`ai/behaviour${query}`))
       setLoadError(null)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e))
     }
-  }, [entity])
+  }, [query])
 
   useEffect(() => {
     setMsg(null)
     void load()
   }, [load])
 
+  // the inboxes to choose from: every number, mailbox, bot, page and website
+  // widget this viewer can see (one read of the existing accounts endpoint)
+  useEffect(() => {
+    let cancelled = false
+    listBehaviourInboxes()
+      .then((rows) => {
+        if (cancelled) return
+        setInboxes(rows)
+        setInboxError(null)
+      })
+      .catch((e) => {
+        if (!cancelled) setInboxError(e instanceof Error ? e.message : String(e))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // A bound viewer (a company admin, an agent) may read an inbox only at a
+  // level inside their own scope; the accounts list also offers the inboxes
+  // their outlets INHERIT from above, which /api/ai/behaviour answers with a
+  // 404 — leave those out rather than offer a dead end. Organization-wide
+  // inboxes stay (readable, and read-only for them).
+  const mine = useMemo(() => new Set(entities.map((e) => e.slug)), [entities])
+  const choosable = useMemo(
+    () => (inboxes ?? []).filter((i) => !bound || !i.entity || mine.has(i.entity)),
+    [inboxes, bound, mine],
+  )
+  const inbox = useMemo(() => choosable.find((i) => i.id === account) ?? null, [choosable, account])
+  const channelName = useChannelLabel()
+  // grouped by the outlet that owns the inbox, so "which of my widgets?" is one glance
+  const inboxOptions = useMemo<SelectOption[]>(
+    () => [
+      { value: '', label: t('ai.behaviour.inboxAll') },
+      ...choosable.map((i) => ({
+        value: String(i.id),
+        label: i.name,
+        hint: channelName(i.channel),
+        group: i.entity_name || t('ai.behaviour.inboxOrgWide'),
+      })),
+    ],
+    [choosable, channelName, t],
+  )
+  // an inbox belongs to one outlet (or to no one = the whole organization), and
+  // that is the level it inherits from: the entity picker follows the inbox,
+  // whatever was picked before (or arrives later from the switcher)
+  useEffect(() => {
+    if (inbox && entity !== inbox.entity) setEntity(inbox.entity)
+  }, [inbox, entity])
+
+  const level: Level = account ? 'account' : entity ? 'entity' : 'organization'
+  // what an inbox falls back to: its own outlet (the picked row knows it even
+  // while the payload is still in flight), else the organization
+  const inheritName =
+    (inbox ? inbox.entity_name : data?.account ? data.entity_name : '') || t('ai.behaviour.theOrganization')
+  const levelName = account ? data?.account?.name ?? inbox?.name ?? '' : data?.entity_name ?? entity ?? ''
   const fields = useMemo(() => data?.fields ?? [], [data])
   const changed = useMemo(
     () => fields.filter((f) => (draft[f.key] ?? '') !== f.value).map((f) => f.key),
@@ -241,14 +326,14 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
     try {
       const values = Object.fromEntries(changed.map((k) => [k, draft[k] ?? '']))
       apply(
-        await aiApi<BehaviourPayload>(`ai/behaviour${entity ? `?entity=${encodeURIComponent(entity)}` : ''}`, {
+        await aiApi<BehaviourPayload>(`ai/behaviour${query}`, {
           method: 'PUT',
           body: JSON.stringify({ values }),
         }),
       )
       setMsg({
         ok: true,
-        text: entity ? t('ai.common.savedFor', { name: data?.entity_name ?? entity }) : t('ai.behaviour.savedOrg'),
+        text: level === 'organization' ? t('ai.behaviour.savedOrg') : t('ai.common.savedFor', { name: levelName }),
       })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
@@ -257,29 +342,41 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
     }
   }
 
+  /** Hand one setting (or all of them) back to the level above. */
   const resetField = async (key?: string) => {
-    if (!entity) return
+    if (level === 'organization') return
     setMsg(null)
     try {
-      const q = `ai/behaviour?entity=${encodeURIComponent(entity)}${key ? `&key=${encodeURIComponent(key)}` : ''}`
+      const q = `ai/behaviour${behaviourQuery({ entity, account }, key ? { key } : {})}`
       apply(await aiApi<BehaviourPayload>(q, { method: 'DELETE' }))
-      setMsg({ ok: true, text: key ? t('ai.behaviour.backToDefault') : t('ai.behaviour.overridesRemoved') })
+      setMsg({
+        ok: true,
+        text: key
+          ? account
+            ? t('ai.behaviour.backToInherited')
+            : t('ai.behaviour.backToDefault')
+          : account
+            ? t('ai.behaviour.inboxOverridesRemoved')
+            : t('ai.behaviour.overridesRemoved'),
+      })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
     }
   }
 
-  const overrides = fields.filter((f) => f.scope === 'entity').length
+  const overrides = fields.filter((f) => f.scope === level).length
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-3">
-        <div className="min-w-[240px] flex-1 basis-[260px] sm:max-w-[360px]">
+        <div className="min-w-[240px] flex-1 basis-[260px] sm:max-w-[320px]">
           <label className="mb-1 block text-[12px] font-semibold text-text-mid">{t('ai.behaviour.settingsFor')}</label>
           <EntityPicker
             value={entity}
             onChange={(v) => {
               if (changed.length && !window.confirm(t('ai.behaviour.discardConfirm'))) return
+              // a level up: the inbox pick goes with it
+              setAccount(null)
               setEntity(v)
             }}
             globalLabel={t('ai.behaviour.orgDefaultEvery')}
@@ -287,13 +384,34 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
             ariaLabel={t('ai.behaviour.entityAria')}
           />
         </div>
+        <div className="min-w-[240px] flex-1 basis-[260px] sm:max-w-[320px]">
+          <label className="mb-1 block text-[12px] font-semibold text-text-mid">{t('ai.behaviour.inboxLabel')}</label>
+          <Select
+            value={account ? String(account) : ''}
+            onChange={(v) => {
+              if (changed.length && !window.confirm(t('ai.behaviour.discardConfirm'))) return
+              setAccount(v ? Number(v) : null)
+            }}
+            options={inboxOptions}
+            size="md"
+            className="w-full"
+            disabled={choosable.length === 0}
+            searchable={choosable.length > 6}
+            placeholder={t('ai.behaviour.inboxAll')}
+            ariaLabel={t('ai.behaviour.inboxAria')}
+          />
+        </div>
         <p className="min-w-0 flex-1 basis-[260px] pb-1 text-[12.5px] leading-relaxed text-text-muted">
-          {entity
+          {level === 'account'
             ? overrides
-              ? t('ai.behaviour.overridesHere', { count: overrides })
-              : t('ai.behaviour.inheritsAll')
-            : t('ai.behaviour.appliesEverywhere')}
-          {entity && overrides > 0 && canManage && (
+              ? t('ai.behaviour.inboxOverridesHere', { count: overrides, name: inheritName })
+              : t('ai.behaviour.inboxInheritsAll', { name: inheritName })
+            : level === 'entity'
+              ? overrides
+                ? t('ai.behaviour.overridesHere', { count: overrides })
+                : t('ai.behaviour.inheritsAll')
+              : t('ai.behaviour.appliesEverywhere')}
+          {level !== 'organization' && overrides > 0 && canManage && (
             <button
               type="button"
               onClick={() => void resetField()}
@@ -304,6 +422,15 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
           )}
         </p>
       </div>
+      {level === 'account' && <p className="text-[12.5px] leading-relaxed text-text-muted">{t('ai.behaviour.inboxTip')}</p>}
+      {inboxError && (
+        <div role="alert" className="text-[12.5px] text-[color:var(--red-ink)]">
+          {t('ai.behaviour.inboxesError', { error: inboxError })}
+        </div>
+      )}
+      {!inboxError && inboxes !== null && choosable.length === 0 && (
+        <p className="text-[12.5px] text-text-muted">{t('ai.behaviour.noInboxes')}</p>
+      )}
 
       {loadError && (
         <div role="alert" className="text-[12.5px] text-[color:var(--red-ink)]">
@@ -348,13 +475,14 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
                       field={f}
                       value={draft[f.key] ?? ''}
                       all={draft}
-                      entity={entity}
+                      level={level}
+                      inheritName={inheritName}
                       disabled={!canManage}
                       onChange={(v) => setDraft((cur) => ({ ...cur, [f.key]: v }))}
                       onReset={() => void resetField(f.key)}
                     />
                   )
-                  const custom = extra.filter((f) => customised(f, draft[f.key] ?? '', entity)).length
+                  const custom = extra.filter((f) => customised(f, draft[f.key] ?? '', level)).length
                   return (
                     <>
                       <div className="flex flex-col divide-y divide-line">{main.map(row)}</div>
@@ -374,9 +502,9 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
               onSave={() => void save()}
               onDiscard={() => setDraft(Object.fromEntries(fields.map((f) => [f.key, f.value])))}
               summary={
-                entity
-                  ? t('ai.behaviour.changesFor', { count: changed.length, name: data.entity_name ?? entity })
-                  : t('ai.behaviour.changes', { count: changed.length })
+                level === 'organization'
+                  ? t('ai.behaviour.changes', { count: changed.length })
+                  : t('ai.behaviour.changesFor', { count: changed.length, name: levelName })
               }
             />
           </div>
@@ -393,7 +521,8 @@ function FieldRow({
   field: f,
   value,
   all,
-  entity,
+  level,
+  inheritName,
   disabled,
   onChange,
   onReset,
@@ -401,7 +530,10 @@ function FieldRow({
   field: BehaviourField
   value: string
   all: Record<string, string>
-  entity: string | null
+  /** The level being edited — what "set here" and "inherited" mean for this row. */
+  level: Level
+  /** What an inbox falls back to: its outlet's name, else the organization. */
+  inheritName: string
   disabled: boolean
   onChange: (v: string) => void
   onReset: () => void
@@ -466,15 +598,17 @@ function FieldRow({
         </div>
         <div className={`shrink-0 ${wide ? 'w-full' : ''}`}>{control}</div>
       </div>
-      {entity && (
+      {level !== 'organization' && (
         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11.5px]">
-          {f.scope === 'entity' ? (
+          {f.scope === level ? (
             <>
               <span className="rounded-md bg-brand-400/10 px-1.5 py-0.5 font-semibold text-brand-300">
-                {t('ai.behaviour.setForEntity')}
+                {level === 'account' ? t('ai.behaviour.setForInbox') : t('ai.behaviour.setForEntity')}
               </span>
               <span className="text-text-faint">
-                {t('ai.behaviour.orgDefaultValue', { value: show(f, f.inherited_value, t) })}
+                {level === 'account'
+                  ? t('ai.behaviour.inheritedValue', { name: inheritName, value: show(f, f.inherited_value, t) })
+                  : t('ai.behaviour.orgDefaultValue', { value: show(f, f.inherited_value, t) })}
               </span>
               {!disabled && (
                 <button
@@ -482,13 +616,20 @@ function FieldRow({
                   onClick={onReset}
                   className="inline-flex items-center gap-1 font-semibold text-text-mid hover:text-text-high"
                 >
-                  <RotateCcw size={11} aria-hidden /> {t('ai.behaviour.useDefault')}
+                  <RotateCcw size={11} aria-hidden />{' '}
+                  {level === 'account' ? t('ai.behaviour.useInherited') : t('ai.behaviour.useDefault')}
                 </button>
               )}
             </>
           ) : (
             <span className="text-text-faint">
-              {value !== f.value ? t('ai.behaviour.inheritsOverrides') : t('ai.behaviour.inherits')}
+              {level === 'account'
+                ? value !== f.value
+                  ? t('ai.behaviour.inheritsFromOverrides', { name: inheritName })
+                  : t('ai.behaviour.inheritsFrom', { name: inheritName })
+                : value !== f.value
+                  ? t('ai.behaviour.inheritsOverrides')
+                  : t('ai.behaviour.inherits')}
             </span>
           )}
         </div>

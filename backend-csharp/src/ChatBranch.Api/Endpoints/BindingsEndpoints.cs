@@ -49,6 +49,10 @@ public static class BindingsEndpoints
             "Which teams this login belongs to."),
         ("entity-users", "Users with access to an entity", "entity", "user", "users.manage", false,
             "Agents scoped to this entity see only its conversations (and those beneath it)."),
+        // not on the Bindings page (that page is users.view; pricing is billing.manage
+        // and lives in Settings → AI billing) — but a first-class API/MCP binding
+        ("pricebook-entities", "AI price book ↔ entities", "pricebook", "entity", "billing.manage", false,
+            "Which entities this AI price book prices. Assign a main entity and every branch beneath it inherits the plan; a branch with a plan of its own wins for itself. An entity carries one plan at a time, so binding it here moves it. Changes price this month and later — months already billed keep the plan that billed them."),
     };
 
     /// <summary>Who may READ a kind's members besides users.view (the Bindings page).</summary>
@@ -56,6 +60,8 @@ public static class BindingsEndpoints
     {
         "contact-entities" or "entity-contacts" => "contacts.view",
         "tag-contacts" or "tag-entities" => "tags.view",
+        // pricing is the billing manager's, never an ordinary admin's
+        "pricebook-entities" => AiBillingEndpoints.ManageCap,
         _ => "users.view",
     };
 
@@ -131,6 +137,17 @@ public static class BindingsEndpoints
                 if (!await ShellScope.HasCapAsync(db, me, "contacts.view")) contacts.Clear();
             }
 
+            // the AI price books, for the pricebook ↔ entities binding (billing managers only)
+            var pricebooks = (await ShellScope.HasCapAsync(db, me, AiBillingEndpoints.ManageCap)
+                    ? await db.AiPriceBooks.AsNoTracking().OrderBy(p => p.Label).ToListAsync()
+                    : new List<AiPriceBook>())
+                .Select(p => new
+                {
+                    id = p.Id, label = p.Label, slug = p.Slug,
+                    sub = ChatBranch.Data.Ai.AiPriceBooks.Describe(p),
+                    mode = p.Mode, active = p.IsActive, is_default = p.IsDefault,
+                }).ToList();
+
             return Results.Ok(new
             {
                 kinds = Kinds.Select(k => new
@@ -140,9 +157,10 @@ public static class BindingsEndpoints
                     capability = k.Capability,
                 }),
                 // one pool per side so the UI never has to guess what to list
-                pools = new { entities, teams, users, contacts, tags, accounts },
+                pools = new { entities, teams, users, contacts, tags, accounts, pricebooks },
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("users.view", "tags.view");
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          .RequireAnyCapability("users.view", "tags.view", AiBillingEndpoints.ManageCap);
 
         // ---- current membership for one target -------------------------------
         app.MapGet("/api/bindings/{kind}", async (string kind, int target, AppDbContext db, ClaimsPrincipal me,
@@ -150,9 +168,12 @@ public static class BindingsEndpoints
         {
             if (!Kinds.Any(k => k.Id == kind))
                 return Results.Json(new { detail = "Unknown binding kind." }, statusCode: 400);
-            // the Bindings page reads every kind; the contact page its entities, the Tags page its targets
+            // the Bindings page reads every kind; the contact page its entities, the Tags page its
+            // targets. Pricing is the exception: billing.manage and nothing else reads it.
             var need = ReadCapability(kind);
-            if (!await ShellScope.HasCapAsync(db, me, "users.view") && !await ShellScope.HasCapAsync(db, me, need))
+            var strict = kind == "pricebook-entities";
+            if (!await ShellScope.HasCapAsync(db, me, need)
+                && (strict || !await ShellScope.HasCapAsync(db, me, "users.view")))
                 return Results.Json(new { detail = $"The {need} capability is required." }, statusCode: 403);
             var members = await MembersAsync(db, kind, target);
             // contact bindings follow the contact scope (tenant + an agent's entities)
@@ -178,7 +199,8 @@ public static class BindingsEndpoints
                     .Where(c => ids.Contains(c.Id)).Select(c => c.Id).ToListAsync();
             }
             return Results.Ok(new { kind, target, member_ids = members });
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("users.view", "contacts.view", "tags.view");
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          .RequireAnyCapability("users.view", "contacts.view", "tags.view", AiBillingEndpoints.ManageCap);
 
         // ---- apply a diff -----------------------------------------------------
         // A DIFF, not a replacement: the operator may be filtering to a subset,
@@ -298,6 +320,20 @@ public static class BindingsEndpoints
                 if (remove.Count > 0 && ShellScope.OrgWideActionError(db, me) is { } orgWide) return orgWide;
             }
 
+            // ---- AI price books: a real plan, and only entities the caller may see. One
+            // call assigns a plan to a hundred entities — that is the point of the kind.
+            if (kind == "pricebook-entities")
+            {
+                var plan = await db.AiPriceBooks.AsNoTracking().FirstOrDefaultAsync(p => p.Id == target);
+                if (plan == null) return Results.Json(new { detail = "Price book not found." }, statusCode: 404);
+                if (!plan.IsActive && add.Count > 0)
+                    return Results.Json(new { detail = $"'{plan.Label}' is not active — reactivate it before assigning it." },
+                        statusCode: 400);
+                foreach (var eid in add.Concat(remove).Distinct())
+                    if (!await EntityVisibleAsync(db, sc, me, eid))
+                        return Results.Json(new { detail = "That entity is outside your scope." }, statusCode: 403);
+            }
+
             if (def.Target == "tag")
             {
                 var tag = await db.Tags.AsNoTracking().FirstOrDefaultAsync(x => x.Id == target);
@@ -317,6 +353,16 @@ public static class BindingsEndpoints
                 Target = $"{kind}#{target}", Detail = $"+{added} / -{removed}",
                 CreatedAt = DateTime.UtcNow,
             });
+            // every PRICING change leaves its own trail, naming the plan and the terms
+            if (kind == "pricebook-entities" && (added > 0 || removed > 0))
+            {
+                var plan = await db.AiPriceBooks.AsNoTracking().FirstOrDefaultAsync(p => p.Id == target);
+                var month = ChatBranch.Data.Ai.AiBilling.MonthKey(DateTime.UtcNow);
+                ChatBranch.Data.Audit.AuditTrail.Add(db, "billing.pricebook.assign", plan?.Slug ?? $"#{target}",
+                    $"Plan '{plan?.Label ?? target.ToString()}' "
+                    + $"({(plan != null ? ChatBranch.Data.Ai.AiPriceBooks.Describe(plan) : "unknown")}): "
+                    + $"assigned to {added} entity/entities, removed from {removed}, from {month}");
+            }
             await db.SaveChangesAsync();
             return Results.Ok(new
             {
@@ -325,7 +371,8 @@ public static class BindingsEndpoints
             });
         }).RequireAuthorization(AuthPolicies.Authenticated)
           // a first cut for the route table; the kind's own capability is checked above
-          .RequireAnyCapability("users.manage", "contacts.manage", "tags.manage", "channels.manage");
+          .RequireAnyCapability("users.manage", "contacts.manage", "tags.manage", "channels.manage",
+              AiBillingEndpoints.ManageCap);
     }
 
     private static int? TenantOf(ClaimsPrincipal me) =>
@@ -372,6 +419,9 @@ public static class BindingsEndpoints
 
         "entity-accounts" => await db.ChannelAccounts.AsNoTracking()
             .Where(a => a.EntityId == target).Select(a => a.Id).ToListAsync(),
+
+        "pricebook-entities" => await db.AiPriceBookAssignments.AsNoTracking()
+            .Where(a => a.PriceBookId == target).Select(a => a.EntityId).ToListAsync(),
 
         _ => new List<int>(),
     };
@@ -483,6 +533,32 @@ public static class BindingsEndpoints
                 foreach (var id in toAdd)
                     TagService.Assign(db, tag, targetType, id, new Dictionary<string, object?>(), actor);
                 TagService.Unassign(db, tag.Id, targetType, toRemove);
+                break;
+            }
+
+            case "pricebook-entities":
+            {
+                // An entity carries ONE plan: binding it here moves it off whatever plan
+                // it was on (uniq_aipricebookassignment_entity), unbinding returns it to
+                // inheriting its parent's — or the organization default.
+                var ids = toAdd.Concat(toRemove).ToList();
+                var valid = await db.Entities.Where(e => ids.Contains(e.Id)).Select(e => e.Id).ToListAsync();
+                toAdd = toAdd.Where(valid.Contains).ToList();
+                var rows = await db.AiPriceBookAssignments
+                    .Where(a => ids.Contains(a.EntityId) || a.PriceBookId == target).ToListAsync();
+                db.AiPriceBookAssignments.RemoveRange(
+                    rows.Where(a => toAdd.Contains(a.EntityId)
+                                    || (a.PriceBookId == target && toRemove.Contains(a.EntityId))));
+                await db.SaveChangesAsync();
+                foreach (var id in toAdd)
+                    db.AiPriceBookAssignments.Add(new AiPriceBookAssignment
+                    {
+                        PriceBookId = target, EntityId = id, Actor = actor,
+                        CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+                    });
+                await db.SaveChangesAsync();
+                // the month's terms snapshot: this assignment prices THIS month and later
+                ChatBranch.Data.Ai.AiPriceBooks.SyncTerms(db, sc);
                 break;
             }
 

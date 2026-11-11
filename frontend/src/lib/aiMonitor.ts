@@ -1,7 +1,9 @@
 /**
  * Client + types for the AI monitor (/api/ai/monitor) and the AI behaviour
- * settings (/api/ai/behaviour). Server is the source of truth for every label
- * and rule; this file only shapes the wire.
+ * settings (/api/ai/behaviour), which are read and written at one of three
+ * levels: the organization, one entity (`?entity=`) or one inbox
+ * (`?account=`). Server is the source of truth for every label and rule; this
+ * file only shapes the wire.
  */
 import { API } from '@/lib/apiBase'
 import { translate, type MessageKey, type TFunction } from '@/i18n'
@@ -222,16 +224,89 @@ export interface BehaviourField {
   max: number | null
   default: string
   value: string
+  /** What this level would inherit: the entity/organization resolved value when
+   *  an inbox is read, the parent's (else the organization's) otherwise. */
   inherited_value: string
-  scope: 'entity' | 'global' | 'default'
+  /** Where the value on screen comes from: this inbox's own override, the
+   *  entity's own row, an ancestor entity, the organization, or the engine. */
+  scope: 'account' | 'entity' | 'parent' | 'global' | 'default'
+}
+
+/** The inbox (channel account) a behaviour payload was read for (`?account=`);
+ *  null when the entity or organization level was read. */
+export interface BehaviourAccount {
+  id: number
+  name: string
+  channel: string
+  provider: string
+  /** The outlet that owns the inbox — the level it inherits from (null = the organization). */
+  entity_id: number | null
+  /** How many settings this inbox overrides. */
+  overrides: number
 }
 
 export interface BehaviourPayload {
   entity: string | null
   entity_name: string | null
+  account: BehaviourAccount | null
   can_manage: boolean
   groups: { id: string; title: string; description: string }[]
   fields: BehaviourField[]
+}
+
+/**
+ * The level a behaviour read/write targets: the organization (both empty), one
+ * entity, or one inbox. An inbox is absolute — it carries its own entity, so
+ * `?account=` is sent alone and the server reads/writes at that inbox's level.
+ */
+export interface BehaviourLevel {
+  entity?: string | null
+  account?: number | null
+}
+
+/** `?account=…` for an inbox, else `?entity=…`, else "" (the organization). */
+export function behaviourQuery(level: BehaviourLevel, extra: Record<string, string> = {}): string {
+  const p = new URLSearchParams()
+  if (level.account) p.set('account', String(level.account))
+  else if (level.entity) p.set('entity', level.entity)
+  for (const [k, v] of Object.entries(extra)) p.set(k, v)
+  const q = p.toString()
+  return q ? `?${q}` : ''
+}
+
+/** One inbox the AI behaviour can be tuned on (the picker shape of
+ *  GET /api/whatsapp/accounts). */
+export interface BehaviourInbox {
+  id: number
+  name: string
+  channel: string
+  provider: string
+  /** Owning outlet's slug; null = an inbox the whole organization shares. */
+  entity: string | null
+  entity_name: string
+}
+
+/**
+ * Every inbox this viewer can see, in channel + name order — numbers,
+ * mailboxes, bots, pages and website widgets alike, since a widget IS a
+ * channel account (`?channel=all` on the one accounts endpoint the channels
+ * page and the chats sender picker already read).
+ */
+export async function listBehaviourInboxes(): Promise<BehaviourInbox[]> {
+  const { accounts } = await aiApi<{ accounts: Record<string, unknown>[] }>('whatsapp/accounts?channel=all')
+  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+  return (accounts ?? [])
+    // the .env-managed pseudo-account has no row to override (its id is not a pk)
+    .filter((a) => /^\d+$/.test(str(a.id)))
+    .map((a) => ({
+      id: Number(str(a.id)),
+      name: str(a.name).trim() || `#${str(a.id)}`,
+      channel: str(a.channel),
+      provider: str(a.provider),
+      entity: str(a.entity) || null,
+      entity_name: str(a.entity_name),
+    }))
+    .sort((a, b) => a.channel.localeCompare(b.channel) || a.name.localeCompare(b.name))
 }
 
 export class ApiError extends Error {

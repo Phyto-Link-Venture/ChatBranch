@@ -4,7 +4,7 @@ using ChatBranch.Domain;
 namespace ChatBranch.Data.Channels;
 
 /// <summary>
-/// "Who answers it" for an inbox (Chatwoot's inbox settings): the team that
+/// "Who answers it" for an inbox: the team that
 /// owns new conversations arriving on a channel account, and whether the AI
 /// replies on them by default. Stored in <see cref="ChannelAccount.Config"/>
 /// next to <c>role</c> and the delivery knobs — no schema change, and an
@@ -19,6 +19,14 @@ namespace ChatBranch.Data.Channels;
 /// * <b>ai_review_mode</b> — who checks the AI before it sends on this inbox
 ///   (auto | review_flagged | review_all | shadow); blank = inherit the
 ///   entity/organization AI-behaviour setting (AiBehaviourSettings reads it).
+/// * <b>ai_enabled / ai_schedule / ai_schedule_mode / ai_never_tags</b> — this
+///   inbox's own AI MASTER SWITCH (<see cref="ChatBranch.Data.Ai.AiControlKeys"/>),
+///   the level below the entity. Unlike every other key here it can only ever
+///   SUBTRACT: "off" silences this inbox and a schedule narrows its hours, while
+///   "on" adds nothing, because the master switch's rule is "off anywhere up the
+///   tree wins" (<see cref="ChatBranch.Data.Ai.AiInboxMaster"/>). Not to be
+///   confused with <c>ai_default</c> above: that one is stamped on a conversation
+///   when it is created, this one is a live gate on every message.
 /// * <b>keep_recalled</b> — true: a message the customer recalls ("delete for
 ///   everyone" / unsend) stays readable, marked as deleted; absent: its words and
 ///   file are erased like on the customer's phone (<see cref="MessageRecalls"/>).
@@ -69,6 +77,103 @@ public static class InboxSettings
         false => "off",
         null => "",
     };
+
+    /// <summary>
+    /// This inbox's OWN value for an AI behaviour key, or "" when it inherits.
+    /// Only the keys in <see cref="ChatBranch.Data.Ai.AiBehaviourSettings"/> are
+    /// meaningful — <c>AiBehaviourSettings.Resolve</c> reads exactly these from
+    /// <see cref="ChannelAccount.Config"/> before the entity and organization rows.
+    /// </summary>
+    public static string BehaviourOwn(ChannelAccount? account, string key) =>
+        account != null && account.Config.TryGetValue(key, out var raw) && raw != null
+            ? (raw.ToString() ?? "").Trim()
+            : "";
+
+    /// <summary>Every AI behaviour key this inbox overrides, key → its own value.</summary>
+    public static Dictionary<string, string> BehaviourOverrides(ChannelAccount? account)
+    {
+        var own = new Dictionary<string, string>();
+        if (account == null) return own;
+        foreach (var key in ChatBranch.Data.Ai.AiBehaviourSettings.Keys)
+        {
+            var v = BehaviourOwn(account, key);
+            if (v.Length > 0) own[key] = v;
+        }
+        return own;
+    }
+
+    /// <summary>
+    /// Set this inbox's own value for an AI behaviour key. A blank value REMOVES
+    /// the key, so the inbox inherits the entity/organization value again.
+    /// Returns true when the stored config actually changed. The caller saves.
+    /// </summary>
+    public static bool SetBehaviour(ChannelAccount account, string key, string? value)
+    {
+        if (!ChatBranch.Data.Ai.AiBehaviourSettings.ByKey.ContainsKey(key)) return false;
+        var cfg = new Dictionary<string, object?>(account.Config);
+        var before = BehaviourOwn(account, key);
+        var want = (value ?? "").Trim();
+        if (want.Length == 0) cfg.Remove(key); else cfg[key] = want;
+        if (before == want) return false;
+        account.Config = cfg;
+        return true;
+    }
+
+    // ---- the AI master switch, per inbox -------------------------------------
+    // The same storage as the behaviour overrides above, but NOT the same rule:
+    // AiControls.InboxMaster only ever uses these to switch the AI OFF.
+
+    /// <summary>
+    /// This inbox's OWN value for an AI master-switch key
+    /// (<see cref="ChatBranch.Data.Ai.AiControlKeys"/>), or "" when it inherits
+    /// the entity / organization level.
+    /// </summary>
+    public static string MasterOwn(ChannelAccount? account, string key) =>
+        ChatBranch.Data.Ai.AiControlKeys.All.Contains(key) ? BehaviourOwn(account, key) : "";
+
+    /// <summary>Every master-switch key this inbox overrides, key → its own value.</summary>
+    public static Dictionary<string, string> MasterOverrides(ChannelAccount? account)
+    {
+        var own = new Dictionary<string, string>();
+        if (account == null) return own;
+        foreach (var key in ChatBranch.Data.Ai.AiControlKeys.All)
+        {
+            var v = MasterOwn(account, key);
+            if (v.Length > 0) own[key] = v;
+        }
+        return own;
+    }
+
+    /// <summary>
+    /// Set this inbox's own master-switch value, normalized the way the Setting
+    /// rows store it. A blank value (or "inherit") REMOVES the key, so the inbox
+    /// follows the entity / organization switch again. Returns true when the
+    /// stored config actually changed. The caller saves.
+    ///
+    /// Storing "on" is allowed and means "this inbox adds no restriction" — it
+    /// can never answer against a level above that is off or out of hours.
+    /// </summary>
+    public static bool SetMaster(ChannelAccount account, string key, string? value)
+    {
+        if (!ChatBranch.Data.Ai.AiControlKeys.All.Contains(key)) return false;
+        var raw = (value ?? "").Trim();
+        var want = raw.Length == 0 || raw.Equals("inherit", StringComparison.OrdinalIgnoreCase)
+            ? ""
+            : key switch
+            {
+                ChatBranch.Data.Ai.AiControlKeys.Master => ChatBranch.Data.Ai.AiMasterModes.Normalize(raw),
+                ChatBranch.Data.Ai.AiControlKeys.ScheduleMode => ChatBranch.Data.Ai.AiScheduleModes.Normalize(raw),
+                ChatBranch.Data.Ai.AiControlKeys.Schedule =>
+                    ChatBranch.Data.Ai.AiSchedule.Parse(raw) is { IsEmpty: false } sch ? sch.ToJson() : "",
+                _ => string.Join(", ", ChatBranch.Data.Ai.AiControls.SplitTags(raw)),
+            };
+        var before = MasterOwn(account, key);
+        if (before == want) return false;
+        var cfg = new Dictionary<string, object?>(account.Config);
+        if (want.Length == 0) cfg.Remove(key); else cfg[key] = want;
+        account.Config = cfg;
+        return true;
+    }
 
     /// <summary>
     /// Apply the request's inbox keys to the account's config. Each argument is

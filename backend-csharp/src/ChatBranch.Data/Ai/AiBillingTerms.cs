@@ -27,6 +27,30 @@ public class BillingTerms
     /// <summary>The first month (yyyy-MM) these terms bill. Null = a legacy row: every earlier month.</summary>
     [JsonPropertyName("effective_from")] public string? EffectiveFrom { get; set; }
 
+    // ---- price books: the month's SNAPSHOT of crm_aipricebook(assignment) -------------
+    // Written by AiPriceBooks.SyncTerms on every plan or assignment change, which is
+    // what makes a reassignment apply to the current month and later ONLY. Absent on
+    // every row written before price books existed — such a month bills exactly as it
+    // did then (the markup/fee defaults plus the `companies` overrides above).
+
+    /// <summary>The named plans as they stood, by slug.</summary>
+    [JsonPropertyName("plans")] public List<PricePlan> Plans { get; set; } = new();
+    /// <summary>Entity id (as a string, ANY level of the tree) → the plan slug assigned to it.</summary>
+    [JsonPropertyName("entity_plans")] public Dictionary<string, string> EntityPlans { get; set; } = new();
+    /// <summary>The slug of the organization default plan ("" / null = the built-in defaults).</summary>
+    [JsonPropertyName("default_plan")] public string? DefaultPlan { get; set; }
+
+    public PricePlan? Plan(string? slug) => string.IsNullOrWhiteSpace(slug) ? null
+        : Plans.FirstOrDefault(p => string.Equals(p.Slug, slug, StringComparison.OrdinalIgnoreCase));
+
+    // The three helpers below are the PRE-PRICE-BOOK price: the defaults plus the
+    // per-company override map, with no plans in it. Nothing in production prices
+    // with them any more — AiPriceBooks.Resolve is the ONE place a price is
+    // resolved (override → plan up the tree → org default plan → these defaults),
+    // and it is what the bill, the quotas and the settings screens all ask. They
+    // stay as the definition of that last fallback, and AiPriceBookTests pins
+    // Resolve to them so a plan-less database keeps billing identically.
+
     public double MarkupFor(int? companyId) =>
         companyId is int id && Companies.TryGetValue(id.ToString(CultureInfo.InvariantCulture), out var c)
         && c.MarkupPct is double m ? m : DefaultMarkupPct;
@@ -47,6 +71,12 @@ public class BillingTerms
         Companies = Companies.ToDictionary(kv => kv.Key,
             kv => new CompanyTerms { MarkupPct = kv.Value.MarkupPct, MonthlyFee = kv.Value.MonthlyFee }),
         EffectiveFrom = effectiveFrom,
+        // sorted, so "the same plans in another order" compares EQUAL in SameTermsAs
+        // and does not open a second identical period in the history
+        Plans = Plans.OrderBy(p => p.Slug, StringComparer.Ordinal).Select(p => p.Copy()).ToList(),
+        EntityPlans = EntityPlans.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .ToDictionary(kv => kv.Key, kv => kv.Value),
+        DefaultPlan = string.IsNullOrWhiteSpace(DefaultPlan) ? null : DefaultPlan,
     };
 
     public bool SameTermsAs(BillingTerms other) =>
@@ -117,13 +147,23 @@ public static class AiBilling
                 stored = true;
                 var s = JsonSerializer.Deserialize<BillingSettings>(raw, Json) ?? new BillingSettings();
                 s.History ??= new();
-                s.Companies ??= new();
-                foreach (var h in s.History) h.Companies ??= new();
+                Fix(s);
+                foreach (var h in s.History) Fix(h);
                 return s;
             }
         }
         catch { /* a malformed row bills at the defaults rather than failing */ }
         return new BillingSettings();
+    }
+
+    /// <summary>A row written before a field existed deserializes it as null: an
+    /// empty collection means "no plans", which bills exactly as that month did.</summary>
+    private static void Fix(BillingTerms t)
+    {
+        t.Companies ??= new();
+        t.Plans ??= new();
+        t.EntityPlans ??= new();
+        t.Plans.RemoveAll(p => p == null || string.IsNullOrWhiteSpace(p.Slug));
     }
 
     /// <summary>The calendar month (UTC) a moment falls in, as yyyy-MM.</summary>
@@ -144,6 +184,7 @@ public static class AiBilling
             Currency = incoming.Currency, UsdRate = incoming.UsdRate,
             DefaultMarkupPct = incoming.DefaultMarkupPct, DefaultMonthlyFee = incoming.DefaultMonthlyFee,
             Companies = incoming.Companies, EffectiveFrom = month,
+            Plans = incoming.Plans, EntityPlans = incoming.EntityPlans, DefaultPlan = incoming.DefaultPlan,
             History = stored.History.Select(h => h.CopyTerms(h.EffectiveFrom)).ToList(),
         };
         if (!hadRow) return next;

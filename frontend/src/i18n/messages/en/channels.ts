@@ -103,6 +103,12 @@ export const channels = {
       channelLabel: 'WhatsApp by QR',
       connectTitle: 'Before you pair',
     },
+    waWaha: {
+      label: 'WhatsApp via WAHA',
+      blurb: 'Your own WAHA server · unofficial',
+      channelLabel: 'WhatsApp (WAHA)',
+      connectTitle: 'Before you connect WAHA',
+    },
     email: {
       label: 'Email',
       blurb: 'A mailbox · SMTP out, IMAP in',
@@ -225,6 +231,7 @@ export const channels = {
       ycloud: 'YCloud',
       twilio: 'Twilio',
       qr: 'QR',
+      waha: 'WAHA',
       zernio: 'Managed connection',
       meta: 'Meta',
       bot: 'Bot API',
@@ -253,6 +260,11 @@ export const channels = {
       label: 'QR-linked number',
       pro: 'Pair any phone in a minute — handy for a quick demo',
       con: "Unofficial — breaks WhatsApp's terms; the number can be banned",
+    },
+    waWaha: {
+      label: 'Self-hosted WAHA',
+      pro: 'Your own server — one API for several numbers, no Meta approval',
+      con: "Unofficial — breaks WhatsApp's terms; the number can be banned, and you run the server",
     },
     zernioInbox: {
       label: 'Managed connection',
@@ -315,6 +327,70 @@ export const channels = {
     timedOut: 'The connection hasn\'t been confirmed yet. Check Connected in a minute, or start again.',
     code: 'Code',
     open: 'Open',
+  },
+  waSignup: {
+    intro: 'The business signs in to Meta in their own browser and picks the number — no tokens to copy, nothing to paste here.',
+    outlet: 'Outlet',
+    outletHelp: 'The new inbox belongs to this outlet — the one picked in the switcher, unless you change it here.',
+    modeTitle: 'How should this number work?',
+    modeApi: 'WhatsApp Business Platform only',
+    modeApiHint: 'Best for a new or spare number. Full API: groups, calls and higher sending speed.',
+    modeApp: 'Keep the WhatsApp Business app (coexistence)',
+    modeAppHint: 'The number stays on the phone and messages are mirrored both ways. Someone must scan a QR code during setup.',
+    warningsTitle: 'Tell the business this first',
+    warnOneProvider: 'A number pairs with one provider at a time. If it is connected to another provider, disconnect it there first: WhatsApp Business app → Settings → Account → Business Platform → Disconnect.',
+    warnLeavesApp: 'This number stops working in the WhatsApp Business app, and the chat history on the phone does not come across. A number used with the ordinary WhatsApp app cannot be connected at all.',
+    warnHardToReverse: 'Going back means deregistering the number from the API, and the history does not return. Pick coexistence if the business wants to keep using the app.',
+    warnScan: 'Someone has to be at the phone: Meta shows a QR code to scan with the WhatsApp Business app (the ordinary WhatsApp app does not qualify).',
+    warnLimits: 'On the API side this number sends up to 20 messages a second, groups made in the app stay invisible, and calls, disappearing and view-once messages are off for it.',
+    ack: 'I have explained this to the business and it is ready to continue.',
+    ackRequired: 'Tick the box to continue.',
+    start: 'Open the WhatsApp sign-in',
+    starting: 'Opening the sign-in page…',
+    startNote: 'A new window signs in to Meta and picks the number; you come back here when it is done.',
+    numbersToggle: 'No number yet? Buy or manage one',
+    advancedTitle: 'Advanced: use the business\'s own Meta credentials',
+    advancedHint: 'For a business that already has a System User token, a WhatsApp Business Account id and a phone number id.',
+    advancedSubmit: 'Connect with credentials',
+    advancedDone: 'WhatsApp is connected. It shows under Connected with a “Managed connection” badge.',
+    fields: {
+      token: 'Permanent access token (System User)',
+      tokenHelp: 'Meta Business Suite → System users',
+      waba: 'WhatsApp Business Account ID',
+      phoneId: 'Phone number ID',
+      pin: 'Two-step verification PIN (6 digits)',
+      pinHelp: 'Only when two-step verification is on for the number.',
+    },
+  },
+  waNumbers: {
+    title: 'Get a number',
+    intro: 'A number from us is already verified for WhatsApp and carries calls and SMS on the same number. A number from the business\'s own carrier is not.',
+    owned: 'Numbers this outlet already has',
+    none: 'No numbers yet.',
+    monthly: '{price} / month',
+    country: 'Country',
+    countryPrice: '{code} — {price} / month',
+    kyc: 'Needs ID checks (1–3 business days)',
+    outOfStock: 'Out of stock',
+    wantsSms: 'Also use this number for SMS',
+    buy: 'Buy this number',
+    buying: 'Buying…',
+    buyConfirmBody: 'This starts a recurring charge of {price} every month, billed to this workspace, until the number is released. The first month is charged in full.',
+    buyConfirmAck: 'I understand this costs {price} every month.',
+    bought: '{number} is yours. Finish the WhatsApp connection above.',
+    pendingKyc: 'Sent for ID checks — the number arrives in 1–3 business days.',
+    releaseTitle: 'Release {number}?',
+    releaseBody: 'This returns the number to the carrier pool. It cannot be undone, the monthly charge stops, and any inbox on this number stops working.',
+    releaseTyped: 'Type the number to confirm',
+    release: 'Release',
+    releasing: 'Releasing…',
+    released: '{number} was released.',
+    loadFailed: 'The numbers could not be loaded: {reason}',
+  },
+  waResult: {
+    connected: 'WhatsApp is connected. The new inbox is in the Connected list.',
+    pending: 'WhatsApp is connected. Its inbox appears here in a moment.',
+    failed: 'WhatsApp was not connected: {detail}',
   },
   market: {
     intro: '{channel} shops are connected in the seller service, which holds the marketplace login. Once a shop is there, bring it in here and it becomes an inbox.',
@@ -428,6 +504,16 @@ export const channels = {
       textAndCalls: 'Text messages and voice calls; Meta templates stay on WhatsApp Business numbers.',
       noWindow: 'No 24-hour window — and no Meta compliance either.',
       ack: 'I understand the risk and will pair a spare number.',
+    },
+    waha: {
+      warning:
+        "{b} WhatsApp via WAHA drives the unofficial WhatsApp Web protocol from a server you host. It needs no Meta approval, but it breaks WhatsApp's terms of service and the number can be banned. Use a spare number — never your main business line.",
+      youHostIt:
+        'You run WAHA yourself (the devlikeapro/waha container) — ChatBranch only needs its address, and WAHA needs to be able to reach this API back for the webhook.',
+      textAndFiles:
+        'Text and files; Meta templates stay on WhatsApp Business numbers, and voice calls are not wired for WAHA.',
+      tier:
+        'WAHA Plus was folded into WAHA Core in 2026.6 — on that image or newer, everything used here is free. On an older image, media messages and more than one session need the paid build.',
     },
     websiteIntro:
       'A chat bubble for your site: one script tag, no build step. Visitor conversations land in the same inbox as WhatsApp and email, with the same AI, teams and automations.',
@@ -558,6 +644,10 @@ export const channels = {
   },
   setup: {
     labels: {
+      wahaBaseUrl: 'WAHA base URL',
+      wahaSession: 'Session name',
+      wahaEngine: 'Engine',
+      wahaApiKey: 'WAHA API key',
       phoneNumberId: 'Phone number ID',
       wabaId: 'WhatsApp Business Account ID',
       wabaIdShort: 'The WABA ID',
@@ -609,6 +699,7 @@ export const channels = {
       apiKeySecret: 'API Key secret',
     },
     placeholders: {
+      wahaApiKey: 'From WAHA_API_KEY',
       signatureChecks: 'Enables webhook signature checks',
       appPassword: 'App password',
       fromAppSettings: 'From App settings → Basic',
@@ -631,6 +722,16 @@ export const channels = {
       fromYcloud: 'From the YCloud console',
     },
     help: {
+      waWaha: {
+        baseUrl:
+          'Where your WAHA container listens, as this API can reach it — https://waha.example.com, or http://waha:3000 inside your own network.',
+        session:
+          'WAHA keeps one WhatsApp number per named session. Leave it as "default" unless that WAHA already runs other numbers.',
+        engine:
+          'Which engine your WAHA runs (WHATSAPP_DEFAULT_ENGINE on the WAHA side — WEBJS is its default). Recorded here for reference only; nothing ChatBranch sends depends on it.',
+        apiKey:
+          'The WAHA_API_KEY you started WAHA with. Leave it blank if you started it without one — but then anyone who can reach that URL can use your WhatsApp.',
+      },
       waYcloud: {
         phoneNumber: 'The WhatsApp number registered in YCloud, in international form (+60123456789).',
         accessToken: 'YCloud console → Developers → API Keys.',
@@ -734,6 +835,9 @@ export const channels = {
       },
     },
     checks: {
+      originUrl: 'Enter a full address, like https://waha.example.com.',
+      sessionName: 'A session name uses letters, digits, "-", "_" or "." only.',
+      wahaEngine: 'The engine is one of WEBJS, WPP, NOWEB or GOWS.',
       digits: '{field} is a long number — digits only.',
       email: 'That does not look like an email address.',
       e164: 'An E.164 number with the country code, like +60123456789.',
@@ -752,6 +856,12 @@ export const channels = {
       waTwilioOneOf: 'Set the WhatsApp sender or a Messaging Service SID.',
     },
     guides: {
+      waWaha: {
+        s1: 'Run WAHA on your own server: docker run -p 3000:3000 -e WAHA_API_KEY=… devlikeapro/waha.',
+        s2: 'Put its address and that API key above. The session name can stay "default".',
+        s3: 'Save, then press Pair: ChatBranch creates the session in WAHA with this inbox’s signed webhook and shows the QR.',
+        s4: 'Scan it from WhatsApp → Linked devices on a spare phone. WAHA must be able to reach this API back, or messages will not arrive.',
+      },
       waYcloud: {
         s1: 'Sign in at ycloud.com and connect your WhatsApp Business number.',
         s2: 'Developers → API Keys: copy the API key.',
@@ -842,6 +952,7 @@ export const channels = {
       },
     },
     defaultNames: {
+      waWaha: 'WhatsApp (WAHA)',
       waCloud: 'WhatsApp Business',
       waQr: 'WhatsApp (QR)',
       waYcloud: 'WhatsApp (YCloud)',
@@ -949,6 +1060,36 @@ export const channels = {
     pairCodeHelp:
       'On {number}: WhatsApp → Settings → Linked devices → Link a device → Link with phone number, then type this code.',
     pairCodeWaiting: 'Waiting for the phone…',
+    history: {
+      title: 'Older messages',
+      intro:
+        'When this number was linked, WhatsApp sent the chat list and only the most recent messages. You can ask it for older ones, chat by chat.',
+      limits:
+        'WhatsApp serves only what the paired phone still holds, so this is never a full archive — and that phone must be ONLINE while the fetch runs. Requests go out {min}–{max} seconds apart and stop at {cap} per run, because this transport is unofficial and a banned number cannot be recovered.',
+      textOnly: 'Text only: old photos, voice notes and files are not downloaded.',
+      depth: 'How deep per chat',
+      depthOption: '{n} messages',
+      start: 'Fetch older messages',
+      starting: 'Starting…',
+      stop: 'Stop',
+      stopping: 'Stopping…',
+      running: 'Fetching older messages…',
+      waiting: 'Pacing — next request in about {n}s',
+      requests: '{made} of {cap} requests used',
+      served: '{n} served by WhatsApp',
+      imported: '{n} new to the inbox',
+      deepened: '{n} chat(s) deepened',
+      stoppedBecause: 'Stopped: {reason}',
+      lastRun: 'Last run: {made} request(s), {imported} message(s) added.',
+      never: 'No fetch has run for this number yet.',
+      known: '{n} chat(s) have a message to ask from.',
+      exhausted: '{n} of them already hold everything WhatsApp will serve.',
+      dayLeft: '{left} of {cap} requests left for this number today.',
+      cooldown: 'Another run can start {n} minute(s) after this one ends.',
+      chatsHeading: 'Per chat',
+      chatRow: '{requests} request(s) · {served} served · {imported} new',
+      phoneOffline: 'Nothing came back. The paired phone must be online and on WhatsApp for it to answer.',
+    },
     days: {
       mon: 'Monday',
       tue: 'Tuesday',
@@ -988,6 +1129,43 @@ export const channels = {
     inherit: 'Inherit',
     inheritValue: 'Inherit ({value})',
     voiceHint: 'The LLM and STT apply to ElevenLabs-voice calls placed from this number, from the next call on.',
+  },
+  waha: {
+    confirmCodeAria: 'WhatsApp passkey confirmation number',
+    confirmCodeHelp:
+      'WhatsApp is showing this number on the phone — confirm that it matches, there. There is nothing to type here.',
+    qrExpired:
+      'The QR code expired before it was scanned. Press Try again for a fresh one, then scan it from WhatsApp → Linked devices.',
+    pairMethod: 'How do you want to link it?',
+    pairByQr: 'Scan a QR code',
+    pairByPhone: 'Use my phone number',
+    pairPhoneLabel: 'The WhatsApp number you are linking',
+    pairPhoneHelp:
+      'WAHA asks WhatsApp for an 8-character code to type on that phone — no camera needed. WhatsApp does not always issue one, so the QR stays as the fallback.',
+    pairPhoneSend: 'Get a pairing code',
+    pairPhoneNeeded: 'Enter the number with its country code first.',
+    pairCodeAria: 'WhatsApp pairing code',
+    pairCodeAsking: 'Asking WhatsApp for a code…',
+    pairCodeHelp:
+      'On {number}: WhatsApp → Settings → Linked devices → Link a device → Link with phone number, then type this code.',
+    pairCodeWaiting: 'Waiting for the phone…',
+    qrAlt: 'WhatsApp pairing QR code',
+    scanHelp:
+      'On the phone: WhatsApp → Settings → Linked devices → Link a device, then scan. WAHA refreshes the code on its own.',
+    contacting: 'Contacting your WAHA server…',
+    starting: 'The session is starting — this is normal, and it may restart once right after pairing.',
+    passkey: 'WhatsApp is asking for a passkey confirmation on the phone — approve it there.',
+    connectedAs: 'Connected as {number}',
+    connectedBody: 'This number now sends and receives through the inbox.',
+    sessionScope: 'WAHA session “{session}” · engine {engine}',
+    engineUnknown: 'not stated',
+    unreachable: 'Your WAHA server did not answer.',
+    unreachableHelp:
+      'WAHA is your own server, not part of ChatBranch. Check that it is running and that the base URL and API key above are right — this API has to reach it, and WAHA has to reach this API back for the webhook.',
+    sessionFailed: 'WAHA reported the session as FAILED.',
+    failedHelp:
+      'Press Try again to start a fresh session. If it keeps failing, read the WAHA container’s own logs — the number may have been logged out on the phone or blocked by WhatsApp.',
+    noWebhookKey: 'No webhook signing key yet — inbound messages are refused until pairing sets one.',
   },
   widget: {
     title: 'Header title',

@@ -42,10 +42,13 @@ public static class WhatsAppBspWebhookEndpoints
         services.AddSingleton<WhatsAppCloudClient>();
         services.AddSingleton<YCloudWhatsAppClient>();
         services.AddSingleton<TwilioWhatsAppClient>();
+        // WAHA — the operator's own self-hosted WhatsApp HTTP API (unofficial; see WahaEndpoints)
+        services.AddSingleton<WahaWhatsAppClient>();
         services.AddSingleton<IWhatsAppCloudClient>(sp => new WhatsAppClientRouter(
             sp.GetRequiredService<WhatsAppCloudClient>(),
             sp.GetRequiredService<YCloudWhatsAppClient>(),
             sp.GetRequiredService<TwilioWhatsAppClient>(),
+            sp.GetRequiredService<WahaWhatsAppClient>(),
             // WhatsApp via a managed connection (Zernio) — registered by AddSocialChannel
             sp.GetService<ChatBranch.Data.Social.ZernioWhatsAppClient>()));
         return services;

@@ -38,6 +38,7 @@ export type MethodId =
   | 'wa_ycloud'
   | 'wa_twilio'
   | 'wa_qr'
+  | 'wa_waha'
   | 'meta'
   | 'bot'
   | 'sms_twilio'
@@ -60,7 +61,7 @@ export interface MethodDef {
   con: MessageKey
   badge?: MessageKey
   recommended?: boolean
-  /** Unofficial transport (QR) — amber warning tone. */
+  /** Unofficial transport (QR, WAHA) — amber warning tone. */
   unofficial?: boolean
 }
 
@@ -93,6 +94,7 @@ const BADGE = {
   ycloud: 'channels.methods.badges.ycloud',
   twilio: 'channels.methods.badges.twilio',
   qr: 'channels.methods.badges.qr',
+  waha: 'channels.methods.badges.waha',
   zernio: 'channels.methods.badges.zernio',
   meta: 'channels.methods.badges.meta',
   bot: 'channels.methods.badges.bot',
@@ -146,6 +148,7 @@ export const CHANNELS: ChannelDef[] = [
       { id: 'wa_ycloud', kind: 'wa_ycloud', ...m('waYcloud'), badge: BADGE.ycloud },
       { id: 'wa_twilio', kind: 'wa_twilio', ...m('waTwilio'), badge: BADGE.twilio },
       { id: 'wa_qr', kind: 'wa_qr', ...m('waQr'), badge: BADGE.qr, unofficial: true },
+      { id: 'wa_waha', kind: 'wa_waha', ...m('waWaha'), badge: BADGE.waha, unofficial: true },
       zernioInbox('whatsapp'),
     ],
   },

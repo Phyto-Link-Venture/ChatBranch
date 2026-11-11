@@ -10,7 +10,10 @@ namespace ChatBranch.Api.Endpoints;
 
 /// <summary>One company's line on the bill. Cost, markup and margin are null unless the caller holds billing.manage.</summary>
 internal sealed record BillCompany(int Id, string Name, string Slug, int Requests, long Tokens, double UsageAmount,
-    double MonthlyFee, double Total, double? CostUsd, double? MarkupPct, double? Margin);
+    double MonthlyFee, double Total, double? CostUsd, double? MarkupPct, double? Margin,
+    // the price book that priced this company's month, and where it came from
+    // (ChatBranch.Data.Ai.AiPriceBooks) — null/markup when nothing but the defaults applied
+    string? PlanSlug = null, string? PlanLabel = null, string Mode = "markup", bool PlanInherited = false);
 
 internal sealed record BillLine(string Feature, int Requests, long Tokens, double Amount, double? CostUsd);
 

@@ -4,6 +4,7 @@ using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Ai;
 using ChatBranch.Data.Audit;
+using ChatBranch.Data.Channels;
 using ChatBranch.Data.Flows;
 using ChatBranch.Domain;
 using Microsoft.AspNetCore.Http.Extensions;
@@ -16,12 +17,17 @@ namespace ChatBranch.Api.Endpoints;
 /// <summary>
 /// AI on/off controls and human-handover tracking.
 ///
-/// * <c>GET/PUT /api/ai/controls?entity=</c> — the master switch (Setting
-///   <c>ai_enabled</c>: on | off | schedule), the schedule (<c>ai_schedule</c>
+/// * <c>GET/PUT/DELETE /api/ai/controls?entity=&amp;account=</c> — the master switch
+///   (Setting <c>ai_enabled</c>: on | off | schedule), the schedule (<c>ai_schedule</c>
 ///   per-weekday windows + <c>ai_schedule_mode</c> inside|outside, org timezone)
 ///   and the never-AI tags (<c>ai_never_tags</c>), per outlet or org-wide,
-///   resolved up the entity tree. GET: ai.monitor / ai.behaviour.manage /
-///   chats.view · PUT: ai.behaviour.manage (+ the outlet must be in the caller's scope).
+///   resolved up the entity tree. <c>?account=</c> targets ONE inbox, the level
+///   below the entity (stored in <c>ChannelAccount.Config</c>): an inbox can only
+///   ever switch itself OFF or narrow its hours — never answer against a level
+///   above that is off or out of hours. DELETE drops this level's own values so it
+///   inherits again (<c>&amp;key=</c> for one of them). GET: ai.monitor /
+///   ai.behaviour.manage / chats.view · PUT + DELETE: ai.behaviour.manage
+///   (+ the outlet must be in the caller's scope).
 /// * <c>GET/PUT /api/contacts/{id}/ai-mode</c> — "" | never | always (contacts.manage to write).
 /// * <c>POST /api/inbox/threads/bulk</c> — ai_on | ai_off | resolve | reopen | assign
 ///   over picked conversations or everything a list filter matches (chats.manage,
@@ -38,24 +44,31 @@ public static class AiControlsEndpoints
     public static void MapAiControlsEndpoints(this IEndpointRouteBuilder app)
     {
         // ---- master switch + schedule + never-tags --------------------------------
-        app.MapGet("/api/ai/controls", async (string? entity, AppDbContext db, ScopingService sc,
+        app.MapGet("/api/ai/controls", async (string? entity, int? account, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me) =>
         {
+            var (acct, acctErr) = await ControlsAccount(db, account);
+            if (acctErr != null) return acctErr;
             var (entityId, err) = await EntityArg(db, entity);
             if (err != null) return err;
+            // an inbox is read at ITS OWN entity's level, whatever ?entity said
+            if (acct != null) { entityId = acct.EntityId; entity = null; }
             // an entity-bound agent reads only its own outlets' levels (like the playground)
             if (entityId is int asked && ShellScope.BoundEntityIds(db, sc, me) is List<int> bound
                 && !bound.Contains(asked))
                 return Results.Json(new { detail = "That outlet is outside your scope." }, statusCode: 404);
-            return Results.Ok(await ControlsPayload(db, sc, me, entityId));
+            return Results.Ok(await ControlsPayload(db, sc, me, entityId, acct));
         }).RequireAuthorization(AuthPolicies.Authenticated)
           .RequireAnyCapability("ai.monitor", AiMonitorEndpoints.BehaviourCap, "chats.view");
 
-        app.MapPut("/api/ai/controls", async (string? entity, HttpContext ctx, AppDbContext db,
+        app.MapPut("/api/ai/controls", async (string? entity, int? account, HttpContext ctx, AppDbContext db,
             ScopingService sc, ClaimsPrincipal me) =>
         {
+            var (acct, acctErr) = await ControlsAccount(db, account);
+            if (acctErr != null) return acctErr;
             var (entityId, err) = await EntityArg(db, entity);
             if (err != null) return err;
+            if (acct != null) { entityId = acct.EntityId; entity = null; }
             if (!MayEdit(db, sc, me, entityId))
                 return Results.Json(new
                 {
@@ -111,36 +124,89 @@ public static class AiControlsEndpoints
             if (writes.Count == 0) return Bad("Nothing to change — send mode, schedule, schedule_mode or never_tags.");
 
             // "schedule" needs at least one window once everything above is applied
-            // (an inheriting outlet takes its parent's switch, already validated there)
+            // (an inheriting outlet takes its parent's switch, already validated there;
+            // an inbox gates on its OWN windows, never on the ones above it)
             var masterWrite = writes.FirstOrDefault(w => w.Key == AiControlKeys.Master);
             var effectiveMode = masterWrite.Key != null
                 ? masterWrite.Value ?? ""
-                : new AiControls(db, sc) { AlwaysLoadSchedule = true }.Master(entityId).Mode;
+                : acct != null
+                    ? InboxSettings.MasterOwn(acct, AiControlKeys.Master)
+                    : new AiControls(db, sc) { AlwaysLoadSchedule = true }.Master(entityId).Mode;
             if (effectiveMode == AiMasterModes.Schedule)
             {
                 var schedWrite = writes.FirstOrDefault(w => w.Key == AiControlKeys.Schedule);
                 var schedule = schedWrite.Key != null
                     ? AiSchedule.Parse(schedWrite.Value)
-                    : new AiControls(db, sc) { AlwaysLoadSchedule = true }.Master(entityId).Schedule;
+                    : acct != null
+                        ? AiSchedule.Parse(InboxSettings.MasterOwn(acct, AiControlKeys.Schedule))
+                        : new AiControls(db, sc) { AlwaysLoadSchedule = true }.Master(entityId).Schedule;
                 if (schedule.IsEmpty)
                     return Bad("Add at least one time window before switching the AI to a schedule.");
             }
 
-            foreach (var (key, value) in writes)
+            if (acct != null)
             {
-                if (value == null)
-                {
-                    if (entityId is int eid) sc.ClearSetting(key, eid);
-                    else sc.SetSetting(key, "", null);
-                }
-                else sc.SetSetting(key, value, entityId);
+                // an inbox keeps its own values in ChannelAccount.Config, where
+                // AiControls.InboxMaster reads them as a gate that can only ever
+                // switch this inbox OFF (never on against the level above)
+                var touched = false;
+                foreach (var (key, value) in writes) touched |= InboxSettings.SetMaster(acct, key, value ?? "");
+                if (touched) await db.SaveChangesAsync();
             }
-            var scopeLabel = entityId == null ? "organization" : $"entity:{entity}";
+            else
+            {
+                foreach (var (key, value) in writes)
+                {
+                    if (value == null)
+                    {
+                        if (entityId is int eid) sc.ClearSetting(key, eid);
+                        else sc.SetSetting(key, "", null);
+                    }
+                    else sc.SetSetting(key, value, entityId);
+                }
+            }
+            var scopeLabel = acct != null ? $"inbox:{acct.Id}" : entityId == null ? "organization" : $"entity:{entity}";
             AuditTrail.Write(db, "ai.controls.update", scopeLabel,
                 AuditTrail.Cap(string.Join(", ", writes.Select(w => $"{w.Key}={w.Value ?? "(inherit)"}")), 900),
                 actor: me.Identity?.Name);
             BumpAllThreads(db); // every open chat re-reads its AI state
-            return Results.Ok(await ControlsPayload(db, sc, me, entityId));
+            return Results.Ok(await ControlsPayload(db, sc, me, entityId, acct));
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          .RequireCapability(AiMonitorEndpoints.BehaviourCap);
+
+        // ---- back to inheriting (one key or this level's lot) ---------------------
+        app.MapDelete("/api/ai/controls", async (string? entity, int? account, string? key, HttpContext ctx,
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
+        {
+            var (acct, acctErr) = await ControlsAccount(db, account);
+            if (acctErr != null) return acctErr;
+            var (entityId, err) = await EntityArg(db, entity);
+            if (err != null) return err;
+            if (acct != null) { entityId = acct.EntityId; entity = null; }
+            if (acct == null && entityId == null)
+                return Bad("Pick an outlet or an inbox to remove its own AI switch. "
+                           + "The organization level is edited, not deleted.");
+            if (!MayEdit(db, sc, me, entityId))
+                return Results.Json(new { detail = "That outlet is outside your scope." }, statusCode: 403);
+            var keys = string.IsNullOrWhiteSpace(key) ? AiControlKeys.All.ToList() : new List<string> { key! };
+            if (keys.Any(k => !AiControlKeys.All.Contains(k)))
+                return Bad($"Unknown setting '{key}' — one of {string.Join(", ", AiControlKeys.All)}.");
+            int cleared;
+            if (acct != null)
+            {
+                cleared = keys.Count(k => InboxSettings.SetMaster(acct, k, ""));
+                if (cleared > 0) await db.SaveChangesAsync();
+            }
+            else
+            {
+                cleared = keys.Count(k => sc.ClearSetting(k, entityId));
+            }
+            AuditTrail.Write(db, "ai.controls.reset",
+                acct != null ? $"inbox:{acct.Id}" : $"entity:{entity}",
+                string.IsNullOrWhiteSpace(key) ? $"all ({cleared} cleared)" : key!,
+                actor: me.Identity?.Name);
+            BumpAllThreads(db);
+            return Results.Ok(await ControlsPayload(db, sc, me, entityId, acct));
         }).RequireAuthorization(AuthPolicies.Authenticated)
           .RequireCapability(AiMonitorEndpoints.BehaviourCap);
 
@@ -486,49 +552,146 @@ public static class AiControlsEndpoints
         payload["handover"] = HandoverPayload(t);
     }
 
+    /// <summary>
+    /// The master switch as one level sees it: the organization, one outlet, or
+    /// (<paramref name="account"/>) one inbox. Every value says where it comes
+    /// from (<c>scopes</c>) and what it would inherit (<c>inherited</c>), the way
+    /// GET /api/ai/behaviour's fields do — except that an inbox's own values can
+    /// only ever switch the AI OFF, so <c>now_on</c> is the AND of the tree and
+    /// the inbox, never the inbox alone.
+    /// </summary>
     private static async Task<object> ControlsPayload(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
-        int? entityId)
+        int? entityId, ChannelAccount? account = null)
     {
         var ai = new AiControls(db, sc) { AlwaysLoadSchedule = true };
-        var master = ai.Master(entityId);
-        var own = await db.Settings.AsNoTracking()
-            .Where(s => AiControlKeys.All.Contains(s.Key) && s.EntityId == entityId)
-            .ToDictionaryAsync(s => s.Key, s => s.Value);
+        var tree = ai.Master(entityId);                                  // the entity / organization level
+        var master = account == null ? tree : ai.Master(entityId, account);  // + this inbox's own gate
+        // this level's OWN values: the inbox's config, else the entity's own rows
+        var own = account != null
+            ? InboxSettings.MasterOverrides(account)
+            : await db.Settings.AsNoTracking()
+                .Where(s => AiControlKeys.All.Contains(s.Key) && s.EntityId == entityId)
+                .ToDictionaryAsync(s => s.Key, s => s.Value);
         string Own(string k) => own.TryGetValue(k, out var v) ? (v ?? "").Trim() : "";
+        var ownMode = Own(AiControlKeys.Master) is { Length: > 0 } om ? AiMasterModes.Normalize(om) : "";
+        var ownSchedule = Own(AiControlKeys.Schedule) is { Length: > 0 } os ? AiSchedule.Parse(os) : null;
+        var ownScheduleMode = Own(AiControlKeys.ScheduleMode) is { Length: > 0 } osm
+            ? AiScheduleModes.Normalize(osm) : "";
         var ownTags = AiControls.SplitTags(Own(AiControlKeys.NeverTags));
-        var allTags = ai.NeverTags(entityId);
-        var slug = entityId is int eid
-            ? await db.Entities.AsNoTracking().Where(e => e.Id == eid).Select(e => e.Slug).FirstOrDefaultAsync()
+
+        // what this level falls back to: an inbox inherits its outlet's resolved
+        // switch, an outlet its parent's (else the organization's), the
+        // organization the built-in default
+        var parentId = account == null && entityId is int pe
+            ? await db.Entities.AsNoTracking().Where(e => e.Id == pe).Select(e => e.ParentId).FirstOrDefaultAsync()
+            : null;
+        var inherits = account != null
+            ? tree
+            : entityId == null ? AiMaster.Default : ai.Master(parentId);
+        var inheritedTags = account != null ? ai.NeverTags(entityId)
+            : entityId == null ? new List<string>() : ai.NeverTags(parentId);
+        // the tags in force here — a never-list only ever ADDS down the tree
+        var allTags = account != null ? ai.NeverTags(entityId, account)
+            : ai.NeverTags(entityId);
+
+        var entityRow = entityId is int eid
+            ? await db.Entities.AsNoTracking().Where(e => e.Id == eid)
+                .Select(e => new { e.Slug, e.Name }).FirstOrDefaultAsync()
             : null;
         var nowOn = master.AllowsAt(ai.NowUtc, ai.Zone);
-        var scopeName = ai.EntityName(entityId);
+        var levelName = account != null
+            ? (account.Name is { Length: > 0 } an ? $"the {an} inbox" : "this inbox")
+            : ai.EntityName(entityId);
+        var onSchedule = (ownMode is { Length: > 0 } ? ownMode : inherits.Mode) == AiMasterModes.Schedule;
+
+        // where the value on screen comes from, in GET /api/ai/behaviour's vocabulary
+        string Scope(string key)
+        {
+            if (Own(key).Length > 0) return account != null ? "account" : entityId != null ? "entity" : "global";
+            var (_, at, found) = ai.Resolve(key, entityId);
+            return !found ? "default" : at == null ? "global" : at == entityId ? "entity" : "parent";
+        }
+
         return new
         {
-            entity = slug,
-            entity_name = scopeName,
-            mode = master.Mode,
-            mode_from = master.ModeFrom,
-            mode_set_at = master.ModeFrom == "default" ? null : master.ScopeName,
+            entity = entityRow?.Slug,
+            entity_name = account != null ? entityRow?.Name ?? ai.EntityName(entityId) : ai.EntityName(entityId),
+            // the inbox being edited, when the request named one (null = the entity / organization level)
+            account = account == null ? null : new
+            {
+                id = account.Id,
+                name = account.Name,
+                channel = account.Channel,
+                provider = account.Provider,
+                entity_id = account.EntityId,
+                // the owning outlet — the level this inbox inherits from (null = organization-wide)
+                entity = entityRow?.Slug,
+                entity_name = entityRow?.Name,
+                overrides = own.Count,
+            },
+            // the level this payload was read at: an inbox can only ever turn the AI OFF
+            level = account != null ? "account" : entityId != null ? "entity" : "organization",
+            own_only_turns_off = account != null,
+            mode = ownMode.Length > 0 ? ownMode : inherits.Mode,
+            mode_from = account != null
+                ? (ownMode.Length > 0 ? "account" : tree.ModeFrom)
+                : master.ModeFrom,
+            mode_set_at = account != null
+                ? (ownMode.Length > 0 ? levelName : tree.ModeFrom == "default" ? null : tree.ScopeName)
+                : master.ModeFrom == "default" ? null : master.ScopeName,
             own = new
             {
-                mode = Own(AiControlKeys.Master) is { Length: > 0 } m ? AiMasterModes.Normalize(m) : "",
-                schedule = Own(AiControlKeys.Schedule) is { Length: > 0 } s ? AiSchedule.Parse(s).ToWire() : null,
-                schedule_mode = Own(AiControlKeys.ScheduleMode) is { Length: > 0 } sm ? AiScheduleModes.Normalize(sm) : "",
+                mode = ownMode,
+                schedule = ownSchedule?.ToWire(),
+                schedule_mode = ownScheduleMode,
                 never_tags = ownTags,
             },
-            schedule = master.Schedule.ToWire(),
-            schedule_mode = master.ScheduleMode,
+            // what this level would follow if it set nothing of its own
+            inherited = new
+            {
+                mode = inherits.Mode,
+                mode_from = inherits.ModeFrom,
+                mode_set_at = inherits.ModeFrom == "default" ? null : inherits.ScopeName,
+                schedule = inherits.Schedule.ToWire(),
+                schedule_mode = inherits.ScheduleMode,
+                never_tags = inheritedTags,
+                now_on = inherits.TreeAllowsAt(ai.NowUtc, ai.Zone),
+            },
+            scopes = new
+            {
+                mode = Scope(AiControlKeys.Master),
+                schedule = Scope(AiControlKeys.Schedule),
+                schedule_mode = Scope(AiControlKeys.ScheduleMode),
+                never_tags = Scope(AiControlKeys.NeverTags),
+            },
+            schedule = (ownSchedule ?? inherits.Schedule).ToWire(),
+            schedule_mode = ownScheduleMode.Length > 0 ? ownScheduleMode : inherits.ScheduleMode,
             never_tags = allTags,
             inherited_never_tags = allTags.Where(x => !ownTags.Contains(x, StringComparer.OrdinalIgnoreCase)).ToList(),
             now_on = nowOn,
             next_change_at = master.NextChangeUtc(ai.NowUtc, ai.Zone) is DateTime nc
                 ? DateTime.SpecifyKind(nc, DateTimeKind.Utc).ToString("o") : null,
             timezone = ai.Zone.Id,
-            label = $"AI is {(nowOn ? "ON" : "OFF")} for {scopeName}"
-                    + (master.Mode == AiMasterModes.Schedule ? " (on a schedule)" : ""),
+            label = $"AI is {(nowOn ? "ON" : "OFF")} for {levelName}" + (onSchedule ? " (on a schedule)" : ""),
             can_manage = await ShellScope.HasCapAsync(db, me, AiMonitorEndpoints.BehaviourCap)
                          && MayEdit(db, sc, me, entityId),
         };
+    }
+
+    /// <summary>
+    /// The inbox (channel account) a controls request targets — the level BELOW
+    /// the entity, stored in <see cref="ChannelAccount.Config"/> and read by
+    /// <see cref="AiControls.InboxMaster"/> as a gate that can only switch that
+    /// inbox OFF. (null, null) when the request named no inbox.
+    /// </summary>
+    private static async Task<(ChannelAccount? Account, IResult? Error)> ControlsAccount(
+        AppDbContext db, int? accountId)
+    {
+        if (accountId is not int id || id <= 0) return (null, null);
+        var acct = await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Id == id);
+        return acct == null
+            ? (null, Results.Json(new { detail = $"Unknown inbox '{id}'." }, statusCode: 404))
+            : (acct, null);
     }
 
     private static async Task<object> ContactModePayload(AppDbContext db, ScopingService sc, ClaimsPrincipal me,

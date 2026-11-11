@@ -103,6 +103,12 @@ export const channels: Dict<typeof source> = {
       channelLabel: 'WhatsApp melalui QR',
       connectTitle: 'Sebelum anda memasangkan',
     },
+    waWaha: {
+      label: 'WhatsApp melalui WAHA',
+      blurb: 'Pelayan WAHA anda sendiri · tidak rasmi',
+      channelLabel: 'WhatsApp (WAHA)',
+      connectTitle: 'Sebelum anda menyambung WAHA',
+    },
     email: {
       label: 'E-mel',
       blurb: 'Satu peti mel · SMTP keluar, IMAP masuk',
@@ -225,6 +231,7 @@ export const channels: Dict<typeof source> = {
       ycloud: 'YCloud',
       twilio: 'Twilio',
       qr: 'QR',
+      waha: 'WAHA',
       zernio: 'Sambungan terurus',
       meta: 'Meta',
       bot: 'Bot API',
@@ -253,6 +260,11 @@ export const channels: Dict<typeof source> = {
       label: 'Nombor dipautkan QR',
       pro: 'Pasangkan mana-mana telefon dalam seminit — sesuai untuk demo pantas',
       con: 'Tidak rasmi — melanggar syarat WhatsApp; nombor boleh disekat',
+    },
+    waWaha: {
+      label: 'WAHA hos sendiri',
+      pro: 'Pelayan anda sendiri — satu API untuk beberapa nombor, tanpa kelulusan Meta',
+      con: 'Tidak rasmi — melanggar syarat WhatsApp; nombor boleh disekat, dan anda yang menjaga pelayan itu',
     },
     zernioInbox: {
       label: 'Sambungan terurus',
@@ -315,6 +327,70 @@ export const channels: Dict<typeof source> = {
     timedOut: 'Sambungan belum disahkan. Semak Disambungkan dalam seminit, atau mula semula.',
     code: 'Kod',
     open: 'Buka',
+  },
+  waSignup: {
+    intro: 'Perniagaan itu log masuk ke Meta dalam pelayar mereka sendiri dan memilih nombornya — tiada token untuk disalin, tiada apa-apa untuk ditampal di sini.',
+    outlet: 'Cawangan',
+    outletHelp: 'Peti masuk baharu ini milik cawangan ini — yang dipilih dalam penukar, melainkan anda mengubahnya di sini.',
+    modeTitle: 'Bagaimana nombor ini patut berfungsi?',
+    modeApi: 'WhatsApp Business Platform sahaja',
+    modeApiHint: 'Terbaik untuk nombor baharu atau nombor simpanan. API penuh: kumpulan, panggilan dan kelajuan hantar lebih tinggi.',
+    modeApp: 'Kekalkan aplikasi WhatsApp Business (coexistence)',
+    modeAppHint: 'Nombor itu kekal pada telefon dan mesej dicerminkan dua hala. Seseorang perlu imbas kod QR semasa penyediaan.',
+    warningsTitle: 'Beritahu perniagaan itu dahulu',
+    warnOneProvider: 'Satu nombor hanya boleh berpasangan dengan satu penyedia pada satu masa. Jika ia bersambung dengan penyedia lain, putuskan di sana dahulu: aplikasi WhatsApp Business → Settings → Account → Business Platform → Disconnect.',
+    warnLeavesApp: 'Nombor ini akan berhenti berfungsi dalam aplikasi WhatsApp Business, dan sejarah sembang pada telefon tidak akan dibawa masuk. Nombor yang digunakan dengan aplikasi WhatsApp biasa tidak boleh disambung sama sekali.',
+    warnHardToReverse: 'Untuk kembali, nombor itu perlu dibatalkan pendaftaran dari API, dan sejarahnya tidak akan pulih. Pilih coexistence jika perniagaan itu mahu terus guna aplikasi.',
+    warnScan: 'Seseorang perlu ada di telefon: Meta akan tunjuk kod QR untuk diimbas dengan aplikasi WhatsApp Business (aplikasi WhatsApp biasa tidak memenuhi syarat).',
+    warnLimits: 'Di sebelah API, nombor ini menghantar sehingga 20 mesej sesaat, kumpulan yang dibuat dalam aplikasi tidak kelihatan, dan panggilan, mesej hilang sendiri serta lihat sekali dimatikan untuknya.',
+    ack: 'Saya telah menerangkan perkara ini kepada perniagaan itu dan mereka bersedia untuk teruskan.',
+    ackRequired: 'Tandakan kotak itu untuk teruskan.',
+    start: 'Buka log masuk WhatsApp',
+    starting: 'Membuka halaman log masuk…',
+    startNote: 'Satu tetingkap baharu akan log masuk ke Meta dan memilih nombor; anda akan kembali ke sini setelah siap.',
+    numbersToggle: 'Belum ada nombor? Beli atau urus satu',
+    advancedTitle: 'Lanjutan: guna kelayakan Meta perniagaan itu sendiri',
+    advancedHint: 'Untuk perniagaan yang sudah ada token System User, ID WhatsApp Business Account dan ID nombor telefon.',
+    advancedSubmit: 'Sambung dengan kelayakan',
+    advancedDone: 'WhatsApp telah disambung. Ia muncul di bawah Tersambung dengan lencana “Sambungan terurus”.',
+    fields: {
+      token: 'Token akses kekal (System User)',
+      tokenHelp: 'Meta Business Suite → System users',
+      waba: 'ID WhatsApp Business Account',
+      phoneId: 'ID nombor telefon',
+      pin: 'PIN pengesahan dua langkah (6 digit)',
+      pinHelp: 'Hanya apabila pengesahan dua langkah dihidupkan untuk nombor itu.',
+    },
+  },
+  waNumbers: {
+    title: 'Dapatkan nombor',
+    intro: 'Nombor daripada kami sudah disahkan untuk WhatsApp dan membawa panggilan serta SMS pada nombor yang sama. Nombor daripada pembawa perniagaan itu sendiri tidak.',
+    owned: 'Nombor yang sudah ada pada cawangan ini',
+    none: 'Belum ada nombor.',
+    monthly: '{price} / bulan',
+    country: 'Negara',
+    countryPrice: '{code} — {price} / bulan',
+    kyc: 'Perlu pemeriksaan ID (1–3 hari bekerja)',
+    outOfStock: 'Habis stok',
+    wantsSms: 'Guna nombor ini untuk SMS juga',
+    buy: 'Beli nombor ini',
+    buying: 'Membeli…',
+    buyConfirmBody: 'Ini memulakan caj berulang {price} setiap bulan, dibilkan kepada ruang kerja ini, sampai nombor itu dilepaskan. Bulan pertama dicaj penuh.',
+    buyConfirmAck: 'Saya faham ini berharga {price} setiap bulan.',
+    bought: '{number} kini milik anda. Lengkapkan sambungan WhatsApp di atas.',
+    pendingKyc: 'Dihantar untuk pemeriksaan ID — nombor itu akan tiba dalam 1–3 hari bekerja.',
+    releaseTitle: 'Lepaskan {number}?',
+    releaseBody: 'Ini memulangkan nombor itu ke kumpulan pembawa. Ia tidak boleh dibatalkan, caj bulanan berhenti, dan mana-mana peti masuk pada nombor ini akan berhenti berfungsi.',
+    releaseTyped: 'Taip nombor itu untuk mengesahkan',
+    release: 'Lepaskan',
+    releasing: 'Melepaskan…',
+    released: '{number} telah dilepaskan.',
+    loadFailed: 'Nombor tidak dapat dimuatkan: {reason}',
+  },
+  waResult: {
+    connected: 'WhatsApp telah disambung. Peti masuk baharu itu ada dalam senarai Tersambung.',
+    pending: 'WhatsApp telah disambung. Peti masuknya akan muncul di sini sebentar lagi.',
+    failed: 'WhatsApp tidak disambung: {detail}',
   },
   market: {
     intro: 'Kedai {channel} disambungkan dalam perkhidmatan penjual, yang menyimpan log masuk pasaran. Setelah kedai ada di sana, bawanya masuk ke sini dan ia menjadi peti masuk.',
@@ -429,6 +505,16 @@ export const channels: Dict<typeof source> = {
       textAndCalls: 'Mesej teks dan panggilan suara; templat Meta kekal pada nombor WhatsApp Business.',
       noWindow: 'Tiada tempoh 24 jam — dan tiada pematuhan Meta juga.',
       ack: 'Saya faham risikonya dan akan memasangkan nombor simpanan.',
+    },
+    waha: {
+      warning:
+        '{b} WhatsApp melalui WAHA menggunakan protokol WhatsApp Web tidak rasmi daripada pelayan yang anda hos sendiri. Ia tidak memerlukan kelulusan Meta, tetapi melanggar syarat perkhidmatan WhatsApp dan nombor itu boleh disekat. Gunakan nombor simpanan — jangan sekali-kali talian perniagaan utama anda.',
+      youHostIt:
+        'Anda yang menjalankan WAHA (bekas devlikeapro/waha) — ChatBranch hanya perlukan alamatnya, dan WAHA pula perlu dapat menghubungi API ini semula untuk webhook.',
+      textAndFiles:
+        'Teks dan fail; templat Meta kekal pada nombor WhatsApp Business, dan panggilan suara tidak disambungkan untuk WAHA.',
+      tier:
+        'WAHA Plus telah digabungkan ke dalam WAHA Core pada 2026.6 — pada imej itu atau lebih baharu, semua yang digunakan di sini adalah bebas. Pada imej lebih lama, mesej media dan lebih daripada satu sesi memerlukan binaan berbayar.',
     },
     websiteIntro:
       'Gelembung sembang untuk laman anda: satu tag skrip, tanpa langkah binaan. Perbualan pelawat masuk ke peti masuk yang sama seperti WhatsApp dan e-mel, dengan AI, pasukan dan automasi yang sama.',
@@ -561,6 +647,10 @@ export const channels: Dict<typeof source> = {
   },
   setup: {
     labels: {
+      wahaBaseUrl: 'URL asas WAHA',
+      wahaSession: 'Nama sesi',
+      wahaEngine: 'Enjin',
+      wahaApiKey: 'Kunci API WAHA',
       phoneNumberId: 'ID nombor telefon',
       wabaId: 'ID Akaun WhatsApp Business',
       wabaIdShort: 'ID WABA',
@@ -612,6 +702,7 @@ export const channels: Dict<typeof source> = {
       apiKeySecret: 'Rahsia API Key',
     },
     placeholders: {
+      wahaApiKey: 'Daripada WAHA_API_KEY',
       signatureChecks: 'Mendayakan semakan tandatangan webhook',
       appPassword: 'Kata laluan aplikasi',
       fromAppSettings: 'Daripada App settings → Basic',
@@ -634,6 +725,16 @@ export const channels: Dict<typeof source> = {
       fromYcloud: 'Daripada konsol YCloud',
     },
     help: {
+      waWaha: {
+        baseUrl:
+          'Tempat bekas WAHA anda mendengar, seperti yang boleh dicapai oleh API ini — https://waha.example.com, atau http://waha:3000 dalam rangkaian anda sendiri.',
+        session:
+          'WAHA menyimpan satu nombor WhatsApp bagi setiap sesi bernama. Biarkan sebagai "default" melainkan WAHA itu sudah menjalankan nombor lain.',
+        engine:
+          'Enjin yang dijalankan WAHA anda (WHATSAPP_DEFAULT_ENGINE di sebelah WAHA — WEBJS ialah lalainya). Direkodkan di sini sebagai rujukan sahaja; tiada apa yang dihantar ChatBranch bergantung padanya.',
+        apiKey:
+          'WAHA_API_KEY yang anda gunakan semasa memulakan WAHA. Biarkan kosong jika anda memulakannya tanpa kunci — tetapi sesiapa yang boleh mencapai URL itu boleh menggunakan WhatsApp anda.',
+      },
       waYcloud: {
         phoneNumber: 'Nombor WhatsApp yang didaftarkan di YCloud, dalam format antarabangsa (+60123456789).',
         accessToken: 'Konsol YCloud → Developers → API Keys.',
@@ -738,6 +839,9 @@ export const channels: Dict<typeof source> = {
       },
     },
     checks: {
+      originUrl: 'Masukkan alamat penuh, seperti https://waha.example.com.',
+      sessionName: 'Nama sesi hanya menggunakan huruf, angka, "-", "_" atau ".".',
+      wahaEngine: 'Enjin ialah salah satu daripada WEBJS, WPP, NOWEB atau GOWS.',
       digits: '{field} ialah nombor panjang — digit sahaja.',
       email: 'Itu tidak kelihatan seperti alamat e-mel.',
       e164: 'Nombor E.164 dengan kod negara, seperti +60123456789.',
@@ -756,6 +860,12 @@ export const channels: Dict<typeof source> = {
       waTwilioOneOf: 'Tetapkan penghantar WhatsApp atau Messaging Service SID.',
     },
     guides: {
+      waWaha: {
+        s1: 'Jalankan WAHA pada pelayan anda sendiri: docker run -p 3000:3000 -e WAHA_API_KEY=… devlikeapro/waha.',
+        s2: 'Letakkan alamatnya dan kunci API itu di atas. Nama sesi boleh kekal "default".',
+        s3: 'Simpan, kemudian tekan Pasangkan: ChatBranch mencipta sesi itu dalam WAHA dengan webhook bertandatangan peti masuk ini dan menunjukkan kod QR.',
+        s4: 'Imbas kod itu daripada WhatsApp → Peranti dipautkan pada telefon simpanan. WAHA mesti dapat menghubungi API ini semula, jika tidak mesej tidak akan tiba.',
+      },
       waYcloud: {
         s1: 'Log masuk di ycloud.com dan sambungkan nombor WhatsApp Business anda.',
         s2: 'Developers → API Keys: salin kunci API.',
@@ -846,6 +956,7 @@ export const channels: Dict<typeof source> = {
       },
     },
     defaultNames: {
+      waWaha: 'WhatsApp (WAHA)',
       waCloud: 'WhatsApp Business',
       waQr: 'WhatsApp (QR)',
       waYcloud: 'WhatsApp (YCloud)',
@@ -956,6 +1067,36 @@ export const channels: Dict<typeof source> = {
     pairCodeHelp:
       'Pada {number}: WhatsApp → Tetapan → Peranti terpaut → Pautkan peranti → Pautkan dengan nombor telefon, kemudian taip kod ini.',
     pairCodeWaiting: 'Menunggu telefon…',
+    history: {
+      title: 'Mesej lebih lama',
+      intro:
+        'Semasa nombor ini dipautkan, WhatsApp menghantar senarai perbualan dan hanya mesej terbaru. Anda boleh meminta yang lebih lama, satu perbualan pada satu masa.',
+      limits:
+        'WhatsApp hanya memberi apa yang masih tersimpan pada telefon yang dipautkan, jadi ini bukan arkib penuh — dan telefon itu mesti DALAM TALIAN sepanjang pengambilan. Permintaan dihantar {min}–{max} detik berselang dan berhenti pada {cap} setiap larian, kerana pengangkutan ini tidak rasmi dan nombor yang disekat tidak boleh dipulihkan.',
+      textOnly: 'Teks sahaja: gambar, nota suara dan fail lama tidak dimuat turun.',
+      depth: 'Sedalam mana setiap perbualan',
+      depthOption: '{n} mesej',
+      start: 'Ambil mesej lebih lama',
+      starting: 'Memulakan…',
+      stop: 'Berhenti',
+      stopping: 'Memberhentikan…',
+      running: 'Sedang mengambil mesej lebih lama…',
+      waiting: 'Berjeda — permintaan seterusnya dalam kira-kira {n}s',
+      requests: '{made} daripada {cap} permintaan digunakan',
+      served: '{n} diberi oleh WhatsApp',
+      imported: '{n} baru dalam peti masuk',
+      deepened: '{n} perbualan diperdalam',
+      stoppedBecause: 'Berhenti: {reason}',
+      lastRun: 'Larian terakhir: {made} permintaan, {imported} mesej ditambah.',
+      never: 'Belum ada pengambilan untuk nombor ini.',
+      known: '{n} perbualan mempunyai mesej untuk dijadikan titik mula.',
+      exhausted: '{n} daripadanya sudah menyimpan semua yang WhatsApp akan beri.',
+      dayLeft: '{left} daripada {cap} permintaan masih ada untuk nombor ini hari ini.',
+      cooldown: 'Larian lain boleh dimulakan {n} minit selepas yang ini tamat.',
+      chatsHeading: 'Setiap perbualan',
+      chatRow: '{requests} permintaan · {served} diberi · {imported} baru',
+      phoneOffline: 'Tiada apa yang kembali. Telefon yang dipautkan mesti dalam talian dan membuka WhatsApp untuk menjawab.',
+    },
     days: {
       mon: 'Isnin',
       tue: 'Selasa',
@@ -995,6 +1136,43 @@ export const channels: Dict<typeof source> = {
     inherit: 'Warisi',
     inheritValue: 'Warisi ({value})',
     voiceHint: 'LLM dan STT digunakan untuk panggilan suara ElevenLabs daripada nombor ini, bermula panggilan seterusnya.',
+  },
+  waha: {
+    confirmCodeAria: 'Nombor pengesahan passkey WhatsApp',
+    confirmCodeHelp:
+      'WhatsApp memaparkan nombor ini pada telefon — sahkan ia sama, di sana. Tiada apa-apa untuk ditaip di sini.',
+    qrExpired:
+      'Kod QR tamat tempoh sebelum diimbas. Tekan Cuba lagi untuk kod baharu, kemudian imbas daripada WhatsApp → Peranti dipautkan.',
+    pairMethod: 'Bagaimana anda mahu memautkannya?',
+    pairByQr: 'Imbas kod QR',
+    pairByPhone: 'Guna nombor telefon saya',
+    pairPhoneLabel: 'Nombor WhatsApp yang anda pautkan',
+    pairPhoneHelp:
+      'WAHA meminta WhatsApp mengeluarkan kod 8 aksara untuk ditaip pada telefon itu — tiada kamera diperlukan. WhatsApp tidak selalu mengeluarkannya, jadi kod QR kekal sebagai sandaran.',
+    pairPhoneSend: 'Dapatkan kod pemasangan',
+    pairPhoneNeeded: 'Masukkan nombor bersama kod negaranya dahulu.',
+    pairCodeAria: 'Kod pemasangan WhatsApp',
+    pairCodeAsking: 'Meminta kod daripada WhatsApp…',
+    pairCodeHelp:
+      'Pada {number}: WhatsApp → Tetapan → Peranti dipautkan → Pautkan peranti → Pautkan dengan nombor telefon, kemudian taip kod ini.',
+    pairCodeWaiting: 'Menunggu telefon…',
+    qrAlt: 'Kod QR pemasangan WhatsApp',
+    scanHelp:
+      'Pada telefon: WhatsApp → Tetapan → Peranti dipautkan → Pautkan peranti, kemudian imbas. WAHA menyegarkan kod itu dengan sendiri.',
+    contacting: 'Menghubungi pelayan WAHA anda…',
+    starting: 'Sesi sedang dimulakan — ini perkara biasa, dan ia mungkin dimulakan semula sekali sejurus selepas pemasangan.',
+    passkey: 'WhatsApp meminta pengesahan passkey pada telefon — sahkan di sana.',
+    connectedAs: 'Disambungkan sebagai {number}',
+    connectedBody: 'Nombor ini kini menghantar dan menerima melalui peti masuk.',
+    sessionScope: 'Sesi WAHA “{session}” · enjin {engine}',
+    engineUnknown: 'tidak dinyatakan',
+    unreachable: 'Pelayan WAHA anda tidak menjawab.',
+    unreachableHelp:
+      'WAHA ialah pelayan anda sendiri, bukan bahagian ChatBranch. Pastikan ia berjalan dan URL asas serta kunci API di atas betul — API ini perlu dapat menghubunginya, dan WAHA perlu dapat menghubungi API ini semula untuk webhook.',
+    sessionFailed: 'WAHA melaporkan sesi itu sebagai FAILED.',
+    failedHelp:
+      'Tekan Cuba lagi untuk memulakan sesi baharu. Jika ia terus gagal, baca log bekas WAHA itu sendiri — nombor itu mungkin telah dikeluarkan pada telefon atau disekat oleh WhatsApp.',
+    noWebhookKey: 'Belum ada kunci tandatangan webhook — mesej masuk ditolak sehingga pemasangan menetapkannya.',
   },
   widget: {
     title: 'Tajuk pengepala',

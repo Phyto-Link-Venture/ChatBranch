@@ -3,8 +3,9 @@
 An industry-agnostic **multi-channel conversation platform** you can clone and
 configure for your own business. One operator dashboard, one AI brain and one
 contact record shared across WhatsApp, a website chat widget, email, Telegram,
-Messenger, Instagram, LINE, Viber, SMS (Twilio), WeChat, Zalo, TikTok and Douyin,
-**marketplace buyer chat** (Shopee, Lazada, TikTok Shop) **and real phone calls**.
+Messenger, Instagram, LINE, Viber, SMS (Twilio), WeChat, Zalo, TikTok and Douyin.
+Marketplace buyer chat (Shopee, Lazada, TikTok Shop) and AI phone calls are
+commercial modules — see **[Editions](#editions)**.
 
 It is a template, not a product: the domain logic lives in editable
 configuration (AI skills, a knowledge base, visual flows, tags, custom fields),
@@ -17,6 +18,32 @@ is a settings exercise, not a fork — see
 > from the UI, and integration actions report a clean "skipped, not connected".
 > Clone, `npm run setup`, `npm run dev:all` and click through the whole product
 > before signing up for anything.
+
+---
+
+## Editions
+
+ChatBranch is **open core**. This repository is the free edition, licensed under
+the **[GNU AGPL-3.0](LICENSE)**: self-host it, modify it and run it for your own
+business at no cost. If you modify it and offer it to others over a network, the
+AGPL requires you to publish your changes (section 13).
+
+Four areas are **commercial-only** and are not part of this repository:
+
+| Commercial module | What it covers |
+|---|---|
+| **AI voice calls & voice cloning** | Outbound/inbound calls over SIP or WhatsApp (LiveKit), the live transcript with guide / take-over / escalate, cloned voices and AI voice-note replies. |
+| **Token credits & billing** | Credit balances, Stripe top-ups, superadmin grants, promotional offers, AI quotas and the per-company AI bill. |
+| **Multi-outlet, teams & roles** | The entity (branch/outlet) tree, team round-robin assignment, and role-based access with the capability matrix. The free edition runs as a single business. |
+| **Marketplace buyer chat** | Shopee, Lazada and TikTok Shop buyer conversations, orders and product sync. |
+
+Everything else — the unified inbox, the AI brain with skills and knowledge,
+journeys, bookings, documents, contacts, tags, custom fields, automations,
+integrations, the MCP server, the media library, notifications and the phone app
+— is in here and stays free.
+
+Need a commercial licence, the modules above, or hosting?
+See **[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)**.
 
 ---
 
@@ -82,16 +109,23 @@ is a settings exercise, not a fork — see
 - **Outbound pacing queue** — jittered per-account gaps, daily caps, quiet hours,
   atomic claims; calls are queued too.
 - **AI voice calls** over SIP or WhatsApp (LiveKit), with a live transcript and
-  guide / take-over / escalate / end.
+  guide / take-over / escalate / end. **(Commercial module — see
+  [Editions](#editions).)**
 - **Tags** with attributes and exclusive groups for contacts, entities and
   conversations; **custom fields**; both usable as template variables.
-- **Entities** (a branch tree), teams, automations, bulk **bindings**, role-based
-  access with a capability matrix, API keys, an **MCP server** (`/mcp`, every
-  dashboard feature as a tool — [docs/mcp.md](docs/mcp.md)) for AI apps, and an in-app assistant ("Ask ChatBranch") that acts as you.
+- **Automations**, bulk **bindings**, API keys, an **MCP server** (`/mcp`, every
+  dashboard feature as a tool — [docs/mcp.md](docs/mcp.md)) for AI apps, and an
+  in-app assistant ("Ask ChatBranch") that acts as you.
+- **Entities** (a branch/outlet tree), teams with round-robin assignment and
+  role-based access with a capability matrix. **(Commercial module — see
+  [Editions](#editions).)** The free edition runs as one business.
 - **Integrations** — Google Calendar / Drive / Gmail / Sheets (OAuth, per user or
   shared), Shopify and Stripe (HMAC-verified webhooks).
-- **Dashboard** home page, reports with CSV export, LLM usage/billing (per-company AI bill with month-locked terms, monthly AI quotas per company / branch / user that pause the AI at the cap), an
-  activity log of who did what from where (dashboard, API, MCP, assistant, flow).
+- **Dashboard** home page, reports with CSV export, and an activity log of who
+  did what from where (dashboard, API, MCP, assistant, flow).
+- **LLM usage, credits & billing** — per-company AI bill with month-locked
+  terms, monthly AI quotas that pause the AI at the cap, credit balances and
+  Stripe top-ups. **(Commercial module — see [Editions](#editions).)**
 - **Paper & Ink** design system — three themes × light/dark, per-user accent,
   text size and corners; installable PWA with a phone tab bar.
 - **Connect an AI app by signing in** — paste your `/api/mcp` URL into Claude (or
@@ -314,6 +348,7 @@ requires a restart.
 | **WhatsApp (YCloud)** | A YCloud API key, the business number (+ WABA id for templates); then create a webhook endpoint in YCloud with the URL the inbox shows and paste its signing secret back | live, untested against YCloud: signed inbound (incl. media), delivery statuses, text, templates + the WABA's template registry, media send, quoted replies + reactions both ways, typing indicator |
 | **WhatsApp (Twilio)** | Account SID, Auth Token, the WhatsApp sender (or a Messaging Service SID); point the sender's incoming-message webhook at the URL the inbox shows | live, untested against Twilio: signed inbound (incl. media), delivery statuses, text, Content templates (by ContentSid; authored in Twilio), media by a signed public link (needs a public https base URL) |
 | **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text + media (photos, videos + video notes, voice notes, documents, stickers), text + media send, quoted replies + emoji reactions both ways, calls + recordings live; "Keep phone notifications" keeps the phone ringing (ChatBranch is online only while it sends); replies you type on the phone show up in the chat as your reply (the AI won't answer that message again); a message either of you edits on the channel is re-worded here too, with the old wording kept in the activity log — and if the customer re-words a question the AI had already drafted an answer to, that draft is dropped rather than answering what they no longer asked; a message the customer deletes for everyone is erased here too — or kept, marked "Deleted by the customer", with the inbox's "Keep messages the customer deletes" (LINE, Messenger and Instagram unsends too); **you can also do what the phone app does**: record a voice note in the browser, delete one of your own messages for everyone (about two days), edit one (about 15 minutes), send a location, a contact card or a poll, and forward a message into another chat on the same channel — all QR-only, because Meta's official API has no delete, no edit and no poll. A poll's answers stay on WhatsApp: the votes come back encrypted in a way a gateway restart cannot undo, so the chat shows the poll you sent and not its results |
+| **WhatsApp (WAHA)** | A spare phone **and your own WAHA server** (`docker run -p 3000:3000 -e WAHA_API_KEY=… devlikeapro/waha`). Add a "WhatsApp via WAHA" inbox with that base URL, its API key and a session name, then press Pair. ⚠ Read the ToS warning below | live, untested against a real WAHA: ChatBranch creates/starts the session, shows the QR or an 8-character pairing code, polls the session status into account health, receives signed inbound text + media (`X-Webhook-Hmac`, hex HMAC-SHA512 of the body) and sends text, quoted replies, reactions and files (inline base64 — WAHA has no upload step). A paired, working session is never rewritten (WAHA's session update restarts it), and media links on WAHA's own default `localhost` address are rebased onto the base URL you gave — set `WAHA_BASE_URL` on the WAHA side and it is right to begin with. **No templates and no 24-hour window** (it is not a Meta business number), no voice calls, no typing indicator, no delete / edit / poll / forward, no history import, and group chats are read and dropped. WAHA is the operator's server, not a container in this repo |
 | **Website widget** | Nothing — paste the snippet the inbox gives you | live |
 | **Marketplace buyer chat** (Shopee · Lazada · TikTok Shop · Shopify) | Run the `e-comerce-seller-mcp` service, sign in there and approve access for each shop; then point ChatBranch at it with `commerce_url` + `commerce_secret` (Settings, or `COMMERCE_URL` / `COMMERCE_SECRET`) | live, untested against the marketplaces: each shop becomes an inbox by itself, buyer chats arrive as ordinary conversations the AI answers, replies go out through the service. Shopify has no public buyer-chat API and says so. Products, stock, orders and sales are that service's own API and MCP server |
 | **Telegram** | A BotFather token, then "Register webhook" in the inbox (needs a public https URL — `PUBLIC_BASE_URL` or the one you type) | live: inbound text + media, replies and attachments via the Bot API, quoted replies + emoji reactions both ways, typing indicator |
@@ -409,7 +444,7 @@ push, `npm run test:api:changed` runs just the test classes your change touches.
 ## Honest limitations
 
 - **Every channel transport is wired, with a few edges left.**
-  Baileys numbers send templates as rendered text; WhatsApp Cloud, YCloud and
+  Baileys and WAHA numbers send templates as rendered text; WhatsApp Cloud, YCloud and
   Twilio numbers have no voice calls (Meta's calling API is a gated beta);
   Twilio's WhatsApp API has no reactions, quoted replies or typing indicator, and
   its templates are created in Twilio's console; email is composed as plain text (an escaped HTML alternative
@@ -425,6 +460,17 @@ push, `npm run test:api:changed` runs just the test classes your change touches.
   Use a dedicated spare number, keep volumes low, don't ship it to production.
   Research and ban statistics:
   [`backend/baileys_service/RESEARCH.md`](backend/baileys_service/RESEARCH.md).
+- **WhatsApp via WAHA is the same category of risk.** WAHA
+  ([`github.com/devlikeapro/waha`](https://github.com/devlikeapro/waha)) is a
+  self-hosted HTTP API over the same unofficial WhatsApp Web protocol — a
+  different implementation, not a different permission. Using it may breach
+  WhatsApp's Terms of Service and the number can be banned; it is dev/demo only,
+  on a spare number. Nothing about hosting it yourself makes it sanctioned, and
+  ChatBranch's side has only ever run against a fake of WAHA's documented API —
+  treat a first real server as the integration test. WAHA Plus was merged into
+  WAHA Core in 2026.6, so on that image or newer nothing ChatBranch uses is
+  behind a paywall; on an older image, media messages and more than one session
+  need the paid build.
 - **WhatsApp Cloud voice calling is not available** — the old WebRTC bridge
   went with the Django backend; WhatsApp calls run over Baileys only.
 - **Integrations are fixture-tested, never provider-tested.** Treat your first
@@ -476,7 +522,21 @@ push, `npm run test:api:changed` runs just the test classes your change touches.
   absolute from the page's origin.
 - `NEXT_PUBLIC_MAX_CONCURRENT` (default `3`) caps simultaneous live calls —
   match it to your SIP trunk's concurrent-channel limit.
-- The WhatsApp module's API surface was modelled on
-  [Whatomate](https://github.com/shridarpatil/whatomate) (Go, AGPL) and the
-  inbox/teams/automations on Chatwoot. Protocol shapes were reimplemented, not
-  copied.
+
+## Licence
+
+**GNU AGPL-3.0** — see [LICENSE](LICENSE). Free to self-host, modify and use
+commercially; if you modify ChatBranch and offer it to others over a network,
+AGPL section 13 requires you to publish your modified source.
+
+A **commercial licence** lifts the copyleft obligation, and is also how you get
+the commercial-only modules listed under [Editions](#editions) — see
+**[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)**.
+
+Copyright © 2026 Phyto Link Venture (SSM 202503038465 / TR0316513-W), Malaysia.
+
+ChatBranch bundles an optional **Baileys** WhatsApp transport for development
+and demos. Baileys is an unofficial, reverse-engineered WhatsApp Web client and
+using it against WhatsApp may breach WhatsApp's Terms of Service — it is off by
+default and is not intended for production. For production WhatsApp use the
+official Cloud API or a BSP. See [Honest limitations](#honest-limitations).

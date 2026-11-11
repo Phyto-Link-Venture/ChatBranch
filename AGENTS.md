@@ -49,6 +49,31 @@ AI_HUMANIZE=0 SEED_DEMO=1` and a throwaway data dir itself.
   goes in `AdminEndpoints.Catalog` AND `frontend/src/lib/auth.ts`.
 - **Schema changes go in `Seed.UpgradeSchema` too.** There are no EF migrations;
   `EnsureCreated()` never alters an existing SQLite file.
+- **One organization can hold unrelated companies, so the org level leaks.**
+  A live install may carry several *different businesses* as top-level entities,
+  not branches of one. Settings resolve nearest-level-wins, but knowledge items
+  **add up down the tree**, so an organization-wide item reaches every company.
+  Write a persona, a knowledge item or an AI behaviour value at the org level
+  only when it is genuinely true for every business in the install (the
+  plain-text/no-Markdown house rule is one of the few). Otherwise pass the
+  entity. An org-level persona is inherited by every entity whose own persona is
+  blank — which silently makes one client's AI introduce itself as another's.
+  Prove containment before you call it done: `knowledge_test_retrieval` (or
+  `POST /api/aicore/knowledge/preview`) against a DIFFERENT entity must return
+  zero items.
+- **AI behaviour resolves inbox → entity → organization → default.** The inbox
+  level is `ChannelAccount.Config[key]`, read first by
+  `AiBehaviourSettings.Resolve` and editable via `/api/ai/behaviour?account=<id>`
+  (`InboxSettings.SetBehaviour`; a blank value clears the override). When one
+  channel needs different pacing from another — a website widget answering in
+  seconds while WhatsApp waits out a burst — set it on the inbox. Changing the
+  organization default to fix one channel changes every channel.
+- **A slow AI reply is not a broken one.** `ai_wait_seconds` defaults to **25**
+  ("wait for the customer to finish"), plus an `ai_typing` pause proportional to
+  the reply, so ~40 s end-to-end is the designed behaviour, and `ai_split=auto`
+  can deliver a long answer as up to three messages. The website widget polls
+  `/api/widget/<token>/messages` every 4 s **only while the panel is open**, so a
+  visitor who closes it never sees the answer. Measure before "fixing" latency.
 - **Write messages through `ThreadStore`** (`GetOrCreateThread`, `AppendMessage`):
   it dedupes on external id, stamps the account, syncs entity attribution and
   bumps `Thread.UpdatedAt`, which the `/chats` SSE change token watches. A bulk

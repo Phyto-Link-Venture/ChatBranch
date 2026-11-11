@@ -591,11 +591,22 @@ public static class AiEndpoints
         }
         : null;
 
+    /// <summary>A quoted "false" / "0" counts, as it does for <see cref="KInt"/> and
+    /// everywhere else a tool argument is read (ChatBranchTool.Bool): a client that
+    /// types its booleans as strings must not have `active: "false"` silently
+    /// dropped and still be told 200 OK.</summary>
     private static bool? KBool(JsonElement b, string key) => KGet(b, key) is JsonElement v
         ? v.ValueKind switch
         {
             JsonValueKind.True => true,
             JsonValueKind.False => false,
+            JsonValueKind.String => v.GetString()?.Trim().ToLowerInvariant() switch
+            {
+                "true" or "1" or "yes" or "on" => true,
+                "false" or "0" or "no" or "off" => false,
+                _ => null,
+            },
+            JsonValueKind.Number => v.TryGetInt32(out var n) ? n != 0 : null,
             _ => null,
         }
         : null;

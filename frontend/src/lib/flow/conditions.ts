@@ -170,7 +170,7 @@ export interface FieldOpDef {
 
 const o = (op: string, lbl: MessageKey, input: ValueInput = 'none'): FieldOpDef => ({ op, lbl, input })
 
-/** Custom-field operators by the field's kind (dates live in text fields). */
+/** Custom-field operators by the field's kind (a text field may also hold a date). */
 export const FIELD_OPS: Record<string, FieldOpDef[]> = {
   text: [
     o('equals', 'flows.cond.op.equals', 'text'),
@@ -203,6 +203,24 @@ export const FIELD_OPS: Record<string, FieldOpDef[]> = {
   multiselect: [
     o('contains', 'flows.cond.op.includes', 'fieldOption'),
     o('any_of', 'flows.cond.op.anyOf', 'fieldOptions'),
+    o('is_empty', 'flows.cond.op.isEmpty'),
+    o('not_empty', 'flows.cond.op.notEmpty'),
+  ],
+  // a date field holds the canonical YYYY-MM-DD, so the day comparisons are the
+  // point of it ("service date more than 6 months ago" = within_last_days 180 → NO)
+  date: [
+    o('before', 'flows.cond.op.before', 'date'),
+    o('after', 'flows.cond.op.after', 'date'),
+    o('within_last_days', 'flows.cond.op.withinLast', 'days'),
+    o('within_next_days', 'flows.cond.op.withinNext', 'days'),
+    o('equals', 'flows.cond.op.equals', 'date'),
+    o('is_empty', 'flows.cond.op.isEmpty'),
+    o('not_empty', 'flows.cond.op.notEmpty'),
+  ],
+  // a json field is matched on its flattened "key: value" text — the structure
+  // itself is for the AI and for templates, not for branching
+  json: [
+    o('contains', 'flows.cond.op.contains', 'text'),
     o('is_empty', 'flows.cond.op.isEmpty'),
     o('not_empty', 'flows.cond.op.notEmpty'),
   ],

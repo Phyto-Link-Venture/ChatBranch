@@ -70,18 +70,33 @@ public class SkillService
         catch { return new List<AgentSkill>(); }
     }
 
-    /// <summary>The sandbox context for a reply.</summary>
+    /// <summary>The outlet's company, the custom-field scope the sandbox gets.
+    /// Fails CLOSED: an unreadable entity tree answers null, which keeps every
+    /// company-scoped field out rather than risking the wrong company's.</summary>
+    private int? CompanySafe(int? entityId)
+    {
+        try { return _scoping.CompanyOf(entityId); }
+        catch { return null; }
+    }
+
+    /// <summary>The sandbox context for a reply with no conversation behind it: no
+    /// outlet, so no company — the contact's view carries only the organization-wide
+    /// custom fields (see the overload below).</summary>
     public SkillContext Context(Contact? contact, string? channel, string? lastMessage) => new()
     {
         UtcNow = UtcNow,
         TimeZone = OrgTimeZone(),
         Channel = channel ?? "",
         LastMessage = lastMessage ?? "",
-        Contact = SkillContext.ContactView(contact),
+        Contact = SkillContext.ContactView(contact, _scoping, null),
     };
 
     /// <summary>The context for a reply in a conversation — what app tools need
-    /// (which conversation, contact, outlet and assignee) on top of the sandbox view.</summary>
+    /// (which conversation, contact, outlet and assignee) on top of the sandbox view.
+    /// The custom fields the sandbox sees are the ones the outlet's COMPANY may see
+    /// (<c>CompanyOf(entityId)</c>, exactly the company the prompt's CONTACT block
+    /// uses), split into <c>fields</c> / <c>internalFields</c> by <c>show_to_ai</c> —
+    /// <see cref="SkillContext.ContactView"/>.</summary>
     public SkillContext Context(Contact? contact, string? channel, string? lastMessage, int? threadId,
         int? entityId, string? assignee) => new()
     {
@@ -89,7 +104,7 @@ public class SkillService
         TimeZone = OrgTimeZone(),
         Channel = channel ?? "",
         LastMessage = lastMessage ?? "",
-        Contact = SkillContext.ContactView(contact),
+        Contact = SkillContext.ContactView(contact, _scoping, CompanySafe(entityId)),
         ThreadId = threadId,
         ContactId = contact?.Id,
         ContactRecord = contact,

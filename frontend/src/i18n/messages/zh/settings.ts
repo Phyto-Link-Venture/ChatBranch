@@ -132,6 +132,8 @@ export const settings: Dict<typeof source> = {
       multiselect: '多选',
       number: '数字',
       boolean: '是 / 否',
+      date: '日期',
+      json: 'JSON（结构化数据）',
     },
     customer: {
       title: '客户',
@@ -142,7 +144,7 @@ export const settings: Dict<typeof source> = {
     },
     loading: '正在加载自定义字段…',
     intro:
-      '定义客户表单上显示的字段——让应用适应你的行业，而不是反过来。AI 能看到这些值，因此客户的{grade}会影响它的回复。只适用于部分联系人的信息（司机的驾照号码、外部公司的合同到期日）应改用带属性的{tag}。',
+      '定义客户表单上显示的字段——让应用适应你的行业，而不是反过来。为某个字段开启“让 AI 看到”，它的值就会进入 AI 的上下文，于是客户的{grade}会影响它的回复；内部字段请保持关闭。只适用于部分联系人的信息（司机的驾照号码、外部公司的合同到期日）应改用带属性的{tag}。',
     introGrade: '年级',
     introTag: '标签',
     loadError: '无法加载已保存的字段（{error}）——显示空的字段结构。',
@@ -151,6 +153,21 @@ export const settings: Dict<typeof source> = {
     labelPlaceholder: '例如：语言',
     optionsHint: '（输入一项，按回车添加）',
     optionPlaceholder: '例如：英语',
+    scope: '所属公司',
+    scopeHint: '（只有该公司的 AI 能看到它的值）',
+    showToAi: '让 AI 看到',
+    showToAiOn: '回复该客户的 AI 可以看到这个字段的值。',
+    showToAiHint:
+      '默认关闭。开启后，这个字段的值会写入 AI 对客户的了解中，回复时就能用上——内部字段（信用风险、流失评分）请保持关闭。',
+    dateHint:
+      '以单一日历日期（YYYY-MM-DD）保存，并按你自己的格式显示。旅程可以进行比较——“服务日期在 6 个月以前”、“未来 14 天内续约”——“日期字段”触发器也可以相对于它触发。',
+    jsonKindHint:
+      '用于其他系统通过 API 同步进来的结构化数据：一个 JSON 对象（最多 {max} 个字符）。它从不以原始形式显示——凡是出现值的地方（模板、AI、旅程条件）都读作“键: 值”。',
+    jsonHint: '一个 JSON 对象，例如 {"last_service": "2026-04-02", "plan": "gold"}。',
+    jsonPlaceholder: '{\n  "last_service": "2026-04-02"\n}',
+    jsonInvalid: '这还不是有效的 JSON——解析通过前不会保存。',
+    jsonNotObject: '最外层必须是 JSON 对象，例如 {"key": "value"}。',
+    jsonTooLong: '太长了——JSON 字段最多 {max} 个字符。',
   },
   notifCategories: {
     messages: { label: '客户消息', description: '有客户在任一对话渠道发来消息' },

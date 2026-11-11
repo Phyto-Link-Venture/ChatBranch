@@ -4,7 +4,8 @@
  * WhatsApp-specific pieces of the Inboxes setup (/channels): the per-account
  * "Delivery & AI" editor (quiet hours, send pacing, voice-call LLM/STT), the
  * in-drawer pairing panel for WhatsApp-by-QR numbers (scan a QR, or link with
- * a phone number), the Meta webhook
+ * a phone number), the "fetch older messages" panel beside it (the gateway's
+ * paced, capped on-demand history run), the Meta webhook
  * rows and the contacts .vcf export. The account list itself is rendered by
  * ChannelsSettings as inbox cards; these are the parts only WhatsApp has.
  *
@@ -12,7 +13,7 @@
  */
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { CheckCircle, Contact, Copy, Loader2, QrCode, RefreshCw, Smartphone } from 'lucide-react'
+import { CheckCircle, Contact, Copy, History, Loader2, QrCode, RefreshCw, Smartphone, Square } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { PhoneInput } from '@/components/ui/PhoneInput'
@@ -393,6 +394,248 @@ export function BaileysPairPanel({ accountId, onConnected }: { accountId: string
       <span className="flex items-center justify-center gap-1 text-[11px] text-text-faint">
         <QrCode size={11} aria-hidden /> {t('channels.whatsapp.pairingScope')}
       </span>
+    </div>
+  )
+}
+
+// ── Older messages (the gateway's on-demand history fetch) ──────────────────
+
+/** A history-fetch run as /baileys/history-fetch reports it. */
+interface HistoryRun {
+  running: boolean
+  aborted: boolean
+  depth: number
+  requests: number
+  requests_cap: number
+  received: number
+  imported: number
+  timeouts: number
+  errors: number
+  chats_total: number
+  chats_touched: number
+  chats_done: number
+  chats_known: number
+  chats_exhausted: number
+  stop_reason: string
+  next_gap_s: number | null
+  started_at: number | null
+  finished_at: number | null
+  last_run_at: number | null
+  min_gap_s: number
+  max_gap_s: number
+  cooldown_s: number
+  day_used: number
+  day_left: number
+  day_cap: number
+  error: string
+  chats: { wa_id: string; requests: number; received: number; imported: number; done: boolean; reason: string }[]
+}
+
+/** What the drawer offers to ask for, per chat (the server caps it at 300). */
+const HISTORY_DEPTHS = ['50', '100', '200', '300'] as const
+
+/**
+ * "Fetch older messages" for a linked WhatsApp-by-QR number.
+ *
+ * WhatsApp's replay when a number is linked is shallow — the chat list plus the
+ * most recent messages — so this asks for more, chat by chat, through the gateway
+ * (POST /baileys/history-fetch). Everything about it is deliberately restrained,
+ * and the copy says so rather than implying a full archive: the run is paced and
+ * capped, WhatsApp serves only what the paired phone still holds, and that phone
+ * must be online. One run at a time; the operator can stop it.
+ *
+ * Progress is polled every 3s ONLY while a run is going (and never after unmount),
+ * so an idle drawer makes no requests.
+ */
+export function BaileysHistoryPanel({ accountId }: { accountId: string }) {
+  const t = useT()
+  const [run, setRun] = useState<HistoryRun | null>(null)
+  const [depth, setDepth] = useState<string>('200')
+  const [busy, setBusy] = useState<'' | 'start' | 'stop'>('')
+  const [error, setError] = useState<string | null>(null)
+  // bumped when a run is started, which re-arms the poller
+  const [pollKey, setPollKey] = useState(0)
+
+  const path = `accounts/${accountId}/baileys/history-fetch`
+
+  // One read when the panel opens (the last run is worth seeing), then a poll every
+  // 3s ONLY while a run is going — and never after unmount, so a drawer left open
+  // on an idle number makes no requests at all.
+  useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const tick = async () => {
+      try {
+        const next = await waApi<HistoryRun>(path, t)
+        if (cancelled) return
+        setRun(next)
+        // an aborted run is over even if the gateway's loop has not drained yet
+        if (next.running && !next.aborted) timer = setTimeout(tick, 3000)
+      } catch (e) {
+        if (cancelled) return
+        setError(e instanceof Error ? e.message : String(e))
+      }
+    }
+    tick()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+    // t and path are stable for an account; re-running on them would restart the poll
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, pollKey])
+
+  const act = async (what: 'start' | 'stop') => {
+    setBusy(what)
+    setError(null)
+    try {
+      const next = await waApi<HistoryRun>(what === 'start' ? path : `${path}/stop`, t, {
+        method: 'POST',
+        body: what === 'start' ? JSON.stringify({ depth: Number(depth) }) : undefined,
+      })
+      setRun(next)
+      if (what === 'start') setPollKey((n) => n + 1)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const running = !!run?.running && !run?.aborted
+  const minGap = run?.min_gap_s || 20
+  const maxGap = run?.max_gap_s || 45
+  const cap = run?.requests_cap || 20
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-line bg-card px-4 py-4">
+      <div>
+        <div className="text-[12.5px] font-semibold text-text-high">{t('channels.whatsapp.history.title')}</div>
+        <p className="mt-0.5 text-[12px] leading-relaxed text-text-muted">{t('channels.whatsapp.history.intro')}</p>
+      </div>
+
+      <p className="rounded-lg border border-line bg-well px-3 py-2 text-[11.5px] leading-relaxed text-text-mid">
+        {t('channels.whatsapp.history.limits', { min: String(minGap), max: String(maxGap), cap: String(cap) })}
+        <span className="mt-1 block text-text-muted">{t('channels.whatsapp.history.textOnly')}</span>
+      </p>
+
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="min-w-[170px]">
+          <span className="mb-1 block text-[11.5px] font-semibold text-text-mid">
+            {t('channels.whatsapp.history.depth')}
+          </span>
+          <Select
+            value={depth}
+            onChange={setDepth}
+            size="md"
+            ariaLabel={t('channels.whatsapp.history.depth')}
+            options={HISTORY_DEPTHS.map((n) => ({
+              value: n,
+              label: t('channels.whatsapp.history.depthOption', { n }),
+            }))}
+          />
+        </label>
+        {running ? (
+          <Button variant="secondary" size="sm" onClick={() => act('stop')} disabled={busy !== ''}>
+            <Square size={13} aria-hidden />
+            {busy === 'stop' ? t('channels.whatsapp.history.stopping') : t('channels.whatsapp.history.stop')}
+          </Button>
+        ) : (
+          <Button size="sm" onClick={() => act('start')} disabled={busy !== ''}>
+            <History size={13} aria-hidden />
+            {busy === 'start' ? t('channels.whatsapp.history.starting') : t('channels.whatsapp.history.start')}
+          </Button>
+        )}
+      </div>
+
+      {error && (
+        <div className="text-[12px] font-semibold" style={{ color: 'var(--red-ink)' }}>
+          {error}
+        </div>
+      )}
+
+      {run && (
+        <div className="flex flex-col gap-1 text-[11.5px] leading-relaxed text-text-mid">
+          {running ? (
+            <span className="flex items-center gap-2 font-semibold text-text-high">
+              <Loader2 size={12} className="animate-spin" aria-hidden />
+              {t('channels.whatsapp.history.running')}
+            </span>
+          ) : run.requests > 0 ? (
+            <span>
+              {t('channels.whatsapp.history.lastRun', {
+                made: String(run.requests),
+                imported: String(run.imported),
+              })}
+            </span>
+          ) : (
+            <span>{t('channels.whatsapp.history.never')}</span>
+          )}
+
+          {(running || run.requests > 0) && (
+            <span>
+              {t('channels.whatsapp.history.requests', { made: String(run.requests), cap: String(cap) })}
+              {' · '}
+              {t('channels.whatsapp.history.served', { n: String(run.received) })}
+              {' · '}
+              {t('channels.whatsapp.history.imported', { n: String(run.imported) })}
+              {' · '}
+              {t('channels.whatsapp.history.deepened', { n: String(run.chats_touched) })}
+            </span>
+          )}
+
+          {running && run.next_gap_s != null && (
+            <span className="text-text-muted">
+              {t('channels.whatsapp.history.waiting', { n: String(run.next_gap_s) })}
+            </span>
+          )}
+
+          {!running && run.stop_reason && (
+            <span className="text-text-muted">
+              {t('channels.whatsapp.history.stoppedBecause', { reason: run.stop_reason })}
+            </span>
+          )}
+
+          {!running && run.requests > 0 && run.received === 0 && (
+            <span className="text-text-muted">{t('channels.whatsapp.history.phoneOffline')}</span>
+          )}
+
+          <span className="text-text-muted">
+            {t('channels.whatsapp.history.known', { n: String(run.chats_known) })}
+            {run.chats_exhausted > 0
+              ? ' ' + t('channels.whatsapp.history.exhausted', { n: String(run.chats_exhausted) })
+              : ''}
+          </span>
+
+          {run.day_cap > 0 && (
+            <span className="text-text-muted">
+              {t('channels.whatsapp.history.dayLeft', { left: String(run.day_left), cap: String(run.day_cap) })}
+              {run.cooldown_s > 0
+                ? ' ' + t('channels.whatsapp.history.cooldown', { n: String(Math.round(run.cooldown_s / 60)) })
+                : ''}
+            </span>
+          )}
+
+          {run.chats.length > 0 && (
+            <div className="mt-1 flex flex-col gap-0.5">
+              <span className="eyebrow !text-[10px]">{t('channels.whatsapp.history.chatsHeading')}</span>
+              {run.chats.slice(0, 8).map((c) => (
+                <span key={c.wa_id || c.reason} className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="font-mono text-[11px] text-text-high">{c.wa_id ? `+${c.wa_id}` : '—'}</span>
+                  <span className="text-text-muted">
+                    {t('channels.whatsapp.history.chatRow', {
+                      requests: String(c.requests),
+                      served: String(c.received),
+                      imported: String(c.imported),
+                    })}
+                  </span>
+                  {c.reason && <span className="text-text-faint">{c.reason}</span>}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

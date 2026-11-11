@@ -2,6 +2,9 @@ namespace ChatBranch.Api.Tools;
 
 public static partial class ToolCatalog
 {
+    /// <summary>The AI price book modes (ChatBranch.Domain.AiPriceModes).</summary>
+    private static readonly string[] AiPriceModeIds = ChatBranch.Domain.AiPriceModes.All;
+
     private static IEnumerable<IChatBranchTool> Platform()
     {
         // ---- analytics ------------------------------------------------------------
@@ -40,6 +43,49 @@ public static partial class ToolCatalog
                 A.Num("default_monthly_fee", "Flat fee per company per month, in the currency."),
                 A.Obj("companies", "Per-company overrides keyed by top-level entity id."),
             });
+        yield return T(an, "billing_get_price_books", "AI price books (plans)",
+            "The named AI pricing plans and who they price: each plan's mode (markup = percent over provider "
+            + "cost, flat = a fixed amount per company per month, unit = a price per 1,000 tokens and/or per AI "
+            + "reply), its monthly fee and the per-login AI allowance it grants, plus a searchable, paginated "
+            + "list of companies (or every entity) showing the plan that actually governs each one, whether it "
+            + "is inherited from a parent or set on the row, any per-company override, and this month's real "
+            + "requests, tokens, provider cost and resulting bill.",
+            "GET", "/api/billing/ai/price-books", C("billing.manage"), new[]
+            {
+                A.Str("q", "Search companies by name or slug."),
+                A.Str("scope", "companies (default) or entities (companies and their branches).",
+                    oneOf: new[] { "companies", "entities" }),
+                A.Str("month", "YYYY-MM; defaults to this month (a past month answers with the plans that billed it)."),
+                A.Bool("overrides_only", "Only rows with a plan pinned on them or a per-company override."),
+                A.Page, A.PageSize(200),
+            }, link: (_, _) => Page("Open AI billing settings", "/settings/billing"));
+        yield return T(an, "billing_save_price_book", "Create or change an AI price book",
+            "Create a pricing plan, or change one by slug (fields you leave out keep their value). mode markup "
+            + "needs markup_pct, flat needs flat_amount, unit needs unit_per_1k_tokens and/or unit_per_reply "
+            + "(quoted in the billing currency). user_allowance is the monthly AI allowance every login the plan "
+            + "covers gets, instead of a cap typed per person. is_default makes it the organisation default. "
+            + "Assign it to entities with bindings_apply, kind pricebook-entities. The change prices the current "
+            + "month and later; months already billed keep the plan that billed them.",
+            "POST", "/api/billing/ai/price-books", C("billing.manage"), new[]
+            {
+                A.Str("label", "What to call the plan, e.g. \"Reseller 20%\".", req: true),
+                A.Str("slug", "Stable key (default: from the name) — pass it to change an existing plan."),
+                A.Str("mode", "markup | flat | unit.", oneOf: AiPriceModeIds),
+                A.Num("markup_pct", "markup mode: percent over the provider's cost (decimals allowed)."),
+                A.Num("flat_amount", "flat mode: the amount per company per month."),
+                A.Num("unit_per_1k_tokens", "unit mode: price per 1,000 tokens, in the billing currency."),
+                A.Num("unit_per_reply", "unit mode: price per AI reply (customer replies, follow-ups, journey messages)."),
+                A.Num("monthly_fee", "A monthly platform fee on top, in the billing currency."),
+                A.Num("user_allowance", "Monthly AI allowance per login this plan covers (0 = none)."),
+                A.Bool("active", "False keeps the plan for history but stops it being assigned."),
+                A.Bool("is_default", "Make this the organisation default plan."),
+                A.Str("note", "Why this plan exists / who agreed it."),
+            }, idempotent: true);
+        yield return T(an, "billing_delete_price_book", "Delete an AI price book",
+            "Delete a pricing plan that no entity is assigned to (move them with bindings_apply first, or just "
+            + "deactivate the plan). Months that were already billed keep their own copy of it.",
+            "DELETE", "/api/billing/ai/price-books/{slug}", C("billing.manage"),
+            new[] { A.Str("slug", "The plan's key.", req: true) }, destructive: true);
         yield return T(an, "billing_get_ai_quotas", "AI usage quotas",
             "Monthly AI spending caps (billing currency, priced like the bill) for companies, branches and users in " +
             "your scope, each with this month's spend, % used and status ok | warn (80%) | paused (100% — the AI " +
@@ -55,6 +101,42 @@ public static partial class ToolCatalog
                 A.Obj("entities", "Caps keyed by entity id (amount in the billing currency; 0/null = no cap)."),
                 A.Obj("users", "Caps keyed by username (amount in the billing currency; 0/null = no cap)."),
             });
+        yield return T(an, "billing_get_ai_credit", "Prepaid AI credit balances",
+            "Prepaid AI credit: each company's balance (a top-level entity; a branch draws on its company's "
+            + "balance), any per-login balances, and the append-only ledger of grants and adjustments — newest "
+            + "first, with the amount, the balance after it, who wrote it and why. Nothing debits these balances "
+            + "yet: AI usage is still billed by the monthly AI bill.",
+            "GET", "/api/billing/ai/credit", C("billing.view", "billing.manage"), new[]
+            {
+                A.Str("company", "Company (top-level entity) slug or id — its ledger only."),
+                A.Str("entity", "Any entity slug or id: answers which company's balance it draws on."),
+                A.Str("user", "Username — that login's own balance and ledger."),
+                A.Page, A.PageSize(200),
+            }, link: (_, _) => Page("Open AI billing", "/billing"));
+        yield return T(an, "billing_grant_ai_credit", "Grant AI credit",
+            "Hand prepaid AI credit to a company (a top-level entity) or to one login: a positive amount in the "
+            + "billing currency, written as an immutable ledger line plus an activity-log row. Pass "
+            + "idempotency_key to make a retry safe — the same key credits exactly once.",
+            "POST", "/api/billing/ai/credit/grant", C("billing.manage"), new[]
+            {
+                A.Str("entity", "Company (top-level entity) slug or id — credit is held per company."),
+                A.Str("user", "Username, for the optional per-login balance (instead of entity)."),
+                A.Num("amount", "How much credit to add, in the billing currency (positive).", req: true),
+                A.Str("note", "Why — it is kept on the ledger line and in the activity log."),
+                A.Str("idempotency_key", "Your own key: a repeated call with the same key credits once."),
+            }, idempotent: false);
+        yield return T(an, "billing_adjust_ai_credit", "Correct an AI credit balance",
+            "Correct a prepaid AI credit balance with a SIGNED amount (negative takes credit away). The ledger "
+            + "is append-only, so this writes a new line rather than editing one; balances are allowed to go "
+            + "negative and are never silently clamped to zero.",
+            "POST", "/api/billing/ai/credit/adjust", C("billing.manage"), new[]
+            {
+                A.Str("entity", "Company (top-level entity) slug or id."),
+                A.Str("user", "Username, for a per-login balance (instead of entity)."),
+                A.Num("amount", "Signed: positive adds credit, negative takes it away.", req: true),
+                A.Str("note", "Why the correction was made."),
+                A.Str("idempotency_key", "Your own key: a repeated call applies once."),
+            }, idempotent: false);
         yield return T(an, "analytics_get_engagement", "Engagement tiles",
             "Conversations total, awaiting reply, replied, needing a human, follow-ups set, calls.",
             "GET", "/api/messaging/engagement", C("analytics.view"), new[] { A.Entity() });

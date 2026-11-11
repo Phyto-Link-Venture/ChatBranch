@@ -28,7 +28,9 @@ public static class AccountRoles
             s = (s ?? "").Trim().ToLowerInvariant();
             if (s is Reminder or Conversation) return s;
         }
-        return a.Provider == Providers.Baileys ? Conversation : Reminder;
+        // an unofficial personal line (Baileys, WAHA) is a conversation number; an
+        // official business number is the reminder one
+        return WhatsAppProviders.IsOfficial(a) ? Reminder : Conversation;
     }
 }
 

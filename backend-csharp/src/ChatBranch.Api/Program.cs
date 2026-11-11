@@ -270,8 +270,11 @@ app.MapFlowsEndpoints();
 app.MapContactsEndpoints();
 app.MapContactIdentityEndpoints();
 app.MapContactAccessEndpoints();
+app.MapContactThreadLinkEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapAiBillingEndpoints();
+app.MapAiCreditEndpoints();
+app.MapAiPriceBookEndpoints();
 app.MapIntegrationsEndpoints();
 app.MapNotificationEndpoints();
 // notifications on a device, when ChatBranch is not open
@@ -324,6 +327,8 @@ app.MapCommerceEndpoints();
 // ChatBranch × Zernio: social accounts, comments / reviews / DMs, posts, the signed webhook
 app.MapSocialEndpoints();
 app.MapWhatsAppBspWebhookEndpoints();
+// WhatsApp through the operator's own WAHA server (unofficial): pairing + its signed webhook
+app.MapWahaEndpoints();
 app.MapMessagingTransportEndpoints();
 // one call for a message an APP originated (a login code, an order update)
 app.MapMessagingNotifyEndpoints();

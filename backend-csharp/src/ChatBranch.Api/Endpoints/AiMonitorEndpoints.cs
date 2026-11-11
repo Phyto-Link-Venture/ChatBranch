@@ -3,6 +3,7 @@ using System.Text.Json;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Ai;
+using ChatBranch.Data.Channels;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 using Thread = ChatBranch.Domain.Thread;
@@ -20,6 +21,11 @@ namespace ChatBranch.Api.Endpoints;
 ///   <see cref="AiGate"/>, which re-runs every send-time guard.
 /// * <c>GET/PUT/DELETE /api/ai/behaviour?entity=</c> — Setting rows,
 ///   entity-overridable, catalog in <see cref="AiBehaviourSettings"/>.
+/// * <c>…?account=&lt;id&gt;</c> — the SAME catalog one level lower: a single
+///   inbox's overrides, stored in <c>ChannelAccount.Config</c> where
+///   <see cref="AiBehaviourSettings.Resolve"/> already looks first, so a website
+///   widget can answer in seconds while WhatsApp keeps a long debounce. A blank
+///   value (or DELETE) clears one key and the inbox inherits again.
 ///
 /// Capabilities: <c>ai.monitor</c> (view + decide), <c>ai.behaviour.manage</c>
 /// (change the rules). Every decision and settings change is audited. Draft
@@ -298,24 +304,31 @@ public static class AiMonitorEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- AI behaviour settings ----------------------------------------------
-        app.MapGet("/api/ai/behaviour", async (string? entity, AppDbContext db, ScopingService sc,
+        app.MapGet("/api/ai/behaviour", async (string? entity, int? account, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me) =>
         {
+            var (acct, acctErr) = await BehaviourAccount(db, account);
+            if (acctErr != null) return acctErr;
             var (entityId, err) = await BehaviourEntity(db, entity);
             if (err != null) return err;
+            // an inbox is read at ITS OWN entity's level, whatever ?entity said
+            if (acct != null) { entityId = acct.EntityId; entity = null; }
             // an entity-bound caller reads only its own outlets' levels (like /api/ai/controls)
             if (OutOfBoundScope(db, sc, me, entityId))
                 return Results.Json(new { detail = "That outlet is outside your scope." }, statusCode: 404);
-            return Results.Ok(await BehaviourPayload(db, sc, me, entityId, entity));
+            return Results.Ok(await BehaviourPayload(db, sc, me, entityId, entity, acct));
         }).RequireAuthorization(AuthPolicies.Authenticated)
           .RequireAnyCapability(MonitorCap, BehaviourCap);
 
-        app.MapPut("/api/ai/behaviour", async (string? entity, HttpContext ctx, AppDbContext db,
+        app.MapPut("/api/ai/behaviour", async (string? entity, int? account, HttpContext ctx, AppDbContext db,
             ScopingService sc, ClaimsPrincipal me) =>
         {
             if (!await Can(db, me, BehaviourCap)) return Forbidden(BehaviourCap);
+            var (acct, acctErr) = await BehaviourAccount(db, account);
+            if (acctErr != null) return acctErr;
             var (entityId, err) = await BehaviourEntity(db, entity);
             if (err != null) return err;
+            if (acct != null) { entityId = acct.EntityId; entity = null; }
             if (!AiControlsEndpoints.MayEdit(db, sc, me, entityId))
                 return Results.Json(new { detail = entityId == null
                     ? "Only someone not limited to particular entities can change the organization's AI behaviour."
@@ -326,6 +339,7 @@ public static class AiMonitorEndpoints
             var values = root.TryGetProperty("values", out var v) && v.ValueKind == JsonValueKind.Object ? v : root;
 
             var writes = new List<(string Key, string Value)>();
+            var clears = new List<string>();
             var errors = new Dictionary<string, string>();
             foreach (var p in values.EnumerateObject())
             {
@@ -338,39 +352,70 @@ public static class AiMonitorEndpoints
                     JsonValueKind.Null => "",
                     _ => p.Value.GetRawText(),
                 };
+                // on an inbox a blank means "inherit again": clear the override
+                // rather than validate it (Normalize rejects "" for numbers/selects)
+                if (acct != null && string.IsNullOrWhiteSpace(raw)) { clears.Add(p.Name); continue; }
                 var problem = AiBehaviourSettings.Normalize(p.Name, raw, out var normalized);
                 if (problem != null) errors[p.Name] = problem;
                 else writes.Add((p.Name, normalized));
             }
             if (errors.Count > 0)
                 return Results.Json(new { detail = errors.Values.First(), errors }, statusCode: 400);
-            foreach (var (key, value) in writes) sc.SetSetting(key, value, entityId);
-            if (writes.Count > 0)
-                await Audit(db, ctx, me, "ai.behaviour.update", entity is { Length: > 0 } ? $"entity:{entity}" : "organization",
-                    Cap(string.Join(", ", writes.Select(w => $"{w.Key}={w.Value}")), 1000));
-            return Results.Ok(await BehaviourPayload(db, sc, me, entityId, entity));
+            // an inbox stores its overrides in ChannelAccount.Config, where
+            // AiBehaviourSettings.Resolve looks before the entity and org rows
+            if (acct != null)
+            {
+                var touched = false;
+                foreach (var (key, value) in writes) touched |= InboxSettings.SetBehaviour(acct, key, value);
+                foreach (var key in clears) touched |= InboxSettings.SetBehaviour(acct, key, "");
+                if (touched) await db.SaveChangesAsync();
+            }
+            else
+            {
+                foreach (var (key, value) in writes) sc.SetSetting(key, value, entityId);
+            }
+            if (writes.Count > 0 || clears.Count > 0)
+                await Audit(db, ctx, me, "ai.behaviour.update",
+                    acct != null ? $"inbox:{acct.Id}" : entity is { Length: > 0 } ? $"entity:{entity}" : "organization",
+                    Cap(string.Join(", ", writes.Select(w => $"{w.Key}={w.Value}")
+                        .Concat(clears.Select(k => $"{k}=inherit"))), 1000));
+            return Results.Ok(await BehaviourPayload(db, sc, me, entityId, entity, acct));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        app.MapDelete("/api/ai/behaviour", async (string? entity, string? key, HttpContext ctx,
+        app.MapDelete("/api/ai/behaviour", async (string? entity, int? account, string? key, HttpContext ctx,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             if (!await Can(db, me, BehaviourCap)) return Forbidden(BehaviourCap);
+            var (acct, acctErr) = await BehaviourAccount(db, account);
+            if (acctErr != null) return acctErr;
             var (entityId, err) = await BehaviourEntity(db, entity);
             if (err != null) return err;
-            if (entityId == null)
+            if (acct != null) { entityId = acct.EntityId; entity = null; }
+            if (acct == null && entityId == null)
                 return Results.Json(new
                 {
-                    detail = "Pick an entity to remove its overrides. Organization defaults are edited, not deleted.",
+                    detail = "Pick an entity or an inbox to remove its overrides. "
+                        + "Organization defaults are edited, not deleted.",
                 }, statusCode: 400);
             if (!AiControlsEndpoints.MayEdit(db, sc, me, entityId))
                 return Results.Json(new { detail = "That entity is outside your scope." }, statusCode: 403);
             var keys = string.IsNullOrWhiteSpace(key) ? AiBehaviourSettings.Keys.ToList() : new List<string> { key };
             if (keys.Any(k => !AiBehaviourSettings.ByKey.ContainsKey(k)))
                 return Results.Json(new { detail = $"Unknown setting '{key}'." }, statusCode: 400);
-            var cleared = keys.Count(k => sc.ClearSetting(k, entityId));
-            await Audit(db, ctx, me, "ai.behaviour.reset", $"entity:{entity}",
+            int cleared;
+            if (acct != null)
+            {
+                cleared = keys.Count(k => InboxSettings.SetBehaviour(acct, k, ""));
+                if (cleared > 0) await db.SaveChangesAsync();
+            }
+            else
+            {
+                cleared = keys.Count(k => sc.ClearSetting(k, entityId));
+            }
+            await Audit(db, ctx, me, "ai.behaviour.reset",
+                acct != null ? $"inbox:{acct.Id}" : $"entity:{entity}",
                 string.IsNullOrWhiteSpace(key) ? $"all ({cleared} cleared)" : key);
-            return Results.Ok(await BehaviourPayload(db, sc, me, entityId, entity));
+            return Results.Ok(await BehaviourPayload(db, sc, me, entityId, entity, acct));
         }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
@@ -538,7 +583,7 @@ public static class AiMonitorEndpoints
         entityId is int asked && ShellScope.BoundEntityIds(db, sc, me) is List<int> bound && !bound.Contains(asked);
 
     private static async Task<object> BehaviourPayload(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
-        int? entityId, string? entitySlug)
+        int? entityId, string? entitySlug, ChannelAccount? account = null)
     {
         var keys = AiBehaviourSettings.Keys.ToList();
         var orgOnly = sc.SettingValues(keys);
@@ -547,18 +592,40 @@ public static class AiMonitorEndpoints
             ? await db.Entities.AsNoTracking().Where(e => e.Id == pe).Select(e => e.ParentId).FirstOrDefaultAsync()
             : null;
         var global = parentId != null ? sc.SettingValues(keys, parentId) : orgOnly;
-        var own = entityId is int eid
-            ? await db.Settings.AsNoTracking().Where(s => s.EntityId == eid && keys.Contains(s.Key))
-                .ToDictionaryAsync(s => s.Key, s => s.Value)
-            : new Dictionary<string, string>();
-        var entityName = entityId is int id2
-            ? await db.Entities.AsNoTracking().Where(e => e.Id == id2).Select(e => e.Name).FirstOrDefaultAsync()
+        // "own" = the overrides of the level being edited: the inbox's Config when
+        // an inbox is targeted, else the entity's own Setting rows
+        var own = account != null
+            ? InboxSettings.BehaviourOverrides(account)
+            : entityId is int eid
+                ? await db.Settings.AsNoTracking().Where(s => s.EntityId == eid && keys.Contains(s.Key))
+                    .ToDictionaryAsync(s => s.Key, s => s.Value)
+                : new Dictionary<string, string>();
+        // an inbox inherits its entity's resolved values (the entity's own rows included)
+        var inheritedByKey = account != null ? sc.SettingValues(keys, entityId) : null;
+        var entityRow = entityId is int id2
+            ? await db.Entities.AsNoTracking().Where(e => e.Id == id2)
+                .Select(e => new { e.Name, e.Slug }).FirstOrDefaultAsync()
             : null;
-        var effective = AiBehaviourSettings.Resolve(sc, entityId);
+        var entityName = entityRow?.Name;
+        var effective = AiBehaviourSettings.Resolve(sc, entityId, account);
         return new
         {
             entity = entitySlug is { Length: > 0 } && entityId != null ? entitySlug : null,
             entity_name = entityName,
+            // the inbox being edited, when the request named one
+            account = account == null ? null : new
+            {
+                id = account.Id,
+                name = account.Name,
+                channel = account.Channel,
+                provider = account.Provider,
+                entity_id = account.EntityId,
+                // the owning outlet, so a caller can show the level this inbox
+                // sits under without a second lookup (null = organization-wide)
+                entity = entityRow?.Slug,
+                entity_name = entityRow?.Name,
+                overrides = own.Count,
+            },
             can_manage = await Can(db, me, BehaviourCap) && AiControlsEndpoints.MayEdit(db, sc, me, entityId),
             groups = Groups.Select(g => new { id = g.Id, title = g.Title, description = g.Description }),
             fields = AiBehaviourSettings.Fields.Select(f =>
@@ -567,9 +634,16 @@ public static class AiMonitorEndpoints
                 var hasOwn = own.TryGetValue(f.Key, out var ov) && !string.IsNullOrWhiteSpace(ov);
                 var fromParent = global.TryGetValue(f.Key, out var pv)
                                  && (!orgOnly.TryGetValue(f.Key, out var gv2) || gv2 != pv);
-                var scope = entityId != null
-                    ? (hasOwn ? "entity" : fromParent ? "parent" : global.ContainsKey(f.Key) ? "global" : "default")
-                    : (global.ContainsKey(f.Key) ? "global" : "default");
+                // an inbox inherits from its entity (which has already resolved the
+                // tree and the org), so its "inherited" is that resolved value
+                if (inheritedByKey != null)
+                    orgValue = inheritedByKey.TryGetValue(f.Key, out var iv) && iv.Length > 0
+                        ? iv : AiBehaviourSettings.DefaultFor(f.Key);
+                var scope = account != null
+                    ? (hasOwn ? "account" : entityId != null ? "entity" : "global")
+                    : entityId != null
+                        ? (hasOwn ? "entity" : fromParent ? "parent" : global.ContainsKey(f.Key) ? "global" : "default")
+                        : (global.ContainsKey(f.Key) ? "global" : "default");
                 return new
                 {
                     key = f.Key, group = f.Group, type = f.Type, label = f.Label, help = f.Help,
@@ -622,6 +696,22 @@ public static class AiMonitorEndpoints
     {
         var scope = await ScopeFor(db, sc, me, null);
         return await Scoped(db.AiDrafts.AsNoTracking(), scope).FirstOrDefaultAsync(d => d.Id == id);
+    }
+
+    /// <summary>
+    /// The inbox (channel account) a behaviour request targets — the per-channel
+    /// level BELOW the entity, stored in <see cref="ChannelAccount.Config"/> and
+    /// read first by <see cref="AiBehaviourSettings.Resolve"/>. (null, null) when
+    /// the request named no inbox, so the entity/organization level is edited.
+    /// </summary>
+    private static async Task<(ChannelAccount? Account, IResult? Error)> BehaviourAccount(
+        AppDbContext db, int? accountId)
+    {
+        if (accountId is not int id || id <= 0) return (null, null);
+        var acct = await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Id == id);
+        return acct == null
+            ? (null, Results.Json(new { detail = $"Unknown inbox '{id}'." }, statusCode: 404))
+            : (acct, null);
     }
 
     private static async Task<(int? Id, IResult? Error)> BehaviourEntity(AppDbContext db, string? slug)

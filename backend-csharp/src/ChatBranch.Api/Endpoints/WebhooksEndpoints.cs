@@ -15,6 +15,11 @@ namespace ChatBranch.Api.Endpoints;
 /// routes inbound through <see cref="InboundProcessor"/> (store + dedup + flow
 /// resume + coverage-gated AI reply). The Cloud signature is REQUIRED once any
 /// Cloud account is configured; sandbox (nothing configured) accepts unsigned.
+/// Cloud traffic is matched to ONE registered number (phone_number_id, plus the
+/// WABA as a cross-check): once the install has a Cloud number, a payload that
+/// matches none is recorded and dropped rather than filed in the organization-wide
+/// unattributed bucket — see <see cref="CloudInboxRouting"/> for why, and for the
+/// Setting that restores the old behaviour.
 /// Messenger / Instagram live in <see cref="MetaWebhookEndpoints"/>.
 /// </summary>
 public static class WebhooksEndpoints
@@ -74,8 +79,52 @@ public static class WebhooksEndpoints
             ChatBranch.Domain.ChannelAccount? AccountFor(string pnid) =>
                 accounts.FirstOrDefault(a => a.ExternalId == pnid);
 
-            foreach (var m in MetaWebhook.CloudMessages(root))
+            var messages = MetaWebhook.CloudMessages(root);
+            var reactions = MetaWebhook.CloudReactions(root);
+            var statuses = MetaWebhook.CloudStatuses(root);
+
+            // ---- route by REGISTERED number only (Channels/CloudInboxRouting) ----
+            // A payload whose phone_number_id matches no account used to be processed
+            // with accountId: null, which filed the conversation in the organization-wide
+            // unattributed bucket — visible to every company, and adoptable by the first
+            // company whose own number later touched it. On an install that HAS Cloud
+            // numbers such a payload is now recorded and dropped (200, so Meta stops
+            // retrying). The guard arms as soon as the install has ANY WhatsApp number,
+            // whatever its provider: a Baileys- or WAHA-only install has no Cloud number
+            // subscribed, so nothing Meta sends here can ever be legitimate — and this
+            // endpoint is public and accepts unsigned posts while no Cloud account exists
+            // (`required` above), so an unarmed guard would let anyone append text to a
+            // real customer's conversation by posting their number. Only an install with
+            // no WhatsApp number at all (sandbox, demo) keeps the old permissive filing,
+            // and the Setting whatsapp_accept_unknown_numbers restores it anywhere.
+            var routingArmed = env != null
+                               || await db.ChannelAccounts.AnyAsync(a => a.Channel == "whatsapp"
+                                   && a.ExternalId != "");
+            var unroutable = new HashSet<string>(StringComparer.Ordinal);
+            if (routingArmed && !CloudInboxRouting.AcceptUnknownNumbers(sc))
+                foreach (var (pnid, waba) in MetaWebhook.CloudNumbers(root))
+                {
+                    // the env-default number is a legitimate account-less route (it carries
+                    // the credentials of the one number the install was started with)
+                    var known = AccountFor(pnid) ?? (env != null && env.ExternalId == pnid ? env : null);
+                    var why = known == null
+                        ? $"No WhatsApp number is registered with phone_number_id {pnid}"
+                        : CloudInboxRouting.WabaMismatch(known, waba)
+                            ? $"phone_number_id {pnid} belongs to WABA {known.WabaId}, "
+                              + $"but the payload says {waba.Trim()}"
+                            : "";
+                    if (why.Length == 0) continue;
+                    unroutable.Add(pnid);
+                    CloudInboxRouting.RecordUnknownNumber(db, pnid, waba, why,
+                        messages.Count(m => m.PhoneNumberId == pnid),
+                        reactions.Count(r => r.PhoneNumberId == pnid),
+                        statuses.Count(s => s.PhoneNumberId == pnid),
+                        messages.FirstOrDefault(m => m.PhoneNumberId == pnid)?.Wamid ?? "");
+                }
+
+            foreach (var m in messages)
             {
+                if (unroutable.Contains(m.PhoneNumberId)) continue;
                 try
                 {
                     // a redelivered wamid already ran every side effect (AI, flows,
@@ -109,16 +158,20 @@ public static class WebhooksEndpoints
 
             // reactions: stored on the message they target — never a bubble, never the
             // AI, flows, automations or a reopen (MessageReactions)
-            foreach (var r in MetaWebhook.CloudReactions(root))
+            foreach (var r in reactions)
             {
+                if (unroutable.Contains(r.PhoneNumberId)) continue;
                 try { MessageReactions.ApplyInbound(db, "whatsapp", r.From, r.TargetWamid, r.Emoji, accountId: AccountFor(r.PhoneNumberId)?.Id); }
                 catch { }
             }
 
             // delivery receipts: sent → delivered → read, or failed (+ 131047 window
             // close; account-level codes → health, per-recipient codes never)
-            foreach (var st in MetaWebhook.CloudStatuses(root))
+            foreach (var st in statuses)
             {
+                // a receipt bumps the thread's updated_at, so an unroutable number
+                // is not allowed to touch one either
+                if (unroutable.Contains(st.PhoneNumberId)) continue;
                 try { MetaWebhook.ApplyStatus(db, st, AccountFor(st.PhoneNumberId)); }
                 catch { }
             }

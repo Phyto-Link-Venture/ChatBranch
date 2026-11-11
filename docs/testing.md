@@ -242,7 +242,12 @@ tunnel --url http://localhost:8090` or `ngrok http 8090`) and set
 - **Baileys QR on a dev phone** — `npm run dev:baileys`, add a "QR" WhatsApp
   inbox, scan with a SPARE phone (⚠ unofficial transport, ban risk — read
   `backend/baileys_service/README.md`). Check: text + media both ways, status
-  ticks, a voice call if the voice agent is running.
+  ticks, a voice call if the voice agent is running. Also **"Fetch older
+  messages"** in the same drawer: one run, watch the paced progress (a request
+  every 20–45 s), press Stop mid-run, then — after the 15-minute cooldown — start
+  it again and confirm it CONTINUES rather than re-asking. Never point it at a number that matters — it
+  is real WhatsApp traffic on an unofficial transport, so a spare number only,
+  and the paired phone must be online or nothing comes back.
 - **Website widget on a local HTML page** — as above; also try it on a phone on
   the same network (`http://<your-ip>:8090/widget.js`, add the page's origin to
   CORS if you serve it elsewhere).

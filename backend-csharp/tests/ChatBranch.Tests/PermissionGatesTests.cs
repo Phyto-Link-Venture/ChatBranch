@@ -120,6 +120,8 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/billing/ai/pdf", new[] { "billing.view" }),
         ("/api/billing/ai/settings", new[] { "billing.manage" }),
         ("/api/billing/ai/quotas", new[] { "billing.view", "billing.manage" }),
+        ("/api/billing/ai/credit", new[] { "billing.view", "billing.manage" }),
+        ("/api/billing/ai/price-books", new[] { "billing.manage" }),
         // Activity
         ("/api/audit", new[] { "activity.view" }),
         ("/api/audit.csv", new[] { "activity.view" }),
@@ -388,6 +390,8 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         "/api/whatsapp/status", "/api/messaging/status",
         "/api/whatsapp/webhook", "/api/messaging/webhook", "/api/messaging/webhook/wechat/{id:int}",
         "/api/integrations/oauth/google/callback",
+        // the browser returning from Meta's Embedded Signup: the one-time cb nonce is the credential
+        "/api/social/connect/whatsapp/callback",
         "/api/widget/{token}/config", "/api/widget/{token}/messages",
         "/api/help/articles", "/api/help/articles/{slug}",
         // a customer's document download link (the 128-bit token is the credential)

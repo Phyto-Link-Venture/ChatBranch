@@ -375,23 +375,40 @@ public class ScopingService
         return top;
     }
 
-    /// <summary>Every entity's company in ONE query — for list payloads and bulk checks.</summary>
-    public Dictionary<int, int> CompanyMap()
+    /// <summary>
+    /// Every entity's chain in ONE query: entity id → itself, its parent, … its
+    /// top-level entity (NEAREST FIRST, exactly like <see cref="EntityChain"/>).
+    /// The bulk form of the nearest-level-wins walk, for payloads and bulk
+    /// resolution (the AI bill prices thousands of usage rows with it) — so the
+    /// tree is still walked in ONE place, not re-implemented per caller.
+    /// </summary>
+    public Dictionary<int, List<int>> ChainMap()
     {
-        var parents = _db.Entities.AsNoTracking().Select(e => new { e.Id, e.ParentId })
-            .ToDictionary(e => e.Id, e => e.ParentId);
-        var map = new Dictionary<int, int>();
+        var parents = new Dictionary<int, int?>();
+        try
+        {
+            parents = _db.Entities.AsNoTracking().Select(e => new { e.Id, e.ParentId })
+                .ToDictionary(e => e.Id, e => e.ParentId);
+        }
+        catch { /* degrade to an empty tree rather than break a bill or a payload */ }
+        var map = new Dictionary<int, List<int>>(parents.Count);
         foreach (var id in parents.Keys)
         {
-            var cur = id;
-            var seen = new HashSet<int>();
-            while (parents.TryGetValue(cur, out var parent) && parent is int p && parents.ContainsKey(p)
-                   && seen.Add(cur) && seen.Count < 32)
-                cur = p;
-            map[id] = cur;
+            var chain = new List<int>();
+            var cur = (int?)id;
+            while (cur is int step && parents.ContainsKey(step) && !chain.Contains(step) && chain.Count < 16)
+            {
+                chain.Add(step);
+                cur = parents[step];
+            }
+            map[id] = chain;
         }
         return map;
     }
+
+    /// <summary>Every entity's company in ONE query — for list payloads and bulk checks.</summary>
+    public Dictionary<int, int> CompanyMap() =>
+        ChainMap().ToDictionary(kv => kv.Key, kv => kv.Value.Count > 0 ? kv.Value[^1] : kv.Key);
 
     /// <summary>The company of a channel account (its entity's), null for an organization-wide number.</summary>
     public int? AccountCompany(ChannelAccount? account) => CompanyOf(account?.EntityId);

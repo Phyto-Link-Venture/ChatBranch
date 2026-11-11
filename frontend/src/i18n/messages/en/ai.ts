@@ -380,6 +380,26 @@ export const ai = {
     useDefault: 'Use default',
     inherits: 'Inherits organization default',
     inheritsOverrides: 'Inherits organization default (overrides when saved)',
+    // ---- the inbox level (?account=): one widget, number, mailbox, bot or page
+    theOrganization: 'the organization',
+    inboxLabel: 'One inbox only (optional)',
+    inboxAria: 'Inbox whose AI behaviour you are editing',
+    inboxAll: 'Every inbox at this level',
+    inboxOrgWide: 'Shared by the whole organization',
+    inboxTip:
+      'Only this inbox follows these values — a website widget can answer a visitor in a second or two while WhatsApp keeps waiting out a burst of messages.',
+    inboxesError: 'Couldn’t load the inboxes: {error}',
+    noInboxes: 'No inboxes yet — connect a number, a mailbox or a website widget first.',
+    inboxOverridesHere_one: '{count} setting is set on this inbox only. Everything else follows {name}.',
+    inboxOverridesHere_other: '{count} settings are set on this inbox only. Everything else follows {name}.',
+    inboxInheritsAll: 'This inbox follows {name} for everything. Change a value to set it here only.',
+    inboxOverridesRemoved: 'All overrides removed for this inbox.',
+    backToInherited: 'Back to the inherited value.',
+    setForInbox: 'Set for this inbox',
+    inheritedValue: 'Inherited from {name}: {value}',
+    useInherited: 'Use inherited',
+    inheritsFrom: 'Inherits from {name}',
+    inheritsFromOverrides: 'Inherits from {name} (set on this inbox when saved)',
     groups: {
       human: {
         title: 'Human-like',

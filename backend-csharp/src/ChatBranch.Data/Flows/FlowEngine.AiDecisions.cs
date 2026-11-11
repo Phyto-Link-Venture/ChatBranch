@@ -21,8 +21,13 @@ namespace ChatBranch.Data.Flows;
 /// maxAsks           re-asks before giving up (default 2, 1–5)
 /// waitHours         how long one re-ask waits for a reply (default 24, 0 = no limit)
 /// </code>
-/// Decisions are internal (nothing reaches the customer), but the AI master
-/// switch / schedule of the conversation's outlet still applies: switched off
+/// Decisions are internal (nothing reaches the customer), but this is still a
+/// model prompt, so the contact's custom fields reach it under the same two
+/// gates as the customer-facing CONTACT block — <c>show_to_ai</c> ON and the
+/// run's COMPANY may see the field
+/// (<see cref="Contacts.ContactCustomFields.PromptFields"/>). An internal field,
+/// or one scoped to another client company, is not a routing input here either.
+/// The AI master switch / schedule of the conversation's outlet also applies: switched off
 /// = the "when unsure" path with a note, and so does an outlet at its AI usage
 /// quota (<c>AiQuota.EntityBlock</c>). Every verdict is logged on the run
 /// and in the step's completed event ("AI decided YES (0.82): …"), which the
@@ -89,19 +94,13 @@ public partial class FlowEngine
             var history = contact == null
                 ? new List<FlowAiLine>()
                 : Decider.History(contact.Id, scope, thread?.Channel, thread?.Id, since, take, runCompany);
-            var fields = new Dictionary<string, string>();
-            if (contact != null)
-            {
-                try
-                {
-                    foreach (var (key, label, kind) in CustomFieldDefs())
-                    {
-                        var value = FormatAttribute(contact.Attributes, key, kind).Trim();
-                        if (value != "") fields[label] = value;
-                    }
-                }
-                catch { /* a malformed schema never blocks a decision */ }
-            }
+            // the custom fields this prompt may carry: opted in with show_to_ai AND
+            // inside the run's company — the same two gates the customer-facing CONTACT
+            // block applies, from the same owner (a malformed schema costs the fields,
+            // never the decision)
+            var fields = contact == null
+                ? new Dictionary<string, string>()
+                : Contacts.ContactCustomFields.PromptFields(_scoping, contact.Attributes, runCompany);
             var req = new FlowAiRequest
             {
                 Kind = pick ? FlowAiDecision.Pick : FlowAiDecision.YesNo,

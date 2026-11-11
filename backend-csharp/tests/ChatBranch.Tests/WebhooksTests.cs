@@ -8,7 +8,14 @@ using Xunit;
 
 namespace ChatBranch.Tests;
 
-/// <summary>Live webhook intake: Meta verify + signed inbound, Telegram inbound.</summary>
+/// <summary>
+/// Live webhook intake: Meta verify + signed inbound, Telegram inbound.
+/// This host registers NO Cloud number on purpose: the payloads below address
+/// numbers nothing is registered for, which only routes into the unattributed
+/// sandbox bucket while the install has no Cloud number at all
+/// (<c>Channels/CloudInboxRouting</c>). A test that needs a configured number
+/// therefore brings its own host — see <see cref="WebhooksPacedAccountTests"/>.
+/// </summary>
 public class WebhooksTests : IClassFixture<ApiFactory>
 {
     private readonly ApiFactory _factory;
@@ -97,55 +104,6 @@ public class WebhooksTests : IClassFixture<ApiFactory>
         Assert.Contains(list, m => m.GetProperty("direction").GetString() == "in"
                                    && m.GetProperty("text").GetString() == "hello?");
         Assert.Contains(list, m => m.GetProperty("source").GetString() == "ai"); // AI auto-reply fired
-    }
-
-    /// <summary>
-    /// With a CONFIGURED account and ai_reply_mode=queued (the default), the
-    /// reply must be enqueued rather than sent inline — that queue job is what
-    /// the account's Send Pacing gap and quiet hours act on. Before this the
-    /// rule was stored and never read, so pacing paced nothing.
-    /// </summary>
-    [Fact]
-    public async Task Configured_account_queues_the_ai_reply_instead_of_sending_inline()
-    {
-        var admin = await Authed("admin", "admin123");
-        await admin.PostAsJsonAsync("/api/contacts", new { name = "Paced", phone = "60129990111" });
-        // a real (configured) Cloud account carries this number — as a
-        // CONVERSATION number: a business (reminder) number has the chatbot off
-        // by default and would answer with the business redirect instead
-        await admin.PostAsJsonAsync("/api/whatsapp/accounts", new
-        {
-            name = "Paced Number", phone_number_id = "PN-PACED", access_token = "tok-live",
-            app_secret = AppSecret,
-            role = "conversation",
-        });
-
-        var payload = JsonSerializer.Serialize(new
-        {
-            entry = new[] { new { changes = new[] { new { value = new
-            {
-                metadata = new { phone_number_id = "PN-PACED" },
-                messages = new[] { new { from = "60129990111", id = "wamid.PACED", timestamp = "1700000000",
-                    type = "text", text = new { body = "are you open?" } } },
-            } } } } },
-        });
-        var c = _factory.CreateClient();
-        // a live account now exists: an unsigned (or wrongly signed) post is refused
-        Assert.Equal(HttpStatusCode.Unauthorized, (await c.PostAsync("/api/whatsapp/webhook",
-            new StringContent(payload, Encoding.UTF8, "application/json"))).StatusCode);
-        (await c.PostAsync("/api/whatsapp/webhook", Signed(payload))).EnsureSuccessStatusCode();
-
-        // nothing sent inline …
-        var msgs = await admin.GetFromJsonAsync<JsonElement>(
-            "/api/whatsapp/threads/whatsapp/60129990111/messages");
-        Assert.DoesNotContain(msgs.GetProperty("messages").EnumerateArray(),
-            m => m.GetProperty("source").GetString() == "ai");
-
-        // … an ai_reply job is waiting for the pacing gap instead
-        var queue = await admin.GetFromJsonAsync<JsonElement>("/api/flows/queue");
-        Assert.Contains(queue.GetProperty("jobs").EnumerateArray(),
-            j => j.GetProperty("kind").GetString() == "ai_reply"
-                 && j.GetProperty("toAddress").GetString() == "60129990111");
     }
 
     [Fact]
@@ -244,5 +202,86 @@ public class WebhooksTests : IClassFixture<ApiFactory>
             "/api/whatsapp/threads/telegram/55501/messages");
         Assert.Contains(msgs.GetProperty("messages").EnumerateArray(),
             m => m.GetProperty("text").GetString() == "hi from tg");
+    }
+}
+
+/// <summary>
+/// With a CONFIGURED account and ai_reply_mode=queued (the default), the reply must
+/// be enqueued rather than sent inline — that queue job is what the account's Send
+/// Pacing gap and quiet hours act on. Before this the rule was stored and never
+/// read, so pacing paced nothing.
+///
+/// Its own host (and not <see cref="WebhooksTests"/>'s): registering a Cloud number
+/// switches the install from "sandbox, anything routes" to "route by registered
+/// number only" (<c>Channels/CloudInboxRouting</c>), which would make that class's
+/// unregistered-number tests depend on xUnit's method order.
+/// </summary>
+public class WebhooksPacedAccountTests : IClassFixture<ApiFactory>
+{
+    private readonly ApiFactory _factory;
+    public WebhooksPacedAccountTests(ApiFactory factory) => _factory = factory;
+
+    private const string AppSecret = "wh-paced-app-secret";
+
+    private static StringContent Signed(string json)
+    {
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var h = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(AppSecret));
+        content.Headers.Add("X-Hub-Signature-256",
+            "sha256=" + Convert.ToHexString(h.ComputeHash(Encoding.UTF8.GetBytes(json))).ToLowerInvariant());
+        return content;
+    }
+
+    private async Task<HttpClient> Authed(string user, string pass)
+    {
+        var c = _factory.CreateClient();
+        var res = await c.PostAsJsonAsync("/api/auth/login", new { username = user, password = pass });
+        res.EnsureSuccessStatusCode();
+        var token = (await res.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString();
+        c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return c;
+    }
+
+    [Fact]
+    public async Task Configured_account_queues_the_ai_reply_instead_of_sending_inline()
+    {
+        var admin = await Authed("admin", "admin123");
+        await admin.PostAsJsonAsync("/api/contacts", new { name = "Paced", phone = "60129990111" });
+        // a real (configured) Cloud account carries this number — as a
+        // CONVERSATION number: a business (reminder) number has the chatbot off
+        // by default and would answer with the business redirect instead
+        await admin.PostAsJsonAsync("/api/whatsapp/accounts", new
+        {
+            name = "Paced Number", phone_number_id = "PN-PACED", access_token = "tok-live",
+            app_secret = AppSecret,
+            role = "conversation",
+        });
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            entry = new[] { new { changes = new[] { new { value = new
+            {
+                metadata = new { phone_number_id = "PN-PACED" },
+                messages = new[] { new { from = "60129990111", id = "wamid.PACED", timestamp = "1700000000",
+                    type = "text", text = new { body = "are you open?" } } },
+            } } } } },
+        });
+        var c = _factory.CreateClient();
+        // a live account now exists: an unsigned (or wrongly signed) post is refused
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.PostAsync("/api/whatsapp/webhook",
+            new StringContent(payload, Encoding.UTF8, "application/json"))).StatusCode);
+        (await c.PostAsync("/api/whatsapp/webhook", Signed(payload))).EnsureSuccessStatusCode();
+
+        // nothing sent inline …
+        var msgs = await admin.GetFromJsonAsync<JsonElement>(
+            "/api/whatsapp/threads/whatsapp/60129990111/messages");
+        Assert.DoesNotContain(msgs.GetProperty("messages").EnumerateArray(),
+            m => m.GetProperty("source").GetString() == "ai");
+
+        // … an ai_reply job is waiting for the pacing gap instead
+        var queue = await admin.GetFromJsonAsync<JsonElement>("/api/flows/queue");
+        Assert.Contains(queue.GetProperty("jobs").EnumerateArray(),
+            j => j.GetProperty("kind").GetString() == "ai_reply"
+                 && j.GetProperty("toAddress").GetString() == "60129990111");
     }
 }

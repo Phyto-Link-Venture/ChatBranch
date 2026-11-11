@@ -190,6 +190,25 @@ public static class SystemEmail
     }
 
     /// <summary>One line of display text: control characters out, capped.</summary>
+    /// <summary>
+    /// Clean up a pasted SMTP password. Always trims, and removes the spaces out
+    /// of a Gmail App Password: Google shows it as four groups of four
+    /// ("abcd efgh ijkl mnop"), and copying it from Google's own dialog brings
+    /// those spaces along. Stored with them, Gmail answers
+    /// "5.7.8 Username and Password not accepted" — indistinguishable from a
+    /// wrong password, so it is a trap worth closing here.
+    ///
+    /// ONLY that exact 4x4 shape is de-spaced, so a password that legitimately
+    /// contains a space is left untouched.
+    /// </summary>
+    public static string NormalizePassword(string? raw)
+    {
+        var s = (raw ?? "").Trim();
+        return System.Text.RegularExpressions.Regex.IsMatch(s, @"^[A-Za-z]{4}( [A-Za-z]{4}){3}$")
+            ? s.Replace(" ", "")
+            : s;
+    }
+
     public static string OneLine(string? s, int max)
     {
         var chars = (s ?? "").Where(c => !char.IsControl(c)).ToArray();

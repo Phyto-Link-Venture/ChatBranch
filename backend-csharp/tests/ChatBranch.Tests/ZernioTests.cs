@@ -46,6 +46,8 @@ public sealed class FakeZernioClient : IZernioClient
         Templates.Clear();
         Files.Clear();
         PhoneNumbers.Clear();
+        Countries.Clear();
+        Released.Clear();
         TelegramStatus = null;
     }
 
@@ -80,9 +82,22 @@ public sealed class FakeZernioClient : IZernioClient
     public Task<ZernioReply> ListAccountsAsync(string? profileId = null, CancellationToken ct = default) =>
         Do("ListAccounts", new() { ["profileId"] = profileId }, () => ZernioReply.Of(new { accounts = Accounts, hasAnalyticsAccess = false }));
 
-    public Task<ZernioReply> ConnectUrlAsync(string platform, string profileId, string redirectUrl, CancellationToken ct = default) =>
-        Do("ConnectUrl", new() { ["platform"] = platform, ["profileId"] = profileId, ["redirect_url"] = redirectUrl },
-            () => ZernioReply.Of(new { authUrl = $"https://auth.example/{platform}?profile={profileId}" }));
+    public Task<ZernioReply> ConnectUrlAsync(string platform, string profileId, string redirectUrl,
+        string? onboarding = null, string? signup = null, CancellationToken ct = default) =>
+        Do("ConnectUrl", new()
+            {
+                ["platform"] = platform, ["profileId"] = profileId, ["redirect_url"] = redirectUrl,
+                // null = the parameter was NOT sent (Zernio's own default would apply)
+                ["onboarding"] = onboarding, ["signup"] = signup,
+            },
+            // real Zernio answers a state with the URL; its callback params do not carry one back
+            () => ZernioReply.Of(new
+            {
+                authUrl = $"https://auth.example/{platform}?profile={profileId}"
+                          + (string.IsNullOrEmpty(onboarding) ? "" : $"&onboarding={onboarding}")
+                          + (string.IsNullOrEmpty(signup) ? "" : $"&signup={signup}"),
+                state = "zstate-" + Next("s"),
+            }));
 
     public Task<ZernioReply> DeleteAccountAsync(string accountId, CancellationToken ct = default) =>
         Do("DeleteAccount", new() { ["accountId"] = accountId }, () => ZernioReply.Of(new { message = "Account disconnected successfully" }));
@@ -234,6 +249,61 @@ public sealed class FakeZernioClient : IZernioClient
             enabled = true, id = "zsms-" + phoneNumberId, phoneNumber = "+60123000111", isActive = true, country = "MY",
             smsCapable = true, needsRegistration = false,
         }));
+
+    /// <summary>What GET /v1/phone-numbers/countries quotes (the price before a purchase).</summary>
+    public List<object> Countries { get; } = new();
+
+    /// <summary>Numbers a release took away, by id (so a test can assert what was released).</summary>
+    public List<string> Released { get; } = new();
+
+    public Task<ZernioReply> GetPhoneNumberAsync(string phoneNumberId, CancellationToken ct = default) =>
+        Do("GetPhoneNumber", new() { ["phoneNumberId"] = phoneNumberId }, () =>
+        {
+            var hit = PhoneNumbers.Select(n => JsonSerializer.SerializeToElement(n))
+                .FirstOrDefault(n => ZernioJson.Str(n, "_id") == phoneNumberId || ZernioJson.Str(n, "id") == phoneNumberId);
+            return hit.ValueKind == JsonValueKind.Object
+                ? new ZernioReply(200, hit, "")
+                : ZernioReply.Fail("Phone number not found", 404);
+        });
+
+    public Task<ZernioReply> PhoneNumberCountriesAsync(CancellationToken ct = default) =>
+        Do("PhoneNumberCountries", new(), () => ZernioReply.Of(new { countries = Countries }));
+
+    public Task<ZernioReply> PurchasePhoneNumberAsync(string profileId, string country, string? areaCode,
+        string? phoneNumber, bool wantsSms, bool connectWhatsapp, string? purchaseIntentId,
+        CancellationToken ct = default) =>
+        Do("PurchasePhoneNumber", new()
+        {
+            ["profileId"] = profileId, ["country"] = country, ["areaCode"] = areaCode,
+            ["phoneNumber"] = phoneNumber, ["wantsSms"] = wantsSms, ["connectWhatsapp"] = connectWhatsapp,
+            ["purchaseIntentId"] = purchaseIntentId,
+        }, () =>
+        {
+            var monthly = Countries.Select(c => JsonSerializer.SerializeToElement(c))
+                .Where(c => ZernioJson.Str(c, "code") == country).Select(c => ZernioJson.Int(c, "monthlyCents"))
+                .FirstOrDefault();
+            var bought = new Dictionary<string, object?>
+            {
+                ["id"] = Next("znum"), ["_id"] = Next("znum"),
+                ["phoneNumber"] = phoneNumber ?? "+1415555" + Interlocked.Increment(ref _n).ToString("0000"),
+                ["country"] = country, ["status"] = "active", ["monthlyCents"] = monthly,
+                ["hostedByZernio"] = true, ["smsCapable"] = wantsSms, ["profileId"] = profileId,
+            };
+            PhoneNumbers.Add(bought);
+            return ZernioReply.Of(new { message = "Phone number provisioned", phoneNumber = bought });
+        });
+
+    public Task<ZernioReply> ReleasePhoneNumberAsync(string phoneNumberId, CancellationToken ct = default) =>
+        Do("ReleasePhoneNumber", new() { ["phoneNumberId"] = phoneNumberId }, () =>
+        {
+            var gone = PhoneNumbers.Where(n => ZernioJson.Str(JsonSerializer.SerializeToElement(n), "_id") == phoneNumberId
+                                               || ZernioJson.Str(JsonSerializer.SerializeToElement(n), "id") == phoneNumberId)
+                .ToList();
+            if (gone.Count == 0) return ZernioReply.Fail("Phone number not found", 404);
+            foreach (var g in gone) PhoneNumbers.Remove(g);
+            Released.Add(phoneNumberId);
+            return ZernioReply.Of(new { message = "Phone number released" });
+        });
 
     public Task<ZernioReply> CreatePostAsync(Dictionary<string, object?> body, CancellationToken ct = default) =>
         Do("CreatePost", body, () => ZernioReply.Of(new

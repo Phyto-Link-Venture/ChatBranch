@@ -50,6 +50,13 @@ const e164 = pattern(/^\+[1-9]\d{6,14}$/, 'channels.setup.checks.e164')
 /** Twilio's WhatsApp sender: E.164, optionally written as `whatsapp:+…`. */
 const waSender = pattern(/^(whatsapp:)?\+[1-9]\d{6,14}$/i, 'channels.setup.checks.e164')
 
+/** WAHA's base URL: an absolute http(s) origin — it usually lives on the operator's own network. */
+const originUrl: Check = (v, t) =>
+  /^https?:\/\/[^\s/]+(\/.*)?$/i.test(v) ? null : t('channels.setup.checks.originUrl')
+
+/** WAHA session names are plain words (its own default is "default"). */
+const sessionName = pattern(/^[A-Za-z0-9._-]{1,64}$/, 'channels.setup.checks.sessionName')
+
 const host = pattern(
   /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i,
   'channels.setup.checks.host',
@@ -128,6 +135,26 @@ export const CRED_FIELDS: Partial<Record<InboxKind, FieldSpec[]>> = {
     {
       key: 'api_key_secret', label: `${L}.apiKeySecret`, placeholderKey: `${P}.fromTwilio`, secret: true, half: true,
       optional: true, help: `${H}.waTwilio.apiKeySecret`,
+    },
+  ],
+  wa_waha: [
+    {
+      key: 'base_url', label: `${L}.wahaBaseUrl`, placeholder: 'https://waha.example.com', inputMode: 'url',
+      help: `${H}.waWaha.baseUrl`, check: originUrl,
+    },
+    {
+      key: 'session', label: `${L}.wahaSession`, placeholder: 'default', half: true, optional: true,
+      help: `${H}.waWaha.session`, check: sessionName,
+    },
+    {
+      key: 'engine', label: `${L}.wahaEngine`, placeholder: 'WEBJS', half: true, optional: true,
+      help: `${H}.waWaha.engine`,
+      check: (v, t) =>
+        ['WEBJS', 'WPP', 'NOWEB', 'GOWS'].includes(v.trim().toUpperCase()) ? null : t('channels.setup.checks.wahaEngine'),
+    },
+    {
+      key: 'api_key', label: `${L}.wahaApiKey`, placeholderKey: `${P}.wahaApiKey`, secret: true,
+      optional: true, recommended: true, help: `${H}.waWaha.apiKey`,
     },
   ],
   email: [
@@ -351,6 +378,7 @@ export const GUIDES: Partial<Record<InboxKind, MessageKey[]>> = {
   wa_cloud: [`${G}.waCloud.s1`, `${G}.waCloud.s2`, `${G}.waCloud.s3`, `${G}.waCloud.s4`],
   wa_ycloud: [`${G}.waYcloud.s1`, `${G}.waYcloud.s2`, `${G}.waYcloud.s3`, `${G}.waYcloud.s4`],
   wa_twilio: [`${G}.waTwilio.s1`, `${G}.waTwilio.s2`, `${G}.waTwilio.s3`, `${G}.waTwilio.s4`],
+  wa_waha: [`${G}.waWaha.s1`, `${G}.waWaha.s2`, `${G}.waWaha.s3`, `${G}.waWaha.s4`],
   email: [`${G}.email.s1`, `${G}.email.s2`, `${G}.email.s3`, `${G}.email.s4`],
   telegram: [`${G}.telegram.s1`, `${G}.telegram.s2`, `${G}.telegram.s3`, `${G}.telegram.s4`],
   messenger: [`${G}.messenger.s1`, `${G}.messenger.s2`, `${G}.messenger.s3`],
@@ -371,6 +399,7 @@ const N = 'channels.setup.defaultNames' as const
 export const DEFAULT_NAME: Record<InboxKind, MessageKey> = {
   wa_cloud: `${N}.waCloud`,
   wa_qr: `${N}.waQr`,
+  wa_waha: `${N}.waWaha`,
   wa_ycloud: `${N}.waYcloud`,
   wa_twilio: `${N}.waTwilio`,
   email: `${N}.email`,

@@ -1072,8 +1072,8 @@ export const guide: Dict<typeof source> = {
           body: 'Contoh pengiraan dengan nombor anda, supaya anda boleh menyemak hasilnya munasabah.',
         },
         s4: {
-          title: 'Terma setiap syarikat',
-          body: 'Beri satu syarikat markup atau yuran sendiri. Biarkan kotak kosong untuk menggunakan nilai lalai.',
+          title: 'Siapa pada pelan mana',
+          body: 'Cari, tapis dan selak senarai syarikat anda: setiap baris menunjukkan buku harga yang berkuat kuasa, sama ada pelan itu diwarisi daripada entiti induk, penggunaan sebenar bulan ini dan bil yang terhasil. Tandakan beberapa baris untuk meletakkan semuanya pada satu pelan dalam satu langkah, atau beri satu syarikat markup atau yuran sendiri.',
         },
         s5: {
           title: 'Simpan',

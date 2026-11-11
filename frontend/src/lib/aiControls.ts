@@ -1,6 +1,8 @@
 /**
  * Client + types for the AI on/off controls and human-handover tracking:
- *   GET/PUT /api/ai/controls?entity=        master switch · schedule · never-AI tags
+ *   GET/PUT/DELETE /api/ai/controls?entity=&account=
+ *                                           master switch · schedule · never-AI tags,
+ *                                           org-wide, per outlet, or per inbox
  *   GET/PUT /api/contacts/{id}/ai-mode      "" | never | always
  *   POST    /api/inbox/threads/bulk         ai_on | ai_off | resolve | reopen | assign
  *   POST    /api/inbox/threads/{ch}/{key}/handover   take | continue | flag
@@ -44,23 +46,71 @@ export const weekdayDate = (d: Weekday) => new Date(2026, 0, 5 + WEEKDAYS.indexO
 /** {"mon": [["18:00","23:59"]], …} — the booking-hours shape. */
 export type AiSchedule = Record<Weekday, [string, string][]>
 
+/** The inbox (channel account) a controls payload was read for (`?account=`);
+ *  null when the entity or organization level was read. */
+export interface AiControlsAccount {
+  id: number
+  name: string
+  channel: string
+  provider: string
+  /** The outlet that owns the inbox — the level it inherits from (null = the organization). */
+  entity_id: number | null
+  entity: string | null
+  entity_name: string | null
+  /** How many of the four values this inbox sets itself. */
+  overrides: number
+}
+
+/** The AI master-switch keys, in the order the editor shows them. */
+export type AiControlKey = 'ai_enabled' | 'ai_schedule' | 'ai_schedule_mode' | 'ai_never_tags'
+
+/** Where a value on screen comes from — the same vocabulary as the AI behaviour fields. */
+export type AiControlScope = 'account' | 'entity' | 'parent' | 'global' | 'default'
+
 export interface AiControls {
   entity: string | null
   entity_name: string
+  /** The inbox being edited (`?account=`), else null. */
+  account: AiControlsAccount | null
+  /** Which level this payload was read at. */
+  level: 'organization' | 'entity' | 'account'
+  /**
+   * True on an inbox: its own values can only ever switch the AI OFF or narrow
+   * its hours. An inbox never answers while the level above is off or outside
+   * its schedule — the master switch is "off anywhere up the tree wins", not
+   * nearest-level-wins like the AI behaviour settings.
+   */
+  own_only_turns_off: boolean
   mode: AiMasterMode
-  /** entity = set on this outlet · inherited = a parent's · organization · default */
-  mode_from: 'entity' | 'inherited' | 'organization' | 'default'
+  /** account = set on this inbox · entity = on this outlet · inherited = a parent's · organization · default */
+  mode_from: 'account' | 'entity' | 'inherited' | 'organization' | 'default'
   mode_set_at: string | null
+  /** What the level on screen sets itself ('' / null / [] = it inherits). */
   own: {
     mode: AiMasterMode | ''
     schedule: AiSchedule | null
     schedule_mode: AiScheduleMode | ''
     never_tags: string[]
   }
+  /** What this level would follow if it set nothing of its own. */
+  inherited: {
+    mode: AiMasterMode
+    mode_from: 'entity' | 'inherited' | 'organization' | 'default'
+    mode_set_at: string | null
+    schedule: AiSchedule
+    schedule_mode: AiScheduleMode
+    never_tags: string[]
+    /** Is the AI on at this moment at that level, the inbox left out? */
+    now_on: boolean
+  }
+  /** Which level each value on screen came from. */
+  scopes: Record<'mode' | 'schedule' | 'schedule_mode' | 'never_tags', AiControlScope>
   schedule: AiSchedule
   schedule_mode: AiScheduleMode
+  /** In force here — never-AI tags ADD up, so an inbox's own are included. */
   never_tags: string[]
   inherited_never_tags: string[]
+  /** The AI's state right now: on an inbox the tree AND the inbox must allow it. */
   now_on: boolean
   next_change_at: string | null
   timezone: string
@@ -75,12 +125,38 @@ export interface AiControlsWrite {
   never_tags?: string[]
 }
 
-const q = (entity: string | null | undefined) => (entity ? `?entity=${encodeURIComponent(entity)}` : '')
+/**
+ * The level a controls read/write targets: the organization (both empty), one
+ * outlet, or one inbox. An inbox is absolute — it carries its own outlet, so
+ * `?account=` is sent alone and the server reads/writes at that inbox's level
+ * (the same rule as `?account=` on /api/ai/behaviour).
+ */
+export interface AiControlsLevel {
+  entity?: string | null
+  account?: number | null
+}
 
-export const getAiControls = (entity?: string | null) => aiControlsApi<AiControls>(`ai/controls${q(entity)}`)
+/** An outlet slug (the older call style) or a level object. */
+export type AiControlsTarget = string | null | undefined | AiControlsLevel
 
-export const putAiControls = (entity: string | null | undefined, body: AiControlsWrite) =>
-  aiControlsApi<AiControls>(`ai/controls${q(entity)}`, { method: 'PUT', body: JSON.stringify(body) })
+const q = (target: AiControlsTarget, extra: Record<string, string> = {}) => {
+  const level: AiControlsLevel = typeof target === 'string' || target == null ? { entity: target } : target
+  const p = new URLSearchParams()
+  if (level.account) p.set('account', String(level.account))
+  else if (level.entity) p.set('entity', level.entity)
+  for (const [k, v] of Object.entries(extra)) p.set(k, v)
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
+
+export const getAiControls = (target?: AiControlsTarget) => aiControlsApi<AiControls>(`ai/controls${q(target)}`)
+
+export const putAiControls = (target: AiControlsTarget, body: AiControlsWrite) =>
+  aiControlsApi<AiControls>(`ai/controls${q(target)}`, { method: 'PUT', body: JSON.stringify(body) })
+
+/** Drop this level's own value(s) so it follows the level above again. */
+export const resetAiControls = (target: AiControlsTarget, key?: AiControlKey) =>
+  aiControlsApi<AiControls>(`ai/controls${q(target, key ? { key } : {})}`, { method: 'DELETE' })
 
 export const emptySchedule = (): AiSchedule =>
   Object.fromEntries(WEEKDAYS.map((d) => [d, [] as [string, string][]])) as unknown as AiSchedule

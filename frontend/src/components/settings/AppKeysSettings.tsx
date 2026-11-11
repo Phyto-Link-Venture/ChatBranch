@@ -68,7 +68,7 @@ function Field({
 }
 
 /**
- * App-level keys — app_keys.manage (super admins by default; Whatomate's model: org-level AI settings
+ * App-level keys — app_keys.manage (super admins by default; org-level AI settings
  * live above the per-admin WhatsApp accounts). Saved values override the
  * backend/.env defaults at runtime; clearing a field falls back to env.
  */

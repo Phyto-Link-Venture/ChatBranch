@@ -2,11 +2,17 @@
 
 /**
  * Settings → AI billing (billing.manage, superadmin by default): the terms
- * every company's AI bill is computed with — the billing currency and its
- * rate against USD (the cost ledger is priced in USD), a default markup % and
- * monthly fee, and per-company overrides. GET/PUT /api/billing/ai/settings.
- * A change bills the CURRENT month and later — earlier months keep the terms
- * that applied to them (the server keeps the history; shown under the form).
+ * every company's AI bill FALLS BACK to — the billing currency and its rate
+ * against USD (the cost ledger is priced in USD), and the default markup % and
+ * monthly fee for an entity no price book prices. GET/PUT
+ * /api/billing/ai/settings. A change bills the CURRENT month and later —
+ * earlier months keep the terms that applied to them (the server keeps the
+ * history; shown under the form).
+ *
+ * Pricing a client is the job of the price books below (PriceBooks.tsx): a
+ * named plan assigned to as many companies as you like, with the per-company
+ * override living there too, on a searchable and paginated list instead of one
+ * live input per company.
  */
 
 import Link from 'next/link'
@@ -45,9 +51,6 @@ interface Payload {
 const fieldCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-faint focus:border-brand-400'
 
-/** "" ⇄ null for the optional per-company numbers. */
-const num = (v: string): number | null => (v.trim() === '' ? null : Number(v))
-
 export function BillingSettings() {
   const t = useT()
   const f = useFormat()
@@ -80,8 +83,6 @@ export function BillingSettings() {
     setTerms({ ...terms, ...patch })
     setNotice(null)
   }
-  const setCompany = (id: number, patch: { markup_pct?: number | null; monthly_fee?: number | null }) =>
-    set({ companies: { ...terms.companies, [String(id)]: { ...terms.companies[String(id)], ...patch } } })
 
   const save = async () => {
     setBusy(true)
@@ -154,7 +155,7 @@ export function BillingSettings() {
             <input
               type="number"
               min={0}
-              step="1"
+              step="0.01"
               value={terms.default_markup_pct}
               onChange={(e) => set({ default_markup_pct: Number(e.target.value) })}
               className={fieldCls}
@@ -181,58 +182,6 @@ export function BillingSettings() {
             markup: terms.default_markup_pct || 0,
           })}
         </p>
-      </Card>
-
-      <Card className="p-5" data-tour="billingset-companies">
-        <CardTitle>{t('billing.settings.companiesTitle')}</CardTitle>
-        <p className="mt-1 text-[12.5px] text-text-muted">{t('billing.settings.companiesHelp')}</p>
-        {data.companies.length === 0 ? (
-          <p className="mt-3 text-[13px] text-text-muted">{t('billing.settings.noCompanies')}</p>
-        ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[480px] text-[13px]">
-              <thead>
-                <tr className="border-b border-line text-left text-[11.5px] uppercase tracking-[0.05em] text-text-muted">
-                  <th className="py-2 pr-3 font-semibold">{t('billing.company')}</th>
-                  <th className="py-2 pr-3 font-semibold">{t('billing.settings.markup')}</th>
-                  <th className="py-2 font-semibold">{t('billing.settings.fee', { currency: terms.currency })}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.companies.map((c) => {
-                  const own = terms.companies[String(c.id)] ?? {}
-                  return (
-                    <tr key={c.id} className="border-b border-line last:border-b-0">
-                      <td className="py-2 pr-3 font-semibold text-text-high">{c.name}</td>
-                      <td className="py-2 pr-3">
-                        <input
-                          type="number"
-                          min={0}
-                          value={own.markup_pct ?? ''}
-                          placeholder={t('billing.settings.useDefault', { value: `${terms.default_markup_pct}%` })}
-                          onChange={(e) => setCompany(c.id, { markup_pct: num(e.target.value) })}
-                          aria-label={`${c.name} — ${t('billing.settings.markup')}`}
-                          className={fieldCls}
-                        />
-                      </td>
-                      <td className="py-2">
-                        <input
-                          type="number"
-                          min={0}
-                          value={own.monthly_fee ?? ''}
-                          placeholder={t('billing.settings.useDefault', { value: String(terms.default_monthly_fee) })}
-                          onChange={(e) => setCompany(c.id, { monthly_fee: num(e.target.value) })}
-                          aria-label={`${c.name} — ${t('billing.settings.fee', { currency: terms.currency })}`}
-                          className={fieldCls}
-                        />
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
       </Card>
 
       {history.length > 0 && (

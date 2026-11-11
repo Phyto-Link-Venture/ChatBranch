@@ -8,7 +8,7 @@ public static partial class ToolCatalog
     private static readonly string[] BindingKinds =
     {
         "user-entities", "team-users", "contact-entities", "tag-contacts", "tag-entities", "entity-accounts",
-        "entity-contacts", "user-teams", "entity-users",
+        "entity-contacts", "user-teams", "entity-users", "pricebook-entities",
     };
 
     private static readonly string[] NotificationCategories = { "messages", "account_health", "flows", "admin", "system" };
@@ -143,8 +143,8 @@ public static partial class ToolCatalog
             "For one target (a user, team, contact, tag or entity id) the ids bound to it on the other side " +
             "(member_ids) — e.g. kind team-users, target = team id → its members.",
             new[] { "GET /api/bindings/{kind}" },
-            (ctx, a, ct) => BindingAsync(ctx, a, "GET", getArgs, ct), C("users.view", "contacts.view", "tags.view"),
-            getArgs, write: false);
+            (ctx, a, ct) => BindingAsync(ctx, a, "GET", getArgs, ct),
+            C("users.view", "contacts.view", "tags.view", "billing.manage"), getArgs, write: false);
         var applyArgs = new[]
         {
             A.Str("kind", "Binding kind.", req: true, oneOf: BindingKinds), A.Int("target", "Target id.", req: true),
@@ -152,10 +152,12 @@ public static partial class ToolCatalog
         };
         yield return Custom(bd, "bindings_apply", "Change a binding",
             "Add and/or remove members of one target's binding (e.g. kind entity-accounts: which numbers belong " +
-            "to an entity — moving an account re-files its new conversations).",
+            "to an entity — moving an account re-files its new conversations; kind pricebook-entities: which " +
+            "entities an AI price book prices — target = the plan id, and a main entity's plan flows down to its " +
+            "branches, so one call can price a hundred companies).",
             new[] { "POST /api/bindings/{kind}" },
             (ctx, a, ct) => BindingAsync(ctx, a, "POST", applyArgs, ct),
-            C("users.manage", "contacts.manage", "tags.manage", "channels.manage"), applyArgs);
+            C("users.manage", "contacts.manage", "tags.manage", "channels.manage", "billing.manage"), applyArgs);
 
         // ---- settings -------------------------------------------------------------
         const string st = "settings";
@@ -183,8 +185,10 @@ public static partial class ToolCatalog
             },
             idempotent: true);
         yield return T(st, "settings_get_custom_fields", "Read custom field definitions",
-            "The contact custom fields (key, label, kind text|select|multiselect|number|boolean, options). Values " +
-            "live on each contact's attributes and render in templates as {{cf_<key>}}.",
+            "The contact custom fields (key, label, kind text|select|multiselect|number|boolean|date|json, options, " +
+            "show_to_ai, entity_id). Values live on each contact's attributes and render in templates as " +
+            "{{cf_<key>}}; a date is stored YYYY-MM-DD and a json field holds an object (flattened to " +
+            "\"key: value\" wherever it is shown). show_to_ai = the AI answering a customer sees it.",
             "GET", "/api/settings/custom-fields",
             C("contacts.view", "flows.manage", "templates.manage", "script_templates.manage", "settings.custom_fields.manage"));
         yield return Custom(st, "settings_save_custom_field", "Add or change a custom field",
@@ -194,8 +198,14 @@ public static partial class ToolCatalog
             new[]
             {
                 A.Str("label", "Label.", req: true), A.Str("key", "Key (default: from the label)."),
-                A.Str("kind", "text | select | multiselect | number | boolean.", oneOf: new[] { "text", "select", "multiselect", "number", "boolean" }),
+                A.Str("kind", "text | select | multiselect | number | boolean | date (stored YYYY-MM-DD) | "
+                              + "json (an object, up to 8000 characters — for data an outside system syncs in).",
+                    oneOf: ChatBranch.Data.Contacts.ContactCustomFields.Kinds),
                 A.StrList("options", "select/multiselect options."), A.Bool("required", "Required on the form."),
+                A.Bool("show_to_ai", "Let the AI answering a customer see this field's value (default off — "
+                                     + "keep internal fields like a credit score off)."),
+                A.Any("entity_id", "Restrict the field to one entity: only that entity's company sees it in its "
+                                   + "AI prompt (null = organization-wide)."),
                 A.Int("position", "Order."),
             }, idempotent: true);
         yield return Custom(st, "settings_delete_custom_field", "Delete a custom field",
@@ -314,10 +324,17 @@ public static partial class ToolCatalog
         if (S(a, "kind") is { Length: > 0 } kind) field["kind"] = kind;
         if (El(a, "options") is { ValueKind: JsonValueKind.Array } opts) field["options"] = JsonNode.Parse(opts.GetRawText());
         if (B(a, "required") is bool req) field["required"] = req;
+        if (B(a, "show_to_ai") is bool ai) field["show_to_ai"] = ai;
+        if (El(a, "entity_id") is { } ent && ent.ValueKind != JsonValueKind.Undefined)
+            field["entity_id"] = ent.ValueKind == JsonValueKind.Null ? null : I(a, "entity_id");
         if (I(a, "position") is int pos) field["position"] = pos;
         ToolContext.Require(await ctx.CallAsync("PUT", "/api/settings/custom-fields",
             body: new JsonObject { ["customer"] = fields }, ct: ct));
-        return new { saved = true, created, key, variable = $"{{{{cf_{key}}}}}" };
+        return new
+        {
+            saved = true, created, key, variable = $"{{{{cf_{key}}}}}",
+            shown_to_ai = field["show_to_ai"]?.GetValue<bool>() ?? false,
+        };
     }
 
     private static async Task<object?> DeleteCustomFieldAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
