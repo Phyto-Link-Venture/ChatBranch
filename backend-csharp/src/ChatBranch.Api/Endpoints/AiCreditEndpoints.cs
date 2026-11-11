@@ -28,8 +28,10 @@ namespace ChatBranch.Api.Endpoints;
 /// was opened (<c>ai_billing</c>, see <see cref="AiBilling"/>). A later currency
 /// change does not convert it, so a grant in a different currency is refused.</para>
 ///
-/// <para><b>Phase 1.</b> Nothing debits these balances yet and no balance can stop
-/// an AI reply — consumption metering and enforcement come later. The optional
+/// <para><b>Phase 2</b> debits AI usage into these balances
+/// (<see cref="AiCreditSweep"/>) and pauses the AI of an enabled, exhausted
+/// company (<see cref="AiCreditGuard"/>) — see <c>AiCreditMeteringEndpoints</c>
+/// for the consumption read and the per-account switch. The optional
 /// per-login balance can only ever cover what a person runs themselves (the
 /// operator assistant, the AI playground, skill drafting, on-demand summaries):
 /// automated AI work carries no username.</para>
@@ -41,9 +43,11 @@ public static class AiCreditEndpoints
 
     private const string Note =
         "Credit is prepaid money held per company (a top-level entity; a branch draws on its company's "
-        + "balance). The ledger is append-only — a correction is a new signed line, never an edit. Nothing "
-        + "debits these balances yet: AI usage is still billed by the monthly AI bill, and no balance can "
-        + "stop an AI reply. A per-login balance covers only what that person runs themselves (Ask "
+        + "balance). The ledger is append-only — a correction is a new signed line, never an edit. A company "
+        + "is on credit once it has an enabled account: its AI usage is then debited as 'consumption' lines "
+        + "(priced exactly like the AI bill) and its AI pauses, handing chats to a person, once the balance "
+        + "reaches minus its overdraft limit. A company with no account, or with credit switched off, is "
+        + "never debited or paused. A per-login balance covers only what that person runs themselves (Ask "
         + "ChatBranch, the AI playground, skill drafting, on-demand summaries) — automated AI work "
         + "(customer replies, journeys, voice, indexing) carries no username and is never counted against it.";
 
@@ -51,9 +55,10 @@ public static class AiCreditEndpoints
     {
         // ---- read: balances + the ledger -------------------------------------------------
         app.MapGet("/api/billing/ai/credit", async (string? company, string? entity, string? user,
-            int? page, int? page_size, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
+            int? page, int? page_size, string? kind, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var manager = await IsManagerAsync(db, me);
+            await AiCreditSweep.RunAsync(db);   // phase 2: debit new AI usage first, so the balance is fresh
             var snap = await AiCredit.LoadAsync(db, sc);
             var visible = VisibleCompanies(db, me, manager, snap);
 
@@ -77,8 +82,13 @@ public static class AiCreditEndpoints
 
             var size = Math.Clamp(page_size ?? 50, 1, 200);
             var skip = Math.Max(0, (Math.Max(1, page ?? 1) - 1) * size);
-            var lines = await AiCredit.LedgerAsync(db, ledgerCompany, ledgerUser.Length > 0 ? ledgerUser : null,
-                size, skip);
+            // kind=grant,topup,… keeps only those kinds (the card hides the frequent consumption lines)
+            var kinds = (kind ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(k => AiCreditKinds.All.Contains(k)).ToList();
+            var lines = kinds.Count == 0
+                ? await AiCredit.LedgerAsync(db, ledgerCompany, ledgerUser.Length > 0 ? ledgerUser : null, size, skip)
+                : await AiCreditSweep.LedgerOfKindsAsync(db, ledgerCompany, ledgerUser.Length > 0 ? ledgerUser : null,
+                    kinds, size, skip);
             if (ledgerCompany == null && ledgerUser.Length == 0 && visible != null)
                 lines = lines.Where(l => l.EntityId is int id && visible.Contains(id)).ToList();
 

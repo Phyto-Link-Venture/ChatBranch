@@ -92,6 +92,38 @@ public static class MetaWebhook
         return long.TryParse(raw, out var unix) ? DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime : null;
     }
 
+    /// <summary>
+    /// The messages <see cref="CloudMessages"/> cannot key a conversation on: no
+    /// <c>messages[].from</c> (a WhatsApp username holder whose phone number Meta withholds —
+    /// <see cref="WhatsAppUsernameSenders"/>). Each carries the sender's BSUID
+    /// (<c>from_user_id</c>, else the matching <c>contacts[].user_id</c>) and username when given.
+    /// </summary>
+    public static List<CloudUnkeyedInbound> CloudUnkeyedMessages(JsonElement root)
+    {
+        var outv = new List<CloudUnkeyedInbound>();
+        foreach (var val in Changes(root))
+        {
+            if (!val.TryGetProperty("messages", out var messages) || messages.ValueKind != JsonValueKind.Array)
+                continue;
+            var pnid = PhoneNumberId(val);
+            var contacts = val.TryGetProperty("contacts", out var cs) && cs.ValueKind == JsonValueKind.Array
+                ? cs.EnumerateArray().Where(c => c.ValueKind == JsonValueKind.Object).ToList()
+                : new List<JsonElement>();
+            foreach (var msg in messages.EnumerateArray())
+            {
+                if (msg.ValueKind != JsonValueKind.Object || MetaGraph.Str(msg, "from").Length > 0) continue;
+                var userId = MetaGraph.Str(msg, "from_user_id");
+                var contact = contacts.FirstOrDefault(c => userId.Length > 0 && MetaGraph.Str(c, "user_id") == userId);
+                if (contact.ValueKind != JsonValueKind.Object && contacts.Count == 1) contact = contacts[0];
+                if (userId.Length == 0 && contact.ValueKind == JsonValueKind.Object) userId = MetaGraph.Str(contact, "user_id");
+                var username = contact.ValueKind == JsonValueKind.Object && contact.TryGetProperty("profile", out var prof)
+                    ? MetaGraph.Str(prof, "username") : "";
+                outv.Add(new CloudUnkeyedInbound(pnid, userId, username, MetaGraph.Str(msg, "id"), MetaGraph.Str(msg, "type")));
+            }
+        }
+        return outv;
+    }
+
     /// <summary>Inbound messages. Media becomes a text placeholder plus the media id to download.</summary>
     public static List<CloudInbound> CloudMessages(JsonElement root)
     {

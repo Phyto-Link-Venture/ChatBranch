@@ -74,6 +74,11 @@ services:
       - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
       - R2_PREFIX=${R2_PREFIX:-chatbranch}
       - R2_KEEP_LOCAL_DAYS=${R2_KEEP_LOCAL_DAYS:-7}
+      # AI-credit top-ups through the PLATFORM's Stripe account (docs/stripe-topups.md):
+      # off until all three are set. STRIPE_SECRET_KEY wins over a key stored in the DB.
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      - STRIPE_MODE=${STRIPE_MODE:-test}
       # Security (docs/security.md). The first sign-in password of the seeded
       # superadmin — without it the POC password works once and must be changed.
       - SUPERADMIN_PASSWORD=${SUPERADMIN_PASSWORD:-}

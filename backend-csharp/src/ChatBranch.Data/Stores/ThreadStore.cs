@@ -59,10 +59,19 @@ public class ThreadStore
     ///         no company, no entity — is nobody's yet, so C takes it);</item>
     ///   <item>an organization-wide number → the conversation already on that number,
     ///         else the unattributed one;</item>
-    ///   <item>no account (the env default number, the sandbox) → the unattributed
-    ///         conversation, else the customer's only one.</item>
+    ///   <item>no account (the env default number, the sandbox, an account-less
+    ///         inbound) → the unattributed conversation ONLY.</item>
     /// </list>
     /// Never another company's conversation. Null = none yet.
+    /// <para>
+    /// With no account there is no company to speak for, so a conversation that belongs
+    /// to one (<c>CompanyEntityId != null</c>) is never returned — not even when it is the
+    /// customer's only conversation. That "only one" fallback used to exist; it let an
+    /// account-less message land in, and be answered from, company A's conversation (the
+    /// primitive behind the Cloud-webhook injection fixed in 132d689). A customer whose
+    /// unattributed conversation was later adopted by a company therefore gets a new
+    /// unattributed one on the next account-less message — split, never leaked.
+    /// </para>
     /// </summary>
     public Thread? FindForAccount(string channel, string key, int? accountId)
     {
@@ -73,10 +82,7 @@ public class ThreadStore
         if (accountId is int aid)
             return q.Where(t => t.AccountId == aid).OrderByDescending(t => t.UpdatedAt).FirstOrDefault()
                    ?? q.FirstOrDefault(t => t.CompanyEntityId == null);
-        var unattributed = q.FirstOrDefault(t => t.CompanyEntityId == null);
-        if (unattributed != null) return unattributed;
-        var all = q.Take(2).ToList();
-        return all.Count == 1 ? all[0] : null;
+        return q.FirstOrDefault(t => t.CompanyEntityId == null);
     }
 
     /// <summary>
@@ -243,6 +249,11 @@ public class ThreadStore
         if (ChatBranch.Data.Channels.GroupChats.IsGroup(channel, key)) contactId = null;
         if (thread == null)
         {
+            // a conversation is addressed by its key: an empty one would collect every
+            // message whose sender could not be identified (a WhatsApp username holder
+            // with no phone number, a malformed payload) into ONE shared conversation
+            if (string.IsNullOrWhiteSpace(key))
+                throw new ArgumentException($"A {channel} conversation needs a non-empty key.", nameof(key));
             thread = new Thread
             {
                 Channel = channel,

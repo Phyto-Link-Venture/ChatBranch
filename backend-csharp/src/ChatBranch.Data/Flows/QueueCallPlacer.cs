@@ -179,6 +179,8 @@ public class QueueCallPlacer
         var entityId = CallEntity(job, contact);
         if (Ai.AiQuota.EntityBlock(_db, _scoping, entityId) is { } quota)
             return new CallAttempt(CallAttempt.Failed, Ai.AiQuota.Reason(quota));
+        if (Ai.AiCreditGuard.EntityReason(_db, _scoping, entityId) is string credit)
+            return new CallAttempt(CallAttempt.Failed, credit);
         var metadata = await VoiceDispatch.BuildAsync(_db, _knowledge, _assistant, _scoping, _dataDir, contact,
             new VoiceCallOptions(phone, contact?.Name, contact?.Language, voiceProvider, voice,
                 AccountDelivery.Resolve(null, AccountDelivery.LlmProvider, _scoping),
@@ -225,6 +227,9 @@ public class QueueCallPlacer
         // the AI usage quota of the conversation's outlet: at its cap no AI call is placed
         if (Ai.AiQuota.EntityBlock(_db, _scoping, thread?.EntityId ?? account.EntityId) is { } quota)
             return new CallAttempt(CallAttempt.Failed, Ai.AiQuota.Reason(quota), AccountId: account.Id);
+        // ... and its company's prepaid AI credit (only when that company is on credit)
+        if (Ai.AiCreditGuard.EntityReason(_db, _scoping, thread?.EntityId ?? account.EntityId) is string credit)
+            return new CallAttempt(CallAttempt.Failed, credit, AccountId: account.Id);
 
         var room = LiveKitClient.NewRoomName();
         var metadata = await VoiceDispatch.BuildAsync(_db, _knowledge, _assistant, _scoping, _dataDir, contact,

@@ -407,6 +407,9 @@ public static class AiEndpoints
             if (ChatBranch.Data.Ai.AiQuota.EntityBlock(db, sc, thread.EntityId) is { } entityQuota)
                 return Results.Json(new { detail = ChatBranch.Data.Ai.AiQuota.Reason(entityQuota), quota = true },
                     statusCode: StatusCodes.Status429TooManyRequests);
+            if (ChatBranch.Data.Ai.AiCreditGuard.EntityReason(db, sc, thread.EntityId) is string entityCredit)
+                return Results.Json(new { detail = entityCredit, quota = true, credit = true },
+                    statusCode: StatusCodes.Status429TooManyRequests);
             // An operator-requested draft: no handover side effects. `reply` is
             // what may be sent ("" when a reply check held it back); `draft` is
             // what the model wrote either way, `meta` the audit trail. Charged to

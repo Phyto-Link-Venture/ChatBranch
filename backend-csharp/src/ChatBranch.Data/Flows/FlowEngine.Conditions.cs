@@ -293,6 +293,26 @@ public partial class FlowEngine
     private Thread? RunThread(FlowRun run, Contact? contact, ConditionFacts? facts = null)
     {
         if (facts is { ThreadLoaded: true }) return facts.Thread;
+        var t = RunConversation(run, contact);
+        if (t == null && contact != null)
+        {
+            var (scoped, companies) = WorkflowCompanies(run);
+            bool Fits(Thread x) => !scoped || _scoping.ThreadCompany(x) is int c && companies.Contains(c);
+            t = _db.Threads.AsNoTracking().Where(x => x.ContactId == contact.Id)
+                .OrderByDescending(x => x.UpdatedAt).ThenByDescending(x => x.Id).ToList().FirstOrDefault(Fits);
+        }
+        if (facts != null) { facts.Thread = t; facts.ThreadLoaded = true; }
+        return t;
+    }
+
+    /// <summary>
+    /// The conversation the run is FOR — the one that started it, else the one the latest
+    /// reply came in on — and null for a run with none (started by hand / API / a schedule):
+    /// never <see cref="RunThread"/>'s last-resort guess at the contact's most recent chat.
+    /// Always one of the journey's own companies.
+    /// </summary>
+    private Thread? RunConversation(FlowRun run, Contact? contact)
+    {
         var (scoped, companies) = WorkflowCompanies(run);
         bool Fits(Thread x) => !scoped || _scoping.ThreadCompany(x) is int c && companies.Contains(c);
         Thread? t = null;
@@ -314,12 +334,18 @@ public partial class FlowEngine
                 t = hits.FirstOrDefault(x => contact != null && x.ContactId == contact.Id) ?? hits.FirstOrDefault();
                 if (t != null) break;
             }
-        if (t == null && contact != null)
-            t = _db.Threads.AsNoTracking().Where(x => x.ContactId == contact.Id)
-                .OrderByDescending(x => x.UpdatedAt).ThenByDescending(x => x.Id).ToList().FirstOrDefault(Fits);
-        if (facts != null) { facts.Thread = t; facts.ThreadLoaded = true; }
         return t;
     }
+
+    /// <summary>
+    /// The inbox (channel account) of the conversation the run is FOR, else null. Its own AI
+    /// master switch narrows the journey's AI steps (<see cref="Ai.AiControls.Master(int?, ChannelAccount?)"/>
+    /// — an inbox can only switch the AI OFF); a run with no conversation has no inbox to ask.
+    /// </summary>
+    private ChannelAccount? RunInbox(FlowRun run, Contact? contact) =>
+        RunConversation(run, contact)?.AccountId is int aid
+            ? _db.ChannelAccounts.AsNoTracking().FirstOrDefault(a => a.Id == aid)
+            : null;
 
     /// <summary>The companies a run's journey serves ("Runs for"; Scoped = it has entities).</summary>
     private (bool Scoped, List<int> Companies) WorkflowCompanies(FlowRun run)

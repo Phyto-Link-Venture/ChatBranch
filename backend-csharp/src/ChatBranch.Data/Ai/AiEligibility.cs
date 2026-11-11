@@ -31,7 +31,9 @@ namespace ChatBranch.Data.Ai;
 ///
 /// Above and around that tick sit the AI controls (<see cref="Decide(Thread, ChannelAccount?, bool, AiPolicyInputs)"/>),
 /// in this order: opted out → the AI usage quota (<see cref="AiQuota"/>: the
-/// conversation's entity or any ancestor at its monthly cap) → the master switch / schedule
+/// conversation's entity or any ancestor at its monthly cap) → prepaid AI credit
+/// (<see cref="AiCreditGuard"/>: the company is on credit and its balance is used up)
+/// → the master switch / schedule
 /// (<c>off</c> anywhere up the tree wins, and the conversation's own inbox may
 /// switch itself off or narrow its hours on top of that — never back on,
 /// <see cref="AiInboxMaster"/>) →
@@ -80,7 +82,8 @@ public static class AiEligibility
 
     /// <summary>
     /// <paramref name="ignoreQuota"/> = what the verdict WOULD be without the AI
-    /// usage quota (the inbound path asks, to hand a chat the quota silenced to a person).
+    /// usage limits — the quota and prepaid credit (the inbound path asks, to hand a
+    /// chat either of them silenced to a person).
     /// </summary>
     public static AiVerdict Decide(AppDbContext db, ScopingService scoping, Thread t, DateTime? nowUtc, bool ignoreQuota)
     {
@@ -114,7 +117,7 @@ public static class AiEligibility
     }
 
     /// <summary>
-    /// THE precedence rule (pure): opted out → AI quota reached → master switch / schedule →
+    /// THE precedence rule (pure): opted out → AI quota reached → AI credit used up → master switch / schedule →
     /// contact never / never-AI tag → per-chat tick → contact always → inbox
     /// default → role default. Rules above the tick are <see cref="AiVerdict.Forced"/>.
     /// </summary>
@@ -124,6 +127,8 @@ public static class AiEligibility
             return new AiVerdict(false, AiRules.OptedOut, "Off: this contact opted out (STOP)", true);
         if (!string.IsNullOrEmpty(p.QuotaBlock))
             return new AiVerdict(false, AiRules.Quota, p.QuotaBlock, true);
+        if (!string.IsNullOrEmpty(p.CreditBlock))
+            return new AiVerdict(false, AiRules.Credit, p.CreditBlock, true);
         // the master switch / schedule, in ONE step: the entity tree first, then
         // the conversation's own inbox. An inbox can only ever SUBTRACT — its
         // "on" is not consulted here at all (AiControls.InboxMaster drops it), so

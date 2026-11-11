@@ -110,6 +110,7 @@ export const chats: Dict<typeof source> = {
     manual: 'Ditanda oleh seseorang',
     unknown_customer: 'Pelanggan tidak dikenali',
     quota: 'Kuota AI dicapai',
+    credit: 'Kredit AI habis',
   },
   filterModal: {
     more: 'Lagi',

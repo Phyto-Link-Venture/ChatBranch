@@ -139,10 +139,13 @@ public static class IntegrationsEndpoints
         ("google_redirect_uri", "GOOGLE_REDIRECT_URI"),
         ("shopify_webhook_secret", "SHOPIFY_WEBHOOK_SECRET"),
         ("stripe_webhook_secret", "STRIPE_WEBHOOK_SECRET"),
+        // AI-credit top-ups: the platform's own Stripe account (IntegrationSettings.Keys)
+        ("stripe_secret_key", "STRIPE_SECRET_KEY"),
+        ("stripe_mode", "STRIPE_MODE"),
     };
 
     private static readonly string[] SecretKeys =
-        { "google_client_secret", "shopify_webhook_secret", "stripe_webhook_secret" };
+        { "google_client_secret", "shopify_webhook_secret", "stripe_webhook_secret", "stripe_secret_key" };
 
     /// <summary>
     /// Config keys this port uses to carry columns the C# <see cref="Integration"/>
@@ -637,7 +640,20 @@ public static class IntegrationsEndpoints
             var sig = ctx.Request.Headers["Stripe-Signature"].ToString();
             if (!WebhookVerify.Stripe(secret, raw, sig))
                 return Results.Json(new { detail = "invalid signature" }, statusCode: 401);
-            return Results.Ok(new { ok = true });
+            // AI-credit top-ups (Data/Ai/AiCreditTopup.cs): checkout.session.completed credits,
+            // charge.refunded / charge.dispute.created debit; everything else is a 200 no-op.
+            // CancellationToken.None: a dropped connection must not stop a credit half-way
+            // (a claimed event is finished on Stripe's retry either way).
+            try
+            {
+                var outcome = await ChatBranch.Data.Ai.AiCreditTopup.HandleWebhookAsync(db, sc, raw, CancellationToken.None);
+                return Results.Json(outcome.Body, statusCode: outcome.Status);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[stripe-webhook] {ex.GetType().Name}: {ex.Message}");
+                return Results.Json(new { detail = "could not process the event — Stripe will retry" }, statusCode: 500);
+            }
         }).AllowAnonymous();
     }
 
@@ -895,7 +911,10 @@ public static class IntegrationsEndpoints
             var effective = GlobalSettingValue(sc, key);
             if (SecretKeys.Contains(key)) outv[$"{key}_masked"] = MaskSecret(effective);
             else outv[key] = effective;
-            source[key] = (stored.GetValueOrDefault(key) ?? "").Trim() != "" ? "settings"
+            var envWins = IntegrationSettings.EnvFirst.Contains(key)
+                          && (Environment.GetEnvironmentVariable(GlobalKeys.First(g => g.Key == key).Env) ?? "").Trim() != "";
+            source[key] = envWins ? "env"
+                        : (stored.GetValueOrDefault(key) ?? "").Trim() != "" ? "settings"
                         : effective != "" ? "env" : "";
         }
         outv["source"] = source;

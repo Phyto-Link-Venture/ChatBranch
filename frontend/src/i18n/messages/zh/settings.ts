@@ -48,8 +48,8 @@ export const settings: Dict<typeof source> = {
         blurb: '客户的额外字段，可在各处作为模板变量使用。',
       },
       billing: {
-        lbl: 'AI 计费',
-        blurb: '每家公司 AI 账单的加价、月费和币种。',
+        lbl: 'AI 定价与额度',
+        blurb: '您为每家公司设定的价格、方案、额度和支出上限。客户永远看不到此页面。',
       },
       security: {
         lbl: '安全',

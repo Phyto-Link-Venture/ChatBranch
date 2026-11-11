@@ -219,6 +219,7 @@ export type HandoverKind =
   | 'manual'
   | 'unknown_customer'
   | 'quota'
+  | 'credit'
 
 /** Labels are translation keys — render with `t(k.label)`. */
 export const HANDOVER_KINDS: { value: HandoverKind; label: MessageKey }[] = [
@@ -231,6 +232,7 @@ export const HANDOVER_KINDS: { value: HandoverKind; label: MessageKey }[] = [
   { value: 'manual', label: 'chats.handoverKinds.manual' },
   { value: 'unknown_customer', label: 'chats.handoverKinds.unknown_customer' },
   { value: 'quota', label: 'chats.handoverKinds.quota' },
+  { value: 'credit', label: 'chats.handoverKinds.credit' },
 ]
 
 /** A handover kind's label in the current language; the server's own label for kinds we don't know. */

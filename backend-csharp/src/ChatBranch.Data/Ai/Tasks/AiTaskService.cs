@@ -304,6 +304,8 @@ public class AiTaskService
             skip = "The AI is switched off (AI master switch).";
         else if (AiQuota.EntityBlock(_db, _sc, thread.EntityId) is { } quota)
             skip = AiQuota.Reason(quota).Replace("Off: ", "");
+        else if (AiCreditGuard.EntityReason(_db, _sc, thread.EntityId) is string credit)
+            skip = credit.Replace("Off: ", "");
         else if (!_llm.IsConfigured)
             skip = "No AI model is configured (Settings → AI keys & models).";
         if (skip != null)

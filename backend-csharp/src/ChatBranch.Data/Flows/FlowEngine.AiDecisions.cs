@@ -74,7 +74,8 @@ public partial class FlowEngine
             entityId ??= _db.Workflows.AsNoTracking().Where(w => w.Id == run.WorkflowId)
                 .Select(w => w.EntityId).FirstOrDefault();
             var controls = new Ai.AiControls(_db, _scoping);
-            if (!controls.Master(entityId).AllowsAt(DateTime.UtcNow, controls.Zone))
+            // …narrowed by the inbox of the conversation this run is FOR (an inbox can only say off)
+            if (!controls.Master(entityId, RunInbox(run, contact)).AllowsAt(DateTime.UtcNow, controls.Zone))
             {
                 Log(run, nodeId, "AI is switched off for this outlet — took the \"when unsure\" path");
                 return Unsure(run, nodeId, cfg, pick, unsure, asksKey, "AI is switched off", "");
@@ -85,6 +86,13 @@ public partial class FlowEngine
             {
                 Log(run, nodeId, Ai.AiQuota.Reason(quota) + " — took the \"when unsure\" path");
                 return Unsure(run, nodeId, cfg, pick, unsure, asksKey, "AI quota reached", Ai.AiQuota.Reason(quota));
+            }
+            // …and that company's prepaid AI credit, when it is on credit: used up, the
+            // model is not called either (AiCreditGuard — inert for a company not on credit)
+            if (Ai.AiCreditGuard.EntityReason(_db, _scoping, entityId) is string credit)
+            {
+                Log(run, nodeId, credit + " — took the \"when unsure\" path");
+                return Unsure(run, nodeId, cfg, pick, unsure, asksKey, "AI credit used up", credit);
             }
 
             var take = Math.Clamp(CfgInt(cfg, "historyMessages", 20), 5, 100);

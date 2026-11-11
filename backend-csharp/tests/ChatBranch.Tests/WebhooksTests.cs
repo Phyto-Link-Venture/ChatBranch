@@ -154,13 +154,15 @@ public class WebhooksTests : IClassFixture<ApiFactory>
             "first time writing to you");
     }
 
-    /// <summary>The Baileys gateway's push (a QR-paired personal number) follows the same rule.</summary>
+    /// <summary>
+    /// A Baileys push naming NO paired number is a recorded drop, never an account-less
+    /// conversation (Channels/BaileysInboxRouting). The "unknown SENDER on a paired number lands
+    /// unlinked" rule is covered in BaileysUnknownAccountTests (no paired number is registered
+    /// in this class: a Baileys account would become the send route for its sandbox chats).
+    /// </summary>
     [Fact]
-    public async Task Baileys_message_from_an_unknown_number_lands_as_an_unlinked_conversation()
+    public async Task Baileys_message_naming_no_paired_number_is_dropped_not_filed()
     {
-        var admin = await Authed("admin", "admin123");
-        // (no paired number is registered here: a Baileys account would become the send
-        // route for this class's account-less sandbox conversations)
         var push = new StringContent(JsonSerializer.Serialize(new
         {
             account_id = "gw-newcomer", wa_id = "60177000456", name = "Stranger", text = "hello from WhatsApp Web",
@@ -168,8 +170,11 @@ public class WebhooksTests : IClassFixture<ApiFactory>
         }), Encoding.UTF8, "application/json");
         push.Headers.Add("X-Baileys-Secret", "baileys-local-dev");
         (await _factory.CreateClient().PostAsync("/api/whatsapp/baileys/inbound", push)).EnsureSuccessStatusCode();
-        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_factory, admin, "whatsapp", "60177000456",
-            "hello from WhatsApp Web");
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ChatBranch.Data.AppDbContext>();
+        Assert.False(db.Threads.Any(t => t.Channel == "whatsapp" && t.Key == "60177000456"));
+        Assert.True(db.AuditLogs.Any(a => a.Action == ChatBranch.Data.Channels.BaileysInboxRouting.UnknownAccountAudit
+                                          && a.Target.Contains("gw-newcomer")));
     }
 
     [Fact]

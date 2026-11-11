@@ -181,6 +181,7 @@ public static class McpExclusions
         new("POST", "/api/voice/preview", "returns synthesized audio — " + Binary),
         new("POST", "/api/voice/clone", "the dashboard's multipart upload — MCP clones through voice_clone_voice (/api/voice/clone-from), which takes references instead of raw audio"),
         new("GET", "/api/billing/ai/pdf", "the AI bill as a PDF — " + Binary + " (billing_get_ai_bill returns the same figures)"),
+        new("POST", "/api/billing/ai/credit/topup", "spends money: opens a Stripe Checkout page that a person pays at in their own browser (card, FPX…) — an AI acting as them must never start a purchase; billing_get_ai_credit_topup reads the options and a purchase's status"),
         new("POST", "/api/billing/ai/pdf/link", "mints a 5-minute signed link to the AI bill PDF for a browser that cannot send an auth header (the installed iOS app); sessions only, API keys get 403 — " + Binary),
         new("GET", "/api/audit.csv", Export + " (activity_search_log)"),
         new("GET", "/api/analytics/reports.csv", Export + " (analytics_get_reports)"),

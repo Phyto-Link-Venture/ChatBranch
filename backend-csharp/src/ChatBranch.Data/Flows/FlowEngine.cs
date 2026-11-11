@@ -1200,7 +1200,9 @@ public partial class FlowEngine
                 .OrderByDescending(t => t.UpdatedAt).Select(t => t.EntityId).FirstOrDefault();
         entityId ??= _db.Workflows.AsNoTracking().Where(w => w.Id == run.WorkflowId)
             .Select(w => w.EntityId).FirstOrDefault();
-        var why = new Ai.AiControls(_db, _scoping).FlowBlock(contact, entityId);
+        // the inbox of the conversation this run is FOR narrows it (an inbox can only say off);
+        // a run with no conversation keeps the entity-level answer
+        var why = new Ai.AiControls(_db, _scoping).FlowBlock(contact, entityId, RunInbox(run, contact));
         if (why == null) return false;
         var reason = why.StartsWith("Off: ") ? why[5..] : why;
         if (aiMessage)

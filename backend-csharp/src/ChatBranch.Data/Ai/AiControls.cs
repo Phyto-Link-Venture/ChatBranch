@@ -77,6 +77,8 @@ public static class AiRules
     public const string NeverTag = "never_tag";
     /// <summary>The conversation's entity (or an ancestor) used up its monthly AI quota.</summary>
     public const string Quota = "quota";
+    /// <summary>The conversation's company is on prepaid AI credit and its balance is used up (<see cref="AiCreditGuard"/>).</summary>
+    public const string Credit = "credit";
     public const string ChatTick = "chat_tick";
     public const string ContactAlways = "contact_always";
     public const string InboxDefault = "inbox_default";
@@ -316,7 +318,9 @@ public sealed record AiPolicyInputs(
     IReadOnlyCollection<string> ContactTags,
     IReadOnlyCollection<string> NeverTags,
     /// <summary>Set = an AI usage quota is reached: the <c>ai_reason</c> (<see cref="AiQuota.Reason"/>).</summary>
-    string? QuotaBlock = null);
+    string? QuotaBlock = null,
+    /// <summary>Set = the company's prepaid AI credit is used up: the <c>ai_reason</c> (<see cref="AiCreditGuard.Reason"/>).</summary>
+    string? CreditBlock = null);
 
 /// <summary>
 /// Resolves the AI controls (master switch, schedule, never-tags) from Setting
@@ -347,7 +351,7 @@ public sealed class AiControls
     /// <summary>Resolve the schedule even when the switch is not on "schedule" (the settings screen).</summary>
     public bool AlwaysLoadSchedule { get; init; }
 
-    /// <summary>Leave the AI usage quota out (what would the verdict be without it?).</summary>
+    /// <summary>Leave the AI usage limits out — the quota AND prepaid credit (what would the verdict be without them?).</summary>
     public bool IgnoreQuota { get; init; }
 
     private readonly Dictionary<int, string?> _quota = new();
@@ -359,6 +363,17 @@ public sealed class AiControls
         if (_quota.TryGetValue(id, out var cached)) return cached;
         var s = AiQuota.EntityBlock(_db, _sc, id, NowUtc);
         return _quota[id] = s == null ? null : AiQuota.Reason(s);
+    }
+
+    private readonly Dictionary<int, string?> _credit = new();
+
+    /// <summary>The prepaid-credit reason for an entity's conversations (its COMPANY's balance), or null.
+    /// No account / credit off / money left / unreadable (fails open, loudly) = null.</summary>
+    public string? CreditBlock(int? entityId)
+    {
+        if (IgnoreQuota || entityId is not int id) return null;
+        if (_credit.TryGetValue(id, out var cached)) return cached;
+        return _credit[id] = AiCreditGuard.EntityReason(_db, _sc, id);
     }
 
     public TimeZoneInfo Zone => _zone ??= Skills.BuiltinSkills.OrgTimeZone(_sc);
@@ -541,7 +556,8 @@ public sealed class AiControls
     public AiPolicyInputs Inputs(int? entityId, string? contactMode, IReadOnlyCollection<string>? contactTags,
         ChannelAccount? account = null) =>
         new(Master(entityId, account), NowUtc, Zone, ContactAiModes.Normalize(contactMode),
-            contactTags ?? Array.Empty<string>(), NeverTags(entityId, account), QuotaBlock(entityId));
+            contactTags ?? Array.Empty<string>(), NeverTags(entityId, account), QuotaBlock(entityId),
+            CreditBlock(entityId));
 
     /// <summary>The full rule for a conversation whose account and contact the caller already holds.</summary>
     public AiVerdict Decide(Thread t, ChannelAccount? account, string? contactMode,
@@ -583,14 +599,19 @@ public sealed class AiControls
     /// May a flow's AI step write to this contact right now? null = yes; else
     /// the step note explaining why not (master switch, schedule, contact never /
     /// never-tag). The per-chat tick is the AI gate's business at send time.
+    /// <paramref name="account"/>: the inbox of the conversation the journey runs FOR — its own
+    /// master switch / schedule / never-tags narrow the answer (an inbox can only switch the AI
+    /// OFF, <see cref="InboxMaster"/>); null (no conversation) = the entity tree alone.
     /// </summary>
-    public string? FlowBlock(Contact? contact, int? entityId)
+    public string? FlowBlock(Contact? contact, int? entityId, ChannelAccount? account = null)
     {
         try
         {
             var probe = new Thread { EntityId = entityId, AiEnabled = true };
+            // the inbox enters through the policy inputs only (its master switch + never-tags,
+            // both forced "off" verdicts) — never through the per-chat tick layer
             var v = AiEligibility.Decide(probe, null, true,
-                Inputs(entityId, contact?.AiMode, contact?.Tags));
+                Inputs(entityId, contact?.AiMode, contact?.Tags, account));
             return v.Enabled || !v.Forced ? null : v.Reason;
         }
         catch { return null; }

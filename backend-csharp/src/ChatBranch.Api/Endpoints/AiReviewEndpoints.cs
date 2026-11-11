@@ -89,6 +89,9 @@ public static class AiReviewEndpoints
             if (AiQuota.EntityBlock(db, sc, entityId) is { } entityQuota)
                 return Results.Json(new { detail = AiQuota.Reason(entityQuota), quota = true },
                     statusCode: StatusCodes.Status429TooManyRequests);
+            if (AiCreditGuard.EntityReason(db, sc, entityId) is string entityCredit)
+                return Results.Json(new { detail = entityCredit, quota = true, credit = true },
+                    statusCode: StatusCodes.Status429TooManyRequests);
 
             AiReviewRun run;
             await StartLock.WaitAsync();

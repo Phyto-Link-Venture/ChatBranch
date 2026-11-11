@@ -18,7 +18,7 @@ export const shell = {
     knowledge: 'Knowledge base',
     skills: 'AI skills',
     aiPersona: 'Persona & rules',
-    aiBill: 'AI bill',
+    aiBill: 'AI usage & spending',
     tags: 'Tags',
     media: 'Media library',
     channels: 'Channels',

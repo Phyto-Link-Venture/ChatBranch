@@ -69,6 +69,7 @@ public class VoiceTranscriber
             try
             {
                 if (AiQuota.EntityBlock(_db, _scoping, thread.EntityId) != null) return 0;
+                if (AiCreditGuard.EntityBlock(_db, _scoping, thread.EntityId) != null) return 0;
             }
             catch { /* fail open */ }
 
@@ -119,6 +120,7 @@ public class VoiceTranscriber
             try
             {
                 if (AiQuota.EntityBlock(_db, _scoping, thread.EntityId) != null) return done;
+                if (AiCreditGuard.EntityBlock(_db, _scoping, thread.EntityId) != null) return done;
             }
             catch { /* fail open */ }
 

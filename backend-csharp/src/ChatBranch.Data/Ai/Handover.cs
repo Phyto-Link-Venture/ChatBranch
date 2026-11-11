@@ -26,9 +26,11 @@ public static class HandoverKinds
     public const string UnknownCustomer = "unknown_customer";
     /// <summary>The AI usage quota of the conversation's outlet (or its company) is used up (<see cref="AiQuota"/>).</summary>
     public const string Quota = "quota";
+    /// <summary>The company is on prepaid AI credit and its balance is used up (<see cref="AiCreditGuard"/>).</summary>
+    public const string Credit = "credit";
 
     public static readonly string[] All =
-        { CheckFailed, AskedForHuman, SendBlocked, BookingFailed, LowConfidence, Rule, Manual, UnknownCustomer, Quota };
+        { CheckFailed, AskedForHuman, SendBlocked, BookingFailed, LowConfidence, Rule, Manual, UnknownCustomer, Quota, Credit };
 
     public static string Label(string? kind) => kind switch
     {
@@ -41,6 +43,7 @@ public static class HandoverKinds
         Manual => "Flagged by a person",
         UnknownCustomer => "Unknown customer",
         Quota => "AI quota reached",
+        Credit => "AI credit used up",
         _ => "Handed over",
     };
 }

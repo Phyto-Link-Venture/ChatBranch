@@ -104,13 +104,15 @@ public static partial class ToolCatalog
         yield return T(an, "billing_get_ai_credit", "Prepaid AI credit balances",
             "Prepaid AI credit: each company's balance (a top-level entity; a branch draws on its company's "
             + "balance), any per-login balances, and the append-only ledger of grants and adjustments — newest "
-            + "first, with the amount, the balance after it, who wrote it and why. Nothing debits these balances "
-            + "yet: AI usage is still billed by the monthly AI bill.",
+            + "first, with the amount, the balance after it, who wrote it and why. A company with an enabled "
+            + "account is on credit: its AI usage is debited as consumption lines and its AI pauses at zero "
+            + "(minus its overdraft limit). Pass kind (comma-separated) to keep only some kinds of line.",
             "GET", "/api/billing/ai/credit", C("billing.view", "billing.manage"), new[]
             {
                 A.Str("company", "Company (top-level entity) slug or id — its ledger only."),
                 A.Str("entity", "Any entity slug or id: answers which company's balance it draws on."),
                 A.Str("user", "Username — that login's own balance and ledger."),
+                A.Str("kind", "Only these kinds, comma-separated: grant, topup, promo_bonus, consumption, adjustment, refund, chargeback, expiry, conversion."),
                 A.Page, A.PageSize(200),
             }, link: (_, _) => Page("Open AI billing", "/billing"));
         yield return T(an, "billing_grant_ai_credit", "Grant AI credit",
@@ -137,6 +139,29 @@ public static partial class ToolCatalog
                 A.Str("note", "Why the correction was made."),
                 A.Str("idempotency_key", "Your own key: a repeated call applies once."),
             }, idempotent: false);
+        yield return T(an, "billing_get_ai_credit_consumption", "AI credit consumption",
+            "What AI usage has drawn from each company's prepaid credit: the recent consumption lines, 24 h / 7 d / "
+            + "30 d totals, the balance and its warning level, and whether the company's AI is PAUSED for lack of "
+            + "credit (its chats are handed to a person). Billing managers also get the metering health: the "
+            + "consumption sweep's cursor, how often a credit read failed open, and AI usage rows that failed to save.",
+            "GET", "/api/billing/ai/credit/consumption", C("billing.view", "billing.manage"), new[]
+            {
+                A.Str("company", "Company (top-level entity) slug or id — that company only."),
+                A.Int("limit", "Recent consumption lines per company (1–100, default 10)."),
+            }, link: (_, _) => Page("Open AI billing", "/billing"));
+        yield return T(an, "billing_set_ai_credit_account", "Set AI credit enforcement",
+            "Switch prepaid AI credit on or off for one company (a top-level entity) or one login, and set its "
+            + "overdraft limit (how far below zero the balance may go before the AI pauses; 0 = at zero) and its "
+            + "low-balance warning level (0 = 10% of the last credit added). enabled=false means the balance is "
+            + "never debited and never pauses the AI. Only the fields you send change; recorded in the activity log.",
+            "PUT", "/api/billing/ai/credit/account", C("billing.manage"), new[]
+            {
+                A.Str("entity", "Company (top-level entity) slug or id."),
+                A.Str("user", "Username, for a per-login balance (instead of entity)."),
+                A.Bool("enabled", "true = credit is enforced (debited, pauses the AI at the limit); false = off."),
+                A.Num("overdraft_limit", "How far below zero the balance may go before the AI pauses (≥ 0)."),
+                A.Num("low_balance_threshold", "Warn the admins at or below this balance (0 = derive one)."),
+            });
         yield return T(an, "analytics_get_engagement", "Engagement tiles",
             "Conversations total, awaiting reply, replied, needing a human, follow-ups set, calls.",
             "GET", "/api/messaging/engagement", C("analytics.view"), new[] { A.Entity() });

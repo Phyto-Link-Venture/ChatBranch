@@ -27,6 +27,10 @@ public class AppDbContext : DbContext
     public const string LegacyThreadIndex = "uniq_thread_channel_key";
     /// <summary>One WhatsApp CLOUD account per number: unique external_id (phone_number_id).</summary>
     public const string WhatsAppNumberIndex = "uniq_channelaccount_wa_pnid";
+    /// <summary>One mirrored WhatsApp inbox per ZERNIO account: unique external_id (the Zernio account id).</summary>
+    public const string ZernioWhatsAppIndex = "uniq_channelaccount_zernio_wa";
+    /// <summary>One mirrored row per (channel, Zernio account) for every other Zernio channel (social, Telegram, SMS…).</summary>
+    public const string ZernioAccountIndex = "uniq_channelaccount_zernio_account";
 
     // ingest
     public DbSet<Tenant> Tenants => Set<Tenant>();
@@ -89,6 +93,10 @@ public class AppDbContext : DbContext
     // crm — prepaid AI credit: the append-only ledger and its cached balances
     public DbSet<AiCreditAccount> AiCreditAccounts => Set<AiCreditAccount>();
     public DbSet<AiCreditEntry> AiCreditEntries => Set<AiCreditEntry>();
+    // crm — buying credit (Stripe Checkout top-ups), promotions, and Stripe webhook dedupe
+    public DbSet<AiCreditPayment> AiCreditPayments => Set<AiCreditPayment>();
+    public DbSet<AiCreditOffer> AiCreditOffers => Set<AiCreditOffer>();
+    public DbSet<StripeEvent> StripeEvents => Set<StripeEvent>();
     // crm — AI price books: named plans and the entities each one prices
     public DbSet<AiPriceBook> AiPriceBooks => Set<AiPriceBook>();
     public DbSet<AiPriceBookAssignment> AiPriceBookAssignments => Set<AiPriceBookAssignment>();
@@ -264,6 +272,31 @@ public class AppDbContext : DbContext
             .HasDatabaseName("uniq_aicreditentry_idem");
         b.Entity<AiCreditEntry>().HasIndex(e => new { e.EntityId, e.CreatedAt })
             .HasDatabaseName("ix_aicreditentry_entity_created");
+        // ---- buying credit (Data/Ai/AiCreditTopup.cs): one row per Checkout Session ----
+        b.Entity<AiCreditPayment>().ToTable("crm_aicreditpayment");
+        // one Checkout Session can never back two payment rows
+        b.Entity<AiCreditPayment>().HasIndex(p => p.SessionId).IsUnique()
+            .HasFilter("\"session_id\" <> ''")
+            .HasDatabaseName("uniq_aicreditpayment_session");
+        b.Entity<AiCreditPayment>().HasIndex(p => p.Uuid).IsUnique()
+            .HasFilter("\"uuid\" <> ''")
+            .HasDatabaseName("uniq_aicreditpayment_uuid");
+        // a double-clicked Pay button finds the first row
+        b.Entity<AiCreditPayment>().HasIndex(p => p.IdempotencyKey).IsUnique()
+            .HasFilter("\"idempotency_key\" <> ''")
+            .HasDatabaseName("uniq_aicreditpayment_idem");
+        b.Entity<AiCreditPayment>().HasIndex(p => new { p.EntityId, p.Status })
+            .HasDatabaseName("ix_aicreditpayment_entity_status");
+        b.Entity<AiCreditPayment>().HasIndex(p => p.PaymentIntentId)
+            .HasDatabaseName("ix_aicreditpayment_intent");
+        b.Entity<AiCreditOffer>().ToTable("crm_aicreditoffer");
+        b.Entity<AiCreditOffer>().HasIndex(o => o.Slug).IsUnique()
+            .HasFilter("\"slug\" <> ''")
+            .HasDatabaseName("uniq_aicreditoffer_slug");
+        b.Entity<StripeEvent>().ToTable("crm_stripeevent");
+        b.Entity<StripeEvent>().HasIndex(e => e.EventId).IsUnique()
+            .HasFilter("\"event_id\" <> ''")
+            .HasDatabaseName("uniq_stripeevent_event");
         // ---- AI price books: the editing surface behind the month's terms snapshot ----
         b.Entity<AiPriceBook>().ToTable("crm_aipricebook");
         // the slug is what a month's terms snapshot refers to, so it must be unique
@@ -405,6 +438,17 @@ public class AppDbContext : DbContext
         b.Entity<ChannelAccount>().HasIndex(a => a.ExternalId).IsUnique()
             .HasFilter("\"channel\" = 'whatsapp' AND \"provider\" IN ('cloud', '') AND \"external_id\" <> ''")
             .HasDatabaseName(WhatsAppNumberIndex);
+        // ONE mirror per Zernio account (Social/SocialAccounts.Upsert): the WhatsApp onboarding
+        // callback and the account.connected webhook can both mirror the same account at once,
+        // and both used to insert. Named indexes — a second unnamed HasIndex(ExternalId) would
+        // return the builder above and overwrite its filter. WhatsApp gets its own index (the
+        // number is what routes customer traffic); every other Zernio channel — the social row,
+        // Telegram, SMS, Messenger, Instagram — shares one on (channel, external_id), so a
+        // duplicate in one never costs the other its protection.
+        b.Entity<ChannelAccount>().HasIndex(a => a.ExternalId, ZernioWhatsAppIndex).IsUnique()
+            .HasFilter("\"channel\" = 'whatsapp' AND \"provider\" = 'zernio' AND \"external_id\" <> ''");
+        b.Entity<ChannelAccount>().HasIndex(a => new { a.Channel, a.ExternalId }, ZernioAccountIndex).IsUnique()
+            .HasFilter("\"provider\" = 'zernio' AND \"channel\" <> 'whatsapp' AND \"external_id\" <> ''");
         b.Entity<AuthToken>().HasIndex(t => t.Token).IsUnique();
         b.Entity<CallRecord>().HasIndex(c => c.CallId).IsUnique();
         b.Entity<AccountAssignment>()

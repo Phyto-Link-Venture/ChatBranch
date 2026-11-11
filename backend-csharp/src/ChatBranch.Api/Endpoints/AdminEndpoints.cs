@@ -74,6 +74,9 @@ public static class AdminEndpoints
         ("billing.view", "Review", "View the AI usage bill"),
         ("billing.manage", "Settings", "Set AI billing markup & see costs"),
         ("billing.quotas.manage", "Review", "Set AI usage quotas"),
+        // buy prepaid AI credit for your own company (Stripe Checkout) — admins by default,
+        // never org-level: a company admin buys for their own companies only
+        ("billing.topup", "Review", "Buy AI credit (top up)"),
         // The raw key/value settings store (GET/PUT /api/settings — no page, API
         // callers): reading it is an admin's; writing ANY key (credentials, billing
         // terms, the safety rules…) is superadmin-only by default.

@@ -340,6 +340,24 @@ outbound queue are already channel-blind.
   is unchanged, and the organization Setting
   `whatsapp_accept_unknown_numbers=on` restores the old permissive bucketing.
   `ChatBranch.Data/Channels/CloudInboxRouting.cs` holds the rule.
+- **Senders with no phone number (WhatsApp usernames / BSUID).** Every message
+  webhook now carries the sender's business-scoped user id (`contacts[].user_id`,
+  `messages[].from_user_id`); for a user who adopted a username and whose phone
+  number is unavailable Meta **omits** `contacts[].wa_id` and `messages[].from`
+  (`contacts[].profile.username` is then present). ChatBranch keys a WhatsApp
+  conversation on the phone number, so such a message used to vanish without a
+  trace. It is now **recorded**, never filed: an audit row
+  `whatsapp.webhook.no_phone_number` scoped to the receiving number's entity, with
+  the message id, type, username and BSUID (never the words); a number with no
+  company gets an organization-level row without the username / BSUID. It is NOT
+  keyed on the BSUID: `PhoneMatch.Digits` runs on WhatsApp thread keys (contact
+  matching, `ThreadStore.JobKey`, the canonical "60…" phone rule) and would match a
+  random contact by the BSUID's digits, outbound only knows `to` (a BSUID needs
+  `recipient`), and nothing links a BSUID to the wa_id the same person may arrive
+  with later — `Channels/WhatsAppUsernameSenders.cs` says what a BSUID key would
+  need. No path creates a conversation with an empty key any more
+  (`ThreadStore` refuses one). YCloud / Twilio inbounds without a sender number
+  are still dropped by their parsers.
 - **Signature:** `X-Hub-Signature-256` is **required once any Cloud account is
   configured** (a row with token + phone_number_id, or the env-default
   `WHATSAPP_*` pair) and is verified against the known Meta app secrets (the
@@ -353,6 +371,14 @@ outbound queue are already channel-blind.
   number's replies). Account-level codes (190, 131031, 368, 133010, rate
   limits…) move health through `AccountHealth.SetStatus`; per-recipient codes
   (131047, 131026, 131050, …) never do — `Channels/MetaErrors.cs` is the table.
+  **131031** means a policy lock (Banned) OR "data in the request could not be
+  verified, e.g. an incorrect two-step PIN"; `error_subcode` is deprecated (not
+  returned on v16.0+), so the error's message / `error_data.details` decides: PIN /
+  verification wording with no policy wording is a recoverable **Degraded** (like
+  133005); anything else, Meta's own two-meaning sentence included, stays Banned.
+  **133015** (deletion not complete, retry in 5 min) is transient; **133016**
+  ((de)registration attempts over 10 per 72 h, blocked for 72 h) is a rate limit
+  (Degraded until a success), never a ban.
 - **Media:** inbound media is stored with a text placeholder and downloaded off
   the ack (`GET /{media-id}` → the lookaside URL, both with the bearer token,
   20 MB cap) into `data/whatsapp/media/{wa_id}/`; outbound media uploads to
@@ -437,6 +463,21 @@ outbound queue are already channel-blind.
 ### WhatsApp over Baileys
 - Unofficial WhatsApp Web protocol. **Violates WhatsApp's ToS**; dev/demo only.
   See `backend/baileys_service/README.md` and `RESEARCH.md`.
+- **Every push names its number, and an unknown one is dropped.** The gateway's
+  `account_id` is the paired number's key (`ChannelAccount.external_id`, written by
+  `EnsureBaileysKey` before the gateway is ever told to start or pair a session — so
+  the first message after pairing or a reconnect always names an existing row). A
+  `/baileys/inbound` (message or reaction) or `/baileys/media` push whose key matches
+  no QR number used to be filed with no account — the organization-wide unattributed
+  bucket, adoptable by the next company to touch the customer, the same shape as the
+  Cloud leak. It is now a recorded drop: no thread, message, reaction or file; an
+  audit row `whatsapp.baileys.unknown_account` carrying only the (capped) key — no
+  text, sender number, name or message id; and **200**, so the gateway does not
+  retry it. Typical source: a number deleted here whose session the gateway still
+  restores from its auth directory. A media push also attaches only to a message in
+  THIS number's company's conversation. `/from-phone`, `/history`, `/recall`,
+  `/edited` and `/status-event` already ignored unknown keys.
+  `ChatBranch.Data/Channels/BaileysInboxRouting.cs`.
 - **Two ways to link a number.** `POST /api/whatsapp/accounts/{id}/baileys/start`
   with `{}` emits a QR to scan (as before); with `{"phone": "+60123456789"}` it asks
   WhatsApp for an 8-character **pairing code** the person types under WhatsApp →

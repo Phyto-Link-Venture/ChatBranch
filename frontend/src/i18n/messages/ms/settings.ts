@@ -48,8 +48,8 @@ export const settings: Dict<typeof source> = {
         blurb: 'Medan tambahan pada pelanggan, boleh digunakan di mana-mana sebagai pemboleh ubah templat.',
       },
       billing: {
-        lbl: 'Bil AI',
-        blurb: 'Markup, yuran bulanan dan mata wang bagi bil AI setiap syarikat.',
+        lbl: 'Harga & kredit AI',
+        blurb: 'Harga, pelan, kredit dan had perbelanjaan anda bagi setiap syarikat. Pelanggan tidak pernah melihat halaman ini.',
       },
       security: {
         lbl: 'Keselamatan',

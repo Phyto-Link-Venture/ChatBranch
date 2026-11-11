@@ -1363,7 +1363,7 @@ public static class VoiceMessagingEndpoints
         // not the account's fault — health stays put
         if (r.ErrorCode != null)
         {
-            if (ChatBranch.Data.Channels.MetaErrors.Classify(r.ErrorCode, r.ErrorSubcode).Health != null)
+            if (ChatBranch.Data.Channels.MetaErrors.Classify(r.ErrorCode, r.ErrorSubcode, r.Detail).Health != null)
                 ChatBranch.Data.Channels.MetaErrors.ApplyToAccount(db, account, r.ErrorCode, r.ErrorSubcode,
                     r.Detail, actor: "user");
             else

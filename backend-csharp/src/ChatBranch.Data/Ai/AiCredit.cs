@@ -51,9 +51,11 @@ public sealed record AiCreditStatus(
 /// <para><b>Balances are SIGNED and never clamped</b> — see
 /// <see cref="AiCreditAccount.Balance"/>.</para>
 ///
-/// <para><b>Phase 1 scope.</b> Nothing debits a balance yet and nothing can stop
-/// an AI reply: credit is granted, adjusted, read and displayed. Consumption
-/// metering and enforcement are phase 2, Stripe top-ups phase 3.</para>
+/// <para><b>Consumption and enforcement</b> (phase 2) live beside this file:
+/// <see cref="AiCreditSweep"/> debits AI usage into the ledger through
+/// <see cref="ApplyAsync"/>, and <see cref="AiCreditGuard"/> stops the AI of an
+/// ENABLED account whose balance is at or below <c>-overdraft_limit</c>. A scope
+/// with no account row is never debited or blocked.</para>
 /// </summary>
 public static class AiCredit
 {
@@ -291,6 +293,7 @@ public static class AiCredit
             db.AiCreditEntries.Add(entry);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
+            AiCreditGuard.Invalidate();   // a grant / top-up unblocks on the next message (phase 2)
             var fresh = await AccountOf(db, scope, entityId, user, ct);
             return new Result(entry, fresh, null);
         }

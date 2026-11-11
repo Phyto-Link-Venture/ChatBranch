@@ -20,7 +20,7 @@ export const shell: Dict<typeof source> = {
     knowledge: 'Pangkalan pengetahuan',
     skills: 'Kemahiran AI',
     aiPersona: 'Persona & peraturan',
-    aiBill: 'Bil AI',
+    aiBill: 'Penggunaan & perbelanjaan AI',
     tags: 'Tag',
     media: 'Perpustakaan media',
     channels: 'Saluran',

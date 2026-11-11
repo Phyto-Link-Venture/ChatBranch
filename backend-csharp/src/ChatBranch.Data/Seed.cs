@@ -566,6 +566,69 @@ public static class Seed
                 + "Two WhatsApp accounts hold the same phone_number_id — inbound routing between "
                 + "them stays ambiguous until one of them is corrected.");
         }
+        // ---- buying AI credit (Data/Ai/AiCreditTopup.cs): Stripe Checkout top-ups,
+        // promotions, and the Stripe webhook's once-only event record ----
+        AddTableIfMissing(db, "crm_aicreditpayment",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aicreditpayment\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"uuid\" TEXT NOT NULL, \"entity_id\" INTEGER NOT NULL, \"offer_id\" INTEGER NULL, "
+            + "\"provider\" TEXT NOT NULL, \"mode\" TEXT NOT NULL, \"session_id\" TEXT NOT NULL, "
+            + "\"payment_intent_id\" TEXT NOT NULL, \"idempotency_key\" TEXT NOT NULL, \"checkout_url\" TEXT NOT NULL, "
+            + "\"amount_minor\" INTEGER NOT NULL, \"currency\" TEXT NOT NULL, \"credit_amount\" REAL NOT NULL, "
+            + "\"bonus_amount\" REAL NOT NULL, \"status\" TEXT NOT NULL, \"status_detail\" TEXT NOT NULL, "
+            + "\"refunded_minor\" INTEGER NOT NULL, \"disputed_minor\" INTEGER NOT NULL, "
+            + "\"created_by_user_id\" INTEGER NULL, \"created_by\" TEXT NOT NULL, \"last_event_id\" TEXT NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL, \"completed_at\" TEXT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_aicreditpayment_session", "crm_aicreditpayment", "\"session_id\"",
+            "\"session_id\" <> ''");
+        AddUniqueIndexIfMissing(db, "uniq_aicreditpayment_uuid", "crm_aicreditpayment", "\"uuid\"",
+            "\"uuid\" <> ''");
+        AddUniqueIndexIfMissing(db, "uniq_aicreditpayment_idem", "crm_aicreditpayment", "\"idempotency_key\"",
+            "\"idempotency_key\" <> ''");
+        AddIndexIfMissing(db, "ix_aicreditpayment_entity_status", "crm_aicreditpayment", "\"entity_id\", \"status\"");
+        AddIndexIfMissing(db, "ix_aicreditpayment_intent", "crm_aicreditpayment", "\"payment_intent_id\"");
+        AddTableIfMissing(db, "crm_aicreditoffer",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aicreditoffer\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"slug\" TEXT NOT NULL, \"label\" TEXT NOT NULL, \"kind\" TEXT NOT NULL, "
+            + "\"pay_amount\" REAL NOT NULL, \"credit_amount\" REAL NOT NULL, \"bonus_pct\" REAL NOT NULL, "
+            + "\"bonus_fixed\" REAL NOT NULL, \"currency\" TEXT NOT NULL, \"active\" INTEGER NOT NULL, "
+            + "\"starts_at\" TEXT NULL, \"ends_at\" TEXT NULL, \"max_redemptions\" INTEGER NOT NULL, "
+            + "\"redemptions\" INTEGER NOT NULL, \"entity_id\" INTEGER NULL, \"note\" TEXT NOT NULL, "
+            + "\"created_by\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_aicreditoffer_slug", "crm_aicreditoffer", "\"slug\"", "\"slug\" <> ''");
+        AddTableIfMissing(db, "crm_stripeevent",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_stripeevent\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"event_id\" TEXT NOT NULL, \"type\" TEXT NOT NULL, \"livemode\" INTEGER NOT NULL, "
+            + "\"status\" TEXT NOT NULL, \"payment_id\" INTEGER NULL, \"amount_minor\" INTEGER NOT NULL, "
+            + "\"detail\" TEXT NOT NULL, \"received_at\" TEXT NOT NULL, \"processed_at\" TEXT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_stripeevent_event", "crm_stripeevent", "\"event_id\"", "\"event_id\" <> ''");
+        // ---- one mirror per Zernio account ---------------------------------------
+        // The WhatsApp onboarding callback and the account.connected webhook can both mirror
+        // the same Zernio account at once (Social/SocialAccounts.Upsert treats the loser's
+        // unique violation as "already mirrored"). WhatsApp has its own index; every other
+        // Zernio channel shares one on (channel, external_id) so a clash in one never costs the
+        // other its protection. DEFENSIVE exactly like the Cloud-number index above: a live
+        // duplicate is logged and left for an operator, it never aborts boot.
+        try
+        {
+            AddUniqueIndexIfMissing(db, AppDbContext.ZernioWhatsAppIndex, "crm_channelaccount", "\"external_id\"",
+                "\"channel\" = 'whatsapp' AND \"provider\" = 'zernio' AND \"external_id\" <> ''");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[seed] {AppDbContext.ZernioWhatsAppIndex} not created: {ex.Message}. "
+                + "Two WhatsApp inboxes mirror the same Zernio account — remove the extra one.");
+        }
+        try
+        {
+            AddUniqueIndexIfMissing(db, AppDbContext.ZernioAccountIndex, "crm_channelaccount",
+                "\"channel\", \"external_id\"",
+                "\"provider\" = 'zernio' AND \"channel\" <> 'whatsapp' AND \"external_id\" <> ''");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[seed] {AppDbContext.ZernioAccountIndex} not created: {ex.Message}. "
+                + "Two rows of one channel mirror the same Zernio account — remove the extra one.");
+        }
     }
 
     /// <summary>A partial UNIQUE index EnsureCreated() will never add to an existing

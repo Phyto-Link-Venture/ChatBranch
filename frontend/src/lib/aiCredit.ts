@@ -34,7 +34,7 @@ export interface CreditStatus {
   enabled: boolean
   /** An account row exists (credit was granted at least once). */
   opened: boolean
-  /** The money is gone — shown as such; nothing stops an AI reply yet. */
+  /** The money is gone: on an enabled account the AI is paused (chats go to a person). */
   exhausted: boolean
   overdraft_limit: number
   low_balance_threshold: number
@@ -136,3 +136,65 @@ const KIND_KEYS: Record<CreditKind, MessageKey> = {
 /** The label of a ledger line's kind (unknown kinds fall back to "adjustment"). */
 export const creditKindKey = (kind: string): MessageKey =>
   KIND_KEYS[kind as CreditKind] ?? KIND_KEYS.adjustment
+
+// ---- consumption + enforcement (phase 2) --------------------------------------------------
+
+/** One company's AI consumption from GET /api/billing/ai/credit/consumption. */
+export interface CreditConsumptionCompany {
+  id: number
+  name: string
+  slug: string
+  /** An ENABLED account exists: AI usage is debited and the AI pauses at the limit. */
+  on_credit: boolean
+  enabled: boolean
+  opened: boolean
+  balance: number
+  currency: string
+  overdraft_limit: number
+  low_balance_threshold: number
+  /** The balance admins are warned at (explicit, else derived); null with no account. */
+  warn_at: number | null
+  low: boolean
+  /** This company's AI is not answering for lack of credit — chats go to a person. */
+  paused: boolean
+  paused_reason: string | null
+  used_24h: number
+  used_7d: number
+  used_30d: number
+  recent: { id: number; amount: number; balance_after: number; currency: string; ref: string; note: string; created_at: string }[]
+}
+
+export interface CreditConsumptionPayload {
+  currency: string
+  is_manager: boolean
+  companies: CreditConsumptionCompany[]
+  paused: number
+  /** Billing managers only. */
+  metering: {
+    started_at: string | null
+    last_usage_id: number | null
+    last_sweep_at: string | null
+    pending: boolean
+    fail_open: number
+    last_fail_open_at: string | null
+    last_fail_open_error: string
+    usage_write_failures: number
+    last_usage_write_failure_at: string | null
+  } | null
+  note: string
+}
+
+export const getCreditConsumption = (query = '') =>
+  aiApi<CreditConsumptionPayload>(`billing/ai/credit/consumption${query}`)
+
+/** Every ledger kind except the frequent consumption lines (the card lists those separately). */
+export const NON_CONSUMPTION_KINDS: CreditKind[] = [
+  'grant',
+  'topup',
+  'promo_bonus',
+  'adjustment',
+  'refund',
+  'chargeback',
+  'expiry',
+  'conversion',
+]

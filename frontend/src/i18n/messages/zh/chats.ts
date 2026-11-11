@@ -110,6 +110,7 @@ export const chats: Dict<typeof source> = {
     manual: '由人员标记',
     unknown_customer: '未知客户',
     quota: 'AI 配额已用完',
+    credit: 'AI 额度已用尽',
   },
   filterModal: {
     more: '更多',

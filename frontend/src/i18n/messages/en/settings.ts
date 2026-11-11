@@ -46,8 +46,8 @@ export const settings = {
         blurb: 'Extra fields on customers, usable everywhere as template variables.',
       },
       billing: {
-        lbl: 'AI billing',
-        blurb: 'Markup, monthly fee and currency for each company’s AI bill.',
+        lbl: 'AI pricing & credit',
+        blurb: 'Your prices, plans, credit and spending caps for each company. Clients never see this page.',
       },
       security: {
         lbl: 'Security',

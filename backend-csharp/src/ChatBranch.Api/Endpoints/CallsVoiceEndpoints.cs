@@ -231,6 +231,9 @@ public static class CallsVoiceEndpoints
             if (ChatBranch.Data.Ai.AiQuota.EntityBlock(db, sc, callEntity) is { } entityQuota)
                 return Results.Json(new { ok = false, room = (string?)null, status = "quota",
                     detail = ChatBranch.Data.Ai.AiQuota.Reason(entityQuota), quota = true }, statusCode: 429);
+            if (ChatBranch.Data.Ai.AiCreditGuard.EntityReason(db, sc, callEntity) is string entityCredit)
+                return Results.Json(new { ok = false, room = (string?)null, status = "credit",
+                    detail = entityCredit, quota = true, credit = true }, statusCode: 429);
 
             // Voice pre-flight, in Django's order: an unusable provider is a 501
             // BEFORE anything is dialled, so the operator sees the missing key

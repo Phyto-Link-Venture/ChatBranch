@@ -7,7 +7,8 @@ namespace ChatBranch.Api.Workers;
 /// expires drafts a teammate already answered, runs the "follow up when the
 /// customer goes quiet" pass, and releases calendar reservations no reply will
 /// deliver (<see cref="ChatBranch.Data.Bookings.BookingService.Housekeep"/>:
-/// rejected / expired / failed drafts, or no draft after 30 min). Each pass gets its own DI scope. Env
+/// rejected / expired / failed drafts, or no draft after 30 min), and runs the
+/// prepaid-credit consumption sweep (<see cref="AiCreditSweep"/>). Each pass gets its own DI scope. Env
 /// <c>AI_FOLLOWUP_WORKER=0</c> disables it (the test host does, and drives
 /// <see cref="AiGate.ProcessDue"/> / <see cref="AiFollowUpService.Tick"/>
 /// explicitly — or POST /api/ai/monitor/tick).
@@ -42,6 +43,9 @@ public class AiOpsWorker : BackgroundService
                 // AI quotas: the 80 % / 100 % warnings (once per scope per month)
                 var db = scope.ServiceProvider.GetRequiredService<ChatBranch.Data.AppDbContext>();
                 AiQuota.Sweep(db, scope.ServiceProvider.GetRequiredService<ChatBranch.Data.ScopingService>());
+                // prepaid AI credit: debit new AI usage into the ledger, then the low-balance
+                // warnings and any pending credit alerts (single writer; never throws)
+                AiCreditSweep.Run(db);
             }
             catch (Exception ex)
             {

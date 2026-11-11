@@ -164,9 +164,12 @@ internal static class AiBillPdf
         Row(L.Usage, money(s.UsageAmount));
         Row(L.MonthlyFee, money(s.MonthlyFee));
         Row(L.Total, money(s.Total), strong: true);
+        // how the month was priced (the JSON's plan_label / plan_inherited / mode — for everyone);
+        // the markup PERCENTAGE only for billing managers, and only when a markup priced it
+        if (!string.IsNullOrWhiteSpace(s.PlanLabel)) Row(L.Plan, PlanText(s, L));
+        Row(L.Pricing, PriceText(s, L));
         // billing managers only — the JSON carries these as null for everyone else
         if (s.CostUsd is double cost) Row(L.Cost, Amount("USD", cost));
-        if (s.MarkupPct is double markup) Row(L.Markup, markup.ToString("0.##", CultureInfo.InvariantCulture) + "%");
         if (s.Margin is double margin) Row(L.Margin, money(margin));
 
         Heading(section, L.ByFeature, muted);
@@ -228,13 +231,15 @@ internal static class AiBillPdf
     {
         Heading(section, L.Companies, muted);
         var manager = bill.Manager;
+        // "Pricing" = the mode (and plan) that priced each company's month — a flat- or
+        // unit-priced company never reads as "0%" markup
         var cols = manager
-            ? new[] { 0.28, 0.11, 0.15, 0.13, 0.09, 0.12, 0.12 }
-            : new[] { 0.40, 0.14, 0.23, 0.23 };
+            ? new[] { 0.24, 0.09, 0.14, 0.13, 0.16, 0.12, 0.12 }
+            : new[] { 0.32, 0.12, 0.19, 0.18, 0.19 };
         var t = Table(section, width, cols);
         var headers = manager
-            ? new List<string> { L.Company, L.Requests, L.Usage, L.Cost, L.Markup, L.Total, L.Margin }
-            : new List<string> { L.Company, L.Requests, L.Usage, L.Total };
+            ? new List<string> { L.Company, L.Requests, L.Usage, L.Cost, L.Pricing, L.Total, L.Margin }
+            : new List<string> { L.Company, L.Requests, L.Usage, L.Pricing, L.Total };
         Header(t, headers, head);
         if (bill.Companies.Count == 0)
         {
@@ -248,12 +253,13 @@ internal static class AiBillPdf
                 ? new List<string>
                 {
                     c.Name, c.Requests.ToString("#,##0", CultureInfo.InvariantCulture), money(c.UsageAmount),
-                    Amount("USD", c.CostUsd ?? 0), (c.MarkupPct ?? 0).ToString("0.##", CultureInfo.InvariantCulture) + "%",
+                    Amount("USD", c.CostUsd ?? 0), PriceWithPlan(c, L),
                     money(c.Total), money(c.Margin ?? 0),
                 }
                 : new List<string>
                 {
-                    c.Name, c.Requests.ToString("#,##0", CultureInfo.InvariantCulture), money(c.UsageAmount), money(c.Total),
+                    c.Name, c.Requests.ToString("#,##0", CultureInfo.InvariantCulture), money(c.UsageAmount),
+                    PriceWithPlan(c, L), money(c.Total),
                 };
             Body(t, cells, line);
         }
@@ -266,7 +272,7 @@ internal static class AiBillPdf
                 L.Total, req, usage, Amount("USD", Math.Round(bill.Companies.Sum(c => c.CostUsd ?? 0), 4)), "",
                 total, money(Math.Round(bill.Companies.Sum(c => c.Margin ?? 0), 4)),
             }
-            : new List<string> { L.Total, req, usage, total }, line, strong: true);
+            : new List<string> { L.Total, req, usage, "", total }, line, strong: true);
 
         if (bill.Unattributed is { Requests: > 0 } u)
         {
@@ -277,6 +283,30 @@ internal static class AiBillPdf
             p.Format.SpaceBefore = Unit.FromMillimeter(4);
         }
     }
+
+    // ---- pricing -------------------------------------------------------------------------
+
+    /// <summary>
+    /// How a company's month was priced, in words: "Markup 25%" (the percentage only when
+    /// the bill carries it — billing managers), "Flat", "Per unit". Without the percentage a
+    /// markup reads "Usage-based": the client sees that usage is billed, not the margin.
+    /// </summary>
+    internal static string PriceText(BillCompany c, Labels L) => c.Mode switch
+    {
+        ChatBranch.Domain.AiPriceModes.Flat => L.ModeFlat,
+        ChatBranch.Domain.AiPriceModes.Unit => L.ModeUnit,
+        _ => c.MarkupPct is double pct
+            ? $"{L.Markup} {pct.ToString("0.##", CultureInfo.InvariantCulture)}%"
+            : L.ModeUsage,
+    };
+
+    /// <summary>The plan's name, "(inherited)" when it came from a level above the company.</summary>
+    internal static string PlanText(BillCompany c, Labels L) =>
+        string.IsNullOrWhiteSpace(c.PlanLabel) ? ""
+        : c.PlanInherited ? $"{c.PlanLabel!.Trim()} ({L.Inherited})" : c.PlanLabel!.Trim();
+
+    private static string PriceWithPlan(BillCompany c, Labels L) =>
+        PlanText(c, L) is { Length: > 0 } plan ? $"{PriceText(c, L)} · {plan}" : PriceText(c, L);
 
     // ---- helpers ------------------------------------------------------------------------
 
@@ -366,12 +396,20 @@ internal static class AiBillPdf
     };
 
     /// <summary>The printed words (en / ms / zh). Keep in step with the dashboard's billing namespace.</summary>
-    private sealed record Labels(string Language, string Title, string AllCompanies, string Companies, string Company,
+    internal sealed record Labels(string Language, string Title, string AllCompanies, string Companies, string Company,
         string Month, string Period, string Currency, string Generated, string Summary, string Requests, string Tokens,
         string Usage, string MonthlyFee, string Total, string Cost, string Markup, string Margin, string ByFeature,
         string Item, string Amount, string Daily, string Date, string NoUsage, string NoCompanies, string Unattributed,
         string Page, string Of, IReadOnlyDictionary<string, string> Features)
     {
+        // pricing (price books: markup / flat / unit) — init-only so the positional list stays as it was
+        public string Pricing { get; init; } = "Pricing";
+        public string Plan { get; init; } = "Plan";
+        public string Inherited { get; init; } = "inherited";
+        public string ModeFlat { get; init; } = "Flat";
+        public string ModeUnit { get; init; } = "Per unit";
+        public string ModeUsage { get; init; } = "Usage-based";
+
         public string Feature(string key) => Features.TryGetValue(key, out var v) ? v : key;
 
         public static readonly Labels En = new("en", "AI usage bill", "All companies", "Companies", "Company",
@@ -398,7 +436,11 @@ internal static class AiBillPdf
                 ["flow_decision"] = "Keputusan perjalanan", ["voice_call"] = "Panggilan suara", ["summary"] = "Ringkasan AI",
                 ["timeline"] = "Ringkasan garis masa", ["playground"] = "Ruang uji AI", ["assistant"] = "Tanya ChatBranch",
                 ["embedding"] = "Pengindeksan pengetahuan", ["skill_draft"] = "Draf kemahiran", ["document_template"] = "Templat dokumen", ["ai_review"] = "Semakan AI",
-            });
+            })
+        {
+            Pricing = "Harga", Plan = "Pelan", Inherited = "diwarisi", ModeFlat = "Tetap", ModeUnit = "Seunit",
+            ModeUsage = "Ikut penggunaan",
+        };
 
         public static readonly Labels Zh = new("zh", "AI 用量账单", "所有公司", "公司", "公司",
             "月份", "期间", "货币", "生成时间", "摘要", "请求", "Token", "AI 用量",
@@ -411,7 +453,10 @@ internal static class AiBillPdf
                 ["flow_decision"] = "旅程判断", ["voice_call"] = "语音通话", ["summary"] = "AI 摘要",
                 ["timeline"] = "时间线摘要", ["playground"] = "AI 试验场", ["assistant"] = "问 ChatBranch",
                 ["embedding"] = "知识索引", ["skill_draft"] = "技能起草", ["document_template"] = "文档模板", ["ai_review"] = "AI 审查",
-            });
+            })
+        {
+            Pricing = "定价", Plan = "方案", Inherited = "继承", ModeFlat = "固定", ModeUnit = "按单位", ModeUsage = "按用量",
+        };
 
         public static Labels For(string language) => language switch { "ms" => Ms, "zh" => Zh, _ => En };
     }

@@ -496,6 +496,21 @@ public class MetaApiTests : IClassFixture<MetaApiFactory>
     public async Task Baileys_media_push_attaches_the_file_to_the_placeholder_message()
     {
         var anon = _factory.CreateClient();
+        // the push must name a PAIRED number: an unknown account_id is a recorded drop
+        // (Channels/BaileysInboxRouting — it used to be filed account-less)
+        InScope(db =>
+        {
+            if (!db.ChannelAccounts.Any(a => a.Provider == "baileys" && a.ExternalId == "gw-none"))
+            {
+                db.ChannelAccounts.Add(new ChatBranch.Domain.ChannelAccount
+                {
+                    Channel = "whatsapp", Provider = "baileys", Name = "gw-none", ExternalId = "gw-none",
+                    HealthStatus = "healthy", CreatedAt = DateTime.UtcNow,
+                });
+                db.SaveChanges();
+            }
+            return 0;
+        });
         var inbound = new StringContent(JsonSerializer.Serialize(new
         {
             account_id = "gw-none", wa_id = "60199000001", name = "Gw", text = "[image]", msg_id = "BAE5MSG1",
@@ -507,6 +522,7 @@ public class MetaApiTests : IClassFixture<MetaApiFactory>
         {
             var form = new MultipartFormDataContent
             {
+                { new StringContent("gw-none"), "account_id" },
                 { new StringContent("60199000001"), "wa_id" },
                 { new StringContent("BAE5MSG1"), "msg_id" },
                 { new StringContent("image"), "media_type" },

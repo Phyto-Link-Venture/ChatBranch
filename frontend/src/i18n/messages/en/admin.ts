@@ -53,6 +53,7 @@ export const admin = {
     billingView: 'View the AI usage bill',
     billingManage: 'Set AI billing markup & see costs',
     billingQuotasManage: 'Set AI usage quotas',
+    billingTopup: 'Buy AI credit (top up)',
     pronunciationManage: 'Manage pronunciation',
     settingsAppearanceOrg: 'Set the organization default appearance, language and time zone',
     settingsCustomFieldsManage: 'Manage custom fields',

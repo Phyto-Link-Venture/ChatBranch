@@ -1158,7 +1158,13 @@ public partial class AssistantService
             }
             _db.SaveChanges();
         }
-        catch { /* ledger failure never breaks the reply path */ }
+        catch (Exception ex)
+        {
+            // ledger failure never breaks the reply path — but it is billable usage
+            // lost from the bill AND from credit, so it is counted and the credit sweep
+            // raises an admin alert (AiCreditGuard.MeteringFailed)
+            AiCreditGuard.MeteringFailed(_db, spec.Feature, ex);
+        }
     }
 
     // ---- helpers -----------------------------------------------------------------------------

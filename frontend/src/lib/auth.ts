@@ -112,6 +112,7 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'billing.view', area: 'Review', label: 'View the AI usage bill', lbl: 'admin.caps.billingView' },
   { capability: 'billing.manage', area: 'Settings', label: 'Set AI billing markup & see costs', lbl: 'admin.caps.billingManage' },
   { capability: 'billing.quotas.manage', area: 'Review', label: 'Set AI usage quotas', lbl: 'admin.caps.billingQuotasManage' },
+  { capability: 'billing.topup', area: 'Review', label: 'Buy AI credit (top up)', lbl: 'admin.caps.billingTopup' },
   { capability: 'settings.raw.view', area: 'Settings', label: 'Read raw settings (API)', lbl: 'admin.caps.settingsRawView' },
   { capability: 'settings.raw.manage', area: 'Settings', label: 'Write any raw setting (API)', lbl: 'admin.caps.settingsRawManage' },
   { capability: 'testlab.run', area: 'Review', label: 'Run the Test lab', lbl: 'admin.caps.testlabRun' },

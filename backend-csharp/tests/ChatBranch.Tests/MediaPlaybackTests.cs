@@ -289,6 +289,21 @@ public class MediaPlaybackTests : IClassFixture<ApiFactory>
     public async Task Baileys_media_push_answers_non_2xx_when_nothing_was_stored_and_records_the_file()
     {
         var anon = _f.CreateClient();
+        // the push must name a PAIRED number: an unknown account_id is a recorded drop
+        // (Channels/BaileysInboxRouting — it used to be filed account-less)
+        InScope(db =>
+        {
+            if (!db.ChannelAccounts.Any(a => a.Provider == "baileys" && a.ExternalId == "gw-media-doc"))
+            {
+                db.ChannelAccounts.Add(new ChatBranch.Domain.ChannelAccount
+                {
+                    Channel = "whatsapp", Provider = "baileys", Name = "gw-media-doc", ExternalId = "gw-media-doc",
+                    HealthStatus = "healthy", CreatedAt = DateTime.UtcNow,
+                });
+                db.SaveChanges();
+            }
+            return 0;
+        });
         HttpRequestMessage Post(HttpContent content)
         {
             var req = new HttpRequestMessage(HttpMethod.Post, "/api/whatsapp/baileys/media") { Content = content };
@@ -306,6 +321,7 @@ public class MediaPlaybackTests : IClassFixture<ApiFactory>
         // the file arrives before the /inbound text: the row is created, the name / mime / size kept
         var form = new MultipartFormDataContent
         {
+            { new StringContent("gw-media-doc"), "account_id" },
             { new StringContent("60150000008"), "wa_id" },
             { new StringContent("BAE5DOC1"), "msg_id" },
             { new StringContent("document"), "media_type" },
@@ -323,6 +339,7 @@ public class MediaPlaybackTests : IClassFixture<ApiFactory>
         // a voice note carries no file name: the payload names it by type
         var voice = new MultipartFormDataContent
         {
+            { new StringContent("gw-media-doc"), "account_id" },
             { new StringContent("60150000008"), "wa_id" },
             { new StringContent("BAE5PTT1"), "msg_id" },
             { new StringContent("audio"), "media_type" },

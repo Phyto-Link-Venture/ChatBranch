@@ -298,6 +298,21 @@ public class ReplyReactionCloudTests : IClassFixture<MetaApiFactory>
     public async Task Baileys_push_carries_quotes_and_reactions_without_making_bubbles()
     {
         var anon = _factory.CreateClient();
+        // the push must name a PAIRED number: an unknown account_id is a recorded drop
+        // (Channels/BaileysInboxRouting — it used to be filed account-less)
+        InScope(db =>
+        {
+            if (!db.ChannelAccounts.Any(a => a.Provider == "baileys" && a.ExternalId == "gw-x"))
+            {
+                db.ChannelAccounts.Add(new ChatBranch.Domain.ChannelAccount
+                {
+                    Channel = "whatsapp", Provider = "baileys", Name = "gw-x", ExternalId = "gw-x",
+                    HealthStatus = "healthy", CreatedAt = DateTime.UtcNow,
+                });
+                db.SaveChanges();
+            }
+            return 0;
+        });
         async Task Push(object body)
         {
             var req = new HttpRequestMessage(HttpMethod.Post, "/api/whatsapp/baileys/inbound")

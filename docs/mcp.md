@@ -317,7 +317,7 @@ conversation route.
 | `flows_enqueue_job` | Queue an outbound message | write · open-world | `flows.manage` |
 | `flows_run_due_steps` | Run due flow steps now | write · open-world | `flows.manage` |
 
-#### analytics (17)
+#### analytics (24)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -336,8 +336,15 @@ conversation route.
 | `billing_get_ai_credit` | Prepaid AI credit balances | read | `billing.view` or `billing.manage` |
 | `billing_grant_ai_credit` | Grant AI credit | write | `billing.manage` |
 | `billing_adjust_ai_credit` | Correct an AI credit balance | write | `billing.manage` |
+| `billing_get_ai_credit_consumption` | AI credit consumption | read | `billing.view` or `billing.manage` |
+| `billing_set_ai_credit_account` | Set AI credit enforcement | write | `billing.manage` |
 | `analytics_get_engagement` | Engagement tiles | read | `analytics.view` |
 | `analytics_get_live` | What's live right now | read | signed in |
+| `billing_get_ai_credit_topup` | AI credit top-up options | read | `billing.topup` or `billing.manage` |
+| `billing_get_ai_credit_offers` | AI credit offers | read | `billing.manage` |
+| `billing_save_ai_credit_offer` | Create or change an AI credit offer | write | `billing.manage` |
+| `billing_delete_ai_credit_offer` | Delete an AI credit offer | write · **destructive** | `billing.manage` |
+| `billing_grant_ai_credit_offer` | Grant an offer's bonus by hand | write | `billing.manage` |
 
 #### activity (3)
 
@@ -774,6 +781,7 @@ conversation route.
 | `POST /api/voice/preview` | returns synthesized audio — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `POST /api/voice/clone` | the dashboard's multipart upload — MCP clones through voice_clone_voice (/api/voice/clone-from), which takes references instead of raw audio |
 | `GET /api/billing/ai/pdf` | the AI bill as a PDF — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file (billing_get_ai_bill returns the same figures) |
+| `POST /api/billing/ai/credit/topup` | spends money: opens a Stripe Checkout page that a person pays at in their own browser (card, FPX…) — an AI acting as them must never start a purchase; billing_get_ai_credit_topup reads the options and a purchase's status |
 | `POST /api/billing/ai/pdf/link` | mints a 5-minute signed link to the AI bill PDF for a browser that cannot send an auth header (the installed iOS app); sessions only, API keys get 403 — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `GET /api/audit.csv` | file export (CSV / vCard) of data a JSON tool already returns (activity_search_log) |
 | `GET /api/analytics/reports.csv` | file export (CSV / vCard) of data a JSON tool already returns (analytics_get_reports) |

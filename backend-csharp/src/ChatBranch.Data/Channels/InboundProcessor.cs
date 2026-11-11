@@ -366,22 +366,25 @@ public class InboundProcessor
     }
 
     /// <summary>
-    /// The AI would have answered this customer but its usage quota is used up:
-    /// hand the chat to a person (kind <c>quota</c>, the chatbot tick left as it
-    /// was so the AI resumes by itself next month or once the cap is raised) —
-    /// once per open handover. Then warn the admins if this crossed a threshold.
-    /// Returns true when the chat is (already) with a person for this reason.
+    /// The AI would have answered this customer but its usage quota — or its
+    /// company's prepaid AI credit — is used up: hand the chat to a person (kind
+    /// <c>quota</c> / <c>credit</c>, the chatbot tick left as it was so the AI
+    /// resumes by itself next month, once the cap is raised or once credit is
+    /// added) — once per open handover. The customer is never told about billing.
+    /// Then warn the admins if a quota crossed a threshold (credit warnings come
+    /// from the credit sweep). Returns true when the chat is (already) with a
+    /// person for this reason.
     /// </summary>
     private bool QuotaHandover(Thread thread, AiVerdict verdict)
     {
         try
         {
-            if (verdict.Rule != AiRules.Quota) return false;
+            if (verdict.Rule != AiRules.Quota && verdict.Rule != AiRules.Credit) return false;
             if (!AiEligibility.Decide(_db, _scoping, thread, null, ignoreQuota: true).Enabled) return false;
             if (!Handover.IsOpen(thread))
-                Handover.Mark(_db, thread, HandoverKinds.Quota,
+                Handover.Mark(_db, thread, verdict.Rule == AiRules.Credit ? HandoverKinds.Credit : HandoverKinds.Quota,
                     verdict.Reason.StartsWith("Off: ") ? verdict.Reason[5..] : verdict.Reason, "ai", standDown: false);
-            AiQuota.Sweep(_db, _scoping);
+            if (verdict.Rule == AiRules.Quota) AiQuota.Sweep(_db, _scoping);
             return true;
         }
         catch { return false; }

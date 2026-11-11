@@ -274,6 +274,8 @@ app.MapContactThreadLinkEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapAiBillingEndpoints();
 app.MapAiCreditEndpoints();
+app.MapAiCreditTopupEndpoints();
+app.MapAiCreditMeteringEndpoints();
 app.MapAiPriceBookEndpoints();
 app.MapIntegrationsEndpoints();
 app.MapNotificationEndpoints();

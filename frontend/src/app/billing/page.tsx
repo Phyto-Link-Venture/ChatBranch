@@ -5,6 +5,7 @@ import { AreaPage } from '@/components/shell/AreaPage'
 import { AiBill } from '@/components/billing/AiBill'
 import { AiQuotas } from '@/components/billing/AiQuotas'
 import { AiCredit } from '@/components/billing/AiCredit'
+import { AiCreditTopup } from '@/components/billing/AiCreditTopup'
 import { useT } from '@/i18n'
 
 /** The AI usage bill — per company, per month (billing.view). */
@@ -17,6 +18,10 @@ export default function BillingPage() {
         {/* prepaid credit and the quotas are not part of the printed bill */}
         <div className="print:hidden">
           <AiCredit />
+        </div>
+        {/* buying credit (Stripe Checkout) — billing.topup; hides itself without it */}
+        <div className="print:hidden">
+          <AiCreditTopup />
         </div>
         <div className="print:hidden">
           <AiQuotas />

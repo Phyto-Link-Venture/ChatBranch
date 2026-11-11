@@ -11,6 +11,7 @@
  * Billing managers set any cap; admins cap branches and people in their scope.
  */
 
+import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { Gauge, Loader2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -66,7 +67,13 @@ const barCls: Record<QuotaState, string> = {
   paused: 'bg-red-400',
 }
 
-export function AiQuotas() {
+/**
+ * `variant` says which page renders it. On /billing ("client") a client admin edits
+ * the caps of their own branches and people; a billing manager is pointed to
+ * Settings instead, so the operator has ONE place for caps. In Settings
+ * ("operator") the billing manager edits every cap.
+ */
+export function AiQuotas({ variant = 'client' }: { variant?: 'client' | 'operator' } = {}) {
   const t = useT()
   const f = useFormat()
   const [data, setData] = useState<Payload | null>(null)
@@ -183,6 +190,25 @@ export function AiQuotas() {
     </li>
   )
 
+  // a billing manager edits caps in Settings → AI pricing & credit, not here
+  if (variant === 'client' && data?.is_manager) {
+    return (
+      <Card className="p-5">
+        <CardTitle>
+          <span className="inline-flex items-center gap-2">
+            <Gauge size={15} aria-hidden /> {t('billing.quotas.title')}
+          </span>
+        </CardTitle>
+        <p className="mt-1 text-[12.5px] text-text-muted">
+          {t('billing.quotas.managedInSettings')}{' '}
+          <Link href="/settings/billing" className="font-semibold text-brand-600 underline-offset-2 hover:underline">
+            {t('billing.quotas.openSettings')}
+          </Link>
+        </p>
+      </Card>
+    )
+  }
+
   return (
     <Card className="p-5 print:hidden" data-tour="billing-quotas">
       <CardTitle
@@ -198,7 +224,10 @@ export function AiQuotas() {
           <Gauge size={15} aria-hidden /> {t('billing.quotas.title')}
         </span>
       </CardTitle>
-      <p className="mt-1 text-[12.5px] text-text-muted">{t('billing.quotas.help')}</p>
+      {/* clients never see the word "markup": how they are priced is the operator's business */}
+      <p className="mt-1 text-[12.5px] text-text-muted">
+        {t(data?.is_manager ? 'billing.quotas.helpOperator' : 'billing.quotas.help')}
+      </p>
 
       {error && <p role="alert" className="mt-3 text-[13px] text-[var(--red-ink)]">{error}</p>}
       {!data && !error && (

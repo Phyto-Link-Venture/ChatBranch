@@ -166,6 +166,8 @@ public class VoiceReplyService
         {
             if (AiQuota.EntityBlock(_db, _scoping, thread.EntityId) is { } cap)
                 return (null, AiQuota.Reason(cap));
+            if (AiCreditGuard.EntityReason(_db, _scoping, thread.EntityId) is string credit)
+                return (null, credit);
         }
         catch { /* a quota read failure fails open */ }
 

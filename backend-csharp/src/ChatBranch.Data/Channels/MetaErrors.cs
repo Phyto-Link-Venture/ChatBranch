@@ -29,7 +29,8 @@ public readonly record struct MetaErrorClass(MetaErrorScope Scope, string? Healt
 /// docstring table). The rule the whole health model rests on: a PER-RECIPIENT
 /// error (131047 window closed, 131026 undeliverable, 131050 stopped marketing,
 /// Messenger 551 / the 2018278 window subcode…) NEVER damages an account's
-/// health — only errors about the account itself (190 token, 131031 locked,
+/// health — only errors about the account itself (190 token, 131031 locked — but a
+/// 131031 two-step PIN failure is only Degraded, see <see cref="MetaErrors.IsPinFailure"/> —
 /// 368 policy block, 133010 not registered…) and throughput limits do, and only
 /// through <see cref="AccountHealth.SetStatus"/>.
 /// </summary>
@@ -73,20 +74,55 @@ public static class MetaErrors
         [133000] = Health.Disconnected,  // incomplete deregistration
         [133006] = Health.Disconnected,  // phone number needs re-verification
         [133010] = Health.Disconnected,  // phone number not registered
-        [131031] = Health.Banned,        // business account locked
+        [131031] = Health.Banned,        // business account locked (policy) — a two-step PIN / data
+                                         // verification failure shares the code: see Classify
         [368] = Health.Banned,           // temporarily blocked for policy violations
         [131037] = Health.Degraded,      // display name not approved
         [131042] = Health.Degraded,      // business eligibility / payment issue
         [133005] = Health.Degraded,      // two-step PIN mismatch
         [133008] = Health.Degraded,
         [133009] = Health.Degraded,
-        [133015] = Health.Degraded,
-        [133016] = Health.Degraded,
     };
 
-    private static readonly HashSet<int> RateLimitCodes = new() { 4, 17, 32, 613, 80007, 130429, 131048 };
+    private static readonly HashSet<int> RateLimitCodes = new()
+    {
+        4, 17, 32, 613, 80007, 130429, 131048,
+        133016, // too many (de)registration attempts: 10 per number in a moving 72-hour window,
+                // then (de)registration is blocked for 72 hours — recoverable, never a ban
+    };
 
-    private static readonly HashSet<int> TransientCodes = new() { 1, 2, 131000, 131016, 131057, 133004 };
+    private static readonly HashSet<int> TransientCodes = new()
+    {
+        1, 2, 131000, 131016, 131057, 133004,
+        133015, // the number was recently deleted and deletion has not completed — "wait 5 minutes"
+    };
+
+    /// <summary>
+    /// Two-step PIN / data-verification wording in a 131031's message or
+    /// <c>error_data.details</c> (Meta: "we were unable to verify data included in the request
+    /// against data set on the WhatsApp Business Account (e.g. the two-step pin included in the
+    /// request is incorrect)").
+    /// </summary>
+    private static readonly System.Text.RegularExpressions.Regex PinWording = new(
+        @"two[\s-]*step|\bpin\b|unable\s+to\s+verify|could\s+not\s+be\s+verified|verify\s+data",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>Policy-lock wording — the OTHER meaning of 131031.</summary>
+    private static readonly System.Text.RegularExpressions.Regex PolicyWording = new(
+        @"polic(y|ies)|violat|restricted|disabled",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Is this 131031 a two-step PIN / data-verification failure rather than a policy lock?
+    /// Only when the text says so UNAMBIGUOUSLY: PIN / verification wording and no policy
+    /// wording. Meta's own reference sentence names both meanings at once, a PIN only travels
+    /// on a registration call, and on a send / status / account test 131031 is the lock — so an
+    /// ambiguous or missing text keeps the ban. (error_subcode is deprecated and not returned on
+    /// v16.0+, so the text is the only signal.)
+    /// </summary>
+    public static bool IsPinFailure(int? code, string? detail) =>
+        code == 131031 && !string.IsNullOrWhiteSpace(detail)
+        && PinWording.IsMatch(detail) && !PolicyWording.IsMatch(detail);
 
     /// <summary>Messenger subcodes that make an otherwise account-level code per-recipient.</summary>
     private static readonly HashSet<int> RecipientSubcodes = new()
@@ -98,6 +134,21 @@ public static class MetaErrors
         2018109,
         1545041, // user is not available
     };
+
+    /// <summary>
+    /// Classify a Meta error. <paramref name="detail"/> is the error's message (plus
+    /// <c>error_data.details</c>, as the clients and the status parser join them): it splits a
+    /// 131031 two-step PIN failure (recoverable — Degraded, like 133005) from a policy lock
+    /// (Banned). Per-recipient codes are decided before the text is read, so no wording can
+    /// ever make them touch account health.
+    /// </summary>
+    public static MetaErrorClass Classify(int? code, int? subcode, string? detail)
+    {
+        var cls = Classify(code, subcode);
+        return cls.Scope == MetaErrorScope.Account && IsPinFailure(code, detail)
+            ? new(MetaErrorScope.Account, Health.Degraded)
+            : cls;
+    }
 
     public static MetaErrorClass Classify(int? code, int? subcode = null)
     {
@@ -122,7 +173,7 @@ public static class MetaErrors
         string detail, string actor = "system")
     {
         if (account == null || account.Id == 0) return false; // env pseudo-account: no row to track
-        var cls = Classify(code, subcode);
+        var cls = Classify(code, subcode, detail);
         if (cls.Health is not string next) return false;
         account.FailStreak += 1;
         var reason = code is int c ? $"Meta error {c}" : "Meta error";

@@ -151,6 +151,8 @@ public class ApiFactory : WebApplicationFactory<Program>
                 ChatBranch.Data.Sidecars.NullCommerceGateway>();
             // Zernio is never reached from the suite either (ZernioTests swap in a fake)
             services.AddSingleton<ChatBranch.Data.Social.IZernioClient, ChatBranch.Data.Social.NullZernioClient>();
+            // nor Stripe: AI-credit top-ups open no real Checkout Session (StripeTopupTests swap in a fake)
+            services.AddSingleton<ChatBranch.Data.Integrations.IStripeGateway, ChatBranch.Data.Integrations.NullStripeGateway>();
         });
 
     protected override IHost CreateHost(IHostBuilder builder)

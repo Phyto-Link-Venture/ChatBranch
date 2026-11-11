@@ -55,6 +55,7 @@ export const admin: Dict<typeof source> = {
     billingView: 'Lihat bil penggunaan AI',
     billingManage: 'Tetapkan markup bil AI & lihat kos',
     billingQuotasManage: 'Tetapkan kuota penggunaan AI',
+    billingTopup: 'Beli kredit AI (tambah nilai)',
     pronunciationManage: 'Urus sebutan',
     settingsAppearanceOrg: 'Tetapkan rupa, bahasa dan zon waktu lalai organisasi',
     settingsCustomFieldsManage: 'Urus medan tersuai',

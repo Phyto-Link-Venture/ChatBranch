@@ -121,6 +121,8 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/billing/ai/settings", new[] { "billing.manage" }),
         ("/api/billing/ai/quotas", new[] { "billing.view", "billing.manage" }),
         ("/api/billing/ai/credit", new[] { "billing.view", "billing.manage" }),
+        ("/api/billing/ai/credit/topup", new[] { "billing.topup", "billing.manage" }),
+        ("/api/billing/ai/credit/offers", new[] { "billing.manage" }),
         ("/api/billing/ai/price-books", new[] { "billing.manage" }),
         // Activity
         ("/api/audit", new[] { "activity.view" }),

@@ -307,8 +307,13 @@ public sealed class SocialAccounts
         {
             row.HealthStatus = active ? Health.Healthy : Health.Disconnected;
             _db.ChannelAccounts.Add(row);
-            AuditTrail.Add(_db, "account.create", $"{channel}:{row.Name}", "managed connection",
+            var created = AuditTrail.Add(_db, "account.create", $"{channel}:{row.Name}", "managed connection",
                 source: AuditSources.Webhook, entityId: level);
+            // lost the race to another mirror of this account: refresh the winner instead
+            if (!TryInsertMirror(row, created))
+                return FindNative(zid) is { } winner && winner.Channel == channel
+                    ? UpsertNative(acct, winner, channel, social, entityId, profileId)
+                    : throw new InvalidOperationException($"Zernio account {zid} is mirrored on another channel.");
         }
         else
         {
@@ -446,8 +451,14 @@ public sealed class SocialAccounts
         {
             row.HealthStatus = active ? Health.Healthy : Health.Disconnected;
             _db.ChannelAccounts.Add(row);
-            AuditTrail.Add(_db, "account.create", $"social:{row.Name}", "managed connection",
+            var created = AuditTrail.Add(_db, "account.create", $"social:{row.Name}", "managed connection",
                 source: AuditSources.Webhook, entityId: entityId);
+            // another mirror of this account (the webhook / the onboarding callback / a sync)
+            // inserted it first: refresh THAT row instead of failing the request
+            if (!TryInsertMirror(row, created))
+                return Find(id) != null
+                    ? UpsertSocial(acct, entityId, profileId)
+                    : throw new InvalidOperationException($"Zernio account {id} could not be mirrored.");
         }
         else
         {
@@ -458,6 +469,44 @@ public sealed class SocialAccounts
         }
         _db.SaveChanges();
         return row;
+    }
+
+    /// <summary>
+    /// Save a brand-new mirror row. False = another mirror of the same Zernio account got there
+    /// first (the partial unique indexes <c>uniq_channelaccount_zernio_wa</c> /
+    /// <c>uniq_channelaccount_zernio_account</c> refused this one): the row and its
+    /// "account.create" audit row are detached — left tracked, every later save in this request
+    /// would try the same insert again and fail — and the caller refreshes the winner.
+    /// Any other failure propagates.
+    /// </summary>
+    private bool TryInsertMirror(ChannelAccount row, AuditLog created)
+    {
+        try
+        {
+            _db.SaveChanges();
+            return true;
+        }
+        catch (DbUpdateException e) when (IsDuplicateMirror(e))
+        {
+            _db.Entry(row).State = EntityState.Detached;
+            _db.Entry(created).State = EntityState.Detached;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Did a save trip one of the Zernio mirror indexes? PostgreSQL names the index
+    /// ("duplicate key value violates unique constraint …", 23505); SQLite names the columns
+    /// ("UNIQUE constraint failed: crm_channelaccount.external_id").
+    /// </summary>
+    internal static bool IsDuplicateMirror(DbUpdateException e)
+    {
+        var msg = (e.InnerException?.Message ?? e.Message) ?? "";
+        return msg.Contains(AppDbContext.ZernioWhatsAppIndex, StringComparison.OrdinalIgnoreCase)
+               || msg.Contains(AppDbContext.ZernioAccountIndex, StringComparison.OrdinalIgnoreCase)
+               || ((msg.Contains("UNIQUE constraint failed", StringComparison.OrdinalIgnoreCase)
+                    || msg.Contains("duplicate key", StringComparison.OrdinalIgnoreCase))
+                   && msg.Contains("external_id", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>How long a move's local binding outranks a Zernio listing that still shows the old profile.</summary>

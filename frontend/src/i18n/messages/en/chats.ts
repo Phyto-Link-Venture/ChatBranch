@@ -110,6 +110,7 @@ export const chats = {
     manual: 'Flagged by a person',
     unknown_customer: 'Unknown customer',
     quota: 'AI quota reached',
+    credit: 'AI credit used up',
   },
   filterModal: {
     more: 'More',

@@ -94,6 +94,10 @@ public static class WebhooksEndpoints
             var messages = MetaWebhook.CloudMessages(root);
             var reactions = MetaWebhook.CloudReactions(root);
             var statuses = MetaWebhook.CloudStatuses(root);
+            // messages with no phone number (WhatsApp username holders): nothing to key a
+            // conversation on — recorded for the receiving number's company below, never
+            // filed under an empty key (Channels/WhatsAppUsernameSenders)
+            var unkeyed = MetaWebhook.CloudUnkeyedMessages(root);
 
             // ---- route by REGISTERED number only (Channels/CloudInboxRouting) ----
             // A payload whose phone_number_id matches no account used to be processed
@@ -125,15 +129,23 @@ public static class WebhooksEndpoints
                     if (why.Length == 0) continue;
                     unroutable.Add(pnid);
                     CloudInboxRouting.RecordUnknownNumber(db, pnid, waba, why,
-                        messages.Count(m => m.PhoneNumberId == pnid),
+                        messages.Count(m => m.PhoneNumberId == pnid) + unkeyed.Count(m => m.PhoneNumberId == pnid),
                         reactions.Count(r => r.PhoneNumberId == pnid),
                         statuses.Count(s => s.PhoneNumberId == pnid),
                         messages.FirstOrDefault(m => m.PhoneNumberId == pnid)?.Wamid ?? "");
                 }
 
+            foreach (var u in unkeyed)
+            {
+                if (unroutable.Contains(u.PhoneNumberId) || (routingArmed && u.PhoneNumberId.Length == 0)) continue;
+                WhatsAppUsernameSenders.Record(db, AccountFor(u.PhoneNumberId), u);
+            }
+
             foreach (var m in messages)
             {
                 if (unroutable.Contains(m.PhoneNumberId) || (routingArmed && m.PhoneNumberId.Length == 0)) continue;
+                // never a conversation under an empty key (the parser already skips these)
+                if (string.IsNullOrWhiteSpace(m.From)) continue;
                 try
                 {
                     // a redelivered wamid already ran every side effect (AI, flows,
@@ -211,21 +223,31 @@ public static class WebhooksEndpoints
             var isGroup = GroupChats.IsGroup(Domain.Channels.WhatsApp, waId);
             if (isGroup) waId = GroupChats.WhatsAppKey(waId);
             if (string.IsNullOrEmpty(waId)) return Results.Ok(new { ok = true });
+            JsonElement reaction = default;
+            var isReaction = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("reaction", out reaction)
+                             && reaction.ValueKind == JsonValueKind.Object;
+            // the paired number this push is FOR: an account_id that matches none is a recorded
+            // drop, never an account-less (organization-wide, adoptable) conversation —
+            // Channels/BaileysInboxRouting. A 200, so the gateway does not retry it.
+            var account = await BaileysAccountByKey(db, Str(body, "account_id"));
+            if (account == null)
+            {
+                BaileysInboxRouting.RecordUnknownAccount(db, Str(body, "account_id"),
+                    isReaction ? "reaction" : "message");
+                return Results.Ok(new { ok = true, dropped = true });
+            }
             // a reaction ({reaction: {msg_id, emoji}}) lands on the message it targets —
             // no bubble, no AI, no flows, no reopen (MessageReactions)
-            if (body.ValueKind == JsonValueKind.Object && body.TryGetProperty("reaction", out var reaction)
-                && reaction.ValueKind == JsonValueKind.Object)
+            if (isReaction)
             {
                 try
                 {
-                    var reactingTo = await BaileysAccountByKey(db, Str(body, "account_id"));
                     MessageReactions.ApplyInbound(db, "whatsapp", waId, Str(reaction, "msg_id") ?? "",
-                        Str(reaction, "emoji") ?? "", accountId: reactingTo?.Id);
+                        Str(reaction, "emoji") ?? "", accountId: account.Id);
                 }
                 catch { }
                 return Results.Ok(new { ok = true });
             }
-            var account = await BaileysAccountByKey(db, Str(body, "account_id"));
             // Baileys pushes only text here (media arrives on /media afterwards);
             // an empty text is a media-only message — still record the touch.
             if (isGroup)
@@ -239,7 +261,7 @@ public static class WebhooksEndpoints
                 var mentioned = body.TryGetProperty("mentioned", out var mn)
                                 && (mn.ValueKind == JsonValueKind.True
                                     || (mn.ValueKind == JsonValueKind.String && mn.GetString() is "1" or "true"));
-                var gm = processor.ProcessInbound("whatsapp", waId, text ?? "", subject, account?.Id,
+                var gm = processor.ProcessInbound("whatsapp", waId, text ?? "", subject, account.Id,
                     Str(body, "msg_id") ?? "", replyToExternalId: Str(body, "reply_to") ?? "",
                     sender: sender, addressedToUs: mentioned);
                 try
@@ -251,8 +273,8 @@ public static class WebhooksEndpoints
             }
             else
                 processor.ProcessInbound("whatsapp", waId, text ?? "", Str(body, "name"),
-                    account?.Id, Str(body, "msg_id") ?? "", replyToExternalId: Str(body, "reply_to") ?? "");
-            if (account != null && account.HealthStatus != Domain.Health.Healthy)
+                    account.Id, Str(body, "msg_id") ?? "", replyToExternalId: Str(body, "reply_to") ?? "");
+            if (account.HealthStatus != Domain.Health.Healthy)
             {
                 // Inbound traffic proves the session is alive — heal like Django does.
                 ChatBranch.Data.Channels.AccountHealth.SetStatus(db, account, Domain.Health.Healthy,
@@ -471,16 +493,25 @@ public static class WebhooksEndpoints
             // the placeholder /inbound stored (its provider id names the conversation), else a
             // new inbound on the pushing number — its company's conversation, never another's
             var account = await BaileysAccountByKey(db, form["account_id"].ToString());
-            var msg = msgId.Length > 0
-                ? (await db.Messages.Include(m => m.Thread)
-                    .Where(m => m.ExternalId == msgId && m.Thread!.Channel == "whatsapp" && m.Thread.Key == waId)
-                    .OrderByDescending(m => m.Id).ToListAsync())
-                    .OrderByDescending(m => account != null && m.Thread!.AccountId == account.Id).FirstOrDefault()
+            // an account_id that matches no paired number: a recorded drop — it may neither
+            // create a conversation nor hang a file on an existing message (a forged push could
+            // otherwise attach a file to any customer's message by its id) — 200, never retried
+            if (account == null)
+            {
+                BaileysInboxRouting.RecordUnknownAccount(db, form["account_id"].ToString(), "media");
+                return Results.Ok(new { ok = true, stored = false, dropped = true });
+            }
+            // the message on THIS number's company's conversation (another company's chat with
+            // the same customer may hold the same provider id — it is never touched)
+            var own = msgId.Length > 0 ? store.FindForAccount("whatsapp", waId, account.Id) : null;
+            var msg = own != null
+                ? await db.Messages.Include(m => m.Thread)
+                    .Where(m => m.ThreadId == own.Id && m.ExternalId == msgId)
+                    .OrderByDescending(m => m.Id).FirstOrDefaultAsync()
                 : null;
             // a file the person sent from the phone (from_me): their outbound message, never an inbound
             if (msg == null && form["from_me"].ToString() == "1")
             {
-                if (account == null) return Results.Ok(new { ok = true, stored = false });
                 msg = ChatBranch.Data.Channels.PhoneSentMessages.Record(db, sc, store, processor, account, waId,
                     $"[{type}]", msgId);
                 if (msg == null) return NotStored(500, "could not record the message");
@@ -490,7 +521,7 @@ public static class WebhooksEndpoints
                 // the text push never landed: a group file still carries its author
                 var senderId = form["sender_id"].ToString().Trim();
                 var senderName = form["sender_name"].ToString().Trim();
-                msg = processor.ProcessInbound("whatsapp", waId, $"[{type}]", null, account?.Id, msgId,
+                msg = processor.ProcessInbound("whatsapp", waId, $"[{type}]", null, account.Id, msgId,
                     sender: senderId.Length > 0 || senderName.Length > 0
                         ? new InboundSender(senderId, senderName) : null);
             }

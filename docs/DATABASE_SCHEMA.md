@@ -238,7 +238,7 @@ cache) live in `ChatBranch.Data/Tags/TagService.cs`.
 | `entity_id` | null = org-wide. **Decides which outlet a conversation belongs to** |
 | `channel` | `whatsapp` \| `facebook` \| `instagram` \| `telegram` \| `email` \| `website` \| `line` \| `viber` \| `sms` \| `wechat` \| `tiktok` \| `douyin` \| `zalo` |
 | `provider` | `cloud` \| `baileys` (WhatsApp) |
-| `name`, `external_id` | external_id = phone_number_id / page id / bot id / from-address / the widget's PUBLIC token / the Baileys gateway account key / the LINE or Viber bot id, SMS from number, WeChat original id, TikTok business id, Douyin open_id, Zalo OA id. **WhatsApp Cloud: unique** — `uniq_channelaccount_wa_pnid` `(external_id) WHERE channel = 'whatsapp' AND provider IN ('cloud', '') AND external_id <> ''`, because the Cloud webhook matches inbound traffic by it and two rows holding the same number made routing a coin flip between their companies (`Endpoints/WebhooksEndpoints`, `Channels/CloudInboxRouting`). The filter is that webhook's own match: a BSP or QR row is addressed by its own webhook URL / gateway key, never by a shared number lookup, so those providers are left alone (the same business number may sit on two of them while one is migrated). Added on boot by `Seed.UpgradeSchema` / `PostgresSchema.Sync` — defensively: a database that already holds a duplicate still boots, logs the clash and simply has no index |
+| `name`, `external_id` | external_id = phone_number_id / page id / bot id / from-address / the widget's PUBLIC token / the Baileys gateway account key / the LINE or Viber bot id, SMS from number, WeChat original id, TikTok business id, Douyin open_id, Zalo OA id. **WhatsApp Cloud: unique** — `uniq_channelaccount_wa_pnid` `(external_id) WHERE channel = 'whatsapp' AND provider IN ('cloud', '') AND external_id <> ''`, because the Cloud webhook matches inbound traffic by it and two rows holding the same number made routing a coin flip between their companies (`Endpoints/WebhooksEndpoints`, `Channels/CloudInboxRouting`). The filter is that webhook's own match: a BSP or QR row is addressed by its own webhook URL / gateway key, never by a shared number lookup, so those providers are left alone (the same business number may sit on two of them while one is migrated). Added on boot by `Seed.UpgradeSchema` / `PostgresSchema.Sync` — defensively: a database that already holds a duplicate still boots, logs the clash and simply has no index. **Zernio: one mirror per account** — `uniq_channelaccount_zernio_wa` `(external_id) WHERE channel = 'whatsapp' AND provider = 'zernio' AND external_id <> ''` and `uniq_channelaccount_zernio_account` `(channel, external_id) WHERE provider = 'zernio' AND channel <> 'whatsapp' AND external_id <> ''` (the social row, Telegram, SMS, Messenger, Instagram), because the WhatsApp onboarding callback, the `account.connected` webhook and a sync can mirror the same Zernio account at once; `Social/SocialAccounts.Upsert` treats the loser's unique violation as "already mirrored" and refreshes the winner. Same defensive boot rule, each index on its own (a clash in one never costs the other) |
 | `waba_id`, `access_token`, `app_secret`, `api_version`, `owner` | secrets never leave the API unmasked (the newer channels' mapping is in `Channels/More/MoreChannels.cs`). `waba_id` is also the Cloud webhook's cross-check: a payload whose `entry[].id` contradicts it is refused, a blank one on either side never is |
 | `config` | JSON: `role` (`reminder`\|`conversation`), delivery (`quiet_start`, `quiet_end`, `quiet_schedule`, `queue_min_gap_s`, `queue_max_gap_s`, `llm_provider`, `stt_provider`), inbox ("who answers it": `team_id`, `ai_default`, `ai_review_mode`, any AI-behaviour override; unknown customers: `identify_unknown` off\|ask\|ask_and_create, `identify_message`), email SMTP creds, widget look, the newer channels' non-secret ids and secrets (`account_sid`, `from_number`, `messaging_service_sid`, WeChat `app_id` / `token` / `encoding_aes_key`, Zalo `app_id` / `refresh_token` / `oa_secret_key`, Douyin `client_key` / `refresh_token`…) |
 | `health_status` | `unknown` \| `healthy` \| `degraded` \| `disconnected` \| `banned` — written only by `AccountHealth.SetStatus` |
@@ -248,7 +248,7 @@ cache) live in `ChatBranch.Data/Tags/TagService.cs`.
 | Column | Notes |
 |---|---|
 | `channel` + `key` + `company_entity_id` | **unique** — two partial unique indexes (NULLs are distinct in SQL): `uniq_thread_channel_key_company` `(channel, key, company_entity_id) WHERE company_entity_id IS NOT NULL` and `uniq_thread_channel_key_unattributed` `(channel, key) WHERE company_entity_id IS NULL`. key = wa_id digits / email / PSID / IGSID / TG chat id / widget session — or a GROUP's own id: WhatsApp's whole `…@g.us` jid, a negative Telegram chat id, a LINE groupId `C…` / roomId `R…` (group-ness is derived from channel + key, `Channels/GroupChats.IsGroup`; a group thread never has a `contact_id`). The old `uniq_thread_channel_key` (`(channel, key)` for the whole tenant — incident 2026-10-11) is dropped on boot |
-| `company_entity_id` | the COMPANY (top-level entity) the conversation belongs to — part of its identity. Set at creation from the receiving account's entity (else the thread's entity); null = unattributed (no account, no entity — the organization-wide bucket **every company can see**, which the next company to touch the conversation adopts, so nothing that could belong to a real company may be filed here: an inbound WhatsApp Cloud payload whose `phone_number_id` matches no account is recorded and dropped instead, once the install has any Cloud number — `Channels/CloudInboxRouting`). Never changed afterwards: a contact link, a same-company number taking over or an account re-binding never moves a thread into another company (an unattributed thread adopts a company once, when it first gets one and the slot is free). Backfilled on boot by `Stores/ThreadCompanies.Upgrade` (SQLite `Seed.UpgradeSchema`; PostgreSQL adds the column + indexes from the model in `PostgresSchema.Sync`, the same backfill then runs): the account's company, else the entity's; the new indexes are created BEFORE the old one is dropped |
+| `company_entity_id` | the COMPANY (top-level entity) the conversation belongs to — part of its identity. Set at creation from the receiving account's entity (else the thread's entity); null = unattributed (no account, no entity — the organization-wide bucket **every company can see**, which the next company to touch the conversation adopts, so nothing that could belong to a real company may be filed here: an inbound WhatsApp Cloud payload whose `phone_number_id` matches no account is recorded and dropped instead, once the install has any Cloud number — `Channels/CloudInboxRouting` — and so is a Baileys gateway push whose `account_id` matches no QR number — `Channels/BaileysInboxRouting`). Account-less lookups stay in this bucket: `ThreadStore.FindForAccount` with no account (the env-default Cloud number, the sandbox) returns ONLY the unattributed conversation — never a company's, not even the customer's only one (that fallback was removed: it filed account-less messages into, and answered them from, another company's conversation). A thread is never created with an empty key. Never changed afterwards: a contact link, a same-company number taking over or an account re-binding never moves a thread into another company (an unattributed thread adopts a company once, when it first gets one and the slot is free). Backfilled on boot by `Stores/ThreadCompanies.Upgrade` (SQLite `Seed.UpgradeSchema`; PostgreSQL adds the column + indexes from the model in `PostgresSchema.Sync`, the same backfill then runs): the account's company, else the entity's; the new indexes are created BEFORE the old one is dropped |
 | `address`, `name` | |
 | `status` | `open` \| `pending` \| `snoozed` \| `resolved` (an inbound message reopens resolved/snoozed) |
 | `assignee`, `team_id` | two-level assignment; `team_id` → `crm_team` (`SetNull` on delete) |
@@ -655,8 +655,107 @@ the ledger outlives both) · `created_at`. Index
 The **source of truth** for credit: never updated, never deleted — a correction
 is a new signed line. `sum(amount)` per scope must equal that account's
 `balance` to within 1e-6 (`AiCredit.ReconcileAsync`, asserted by
-`AiCreditTests`). Nothing writes `consumption` lines yet: AI usage is still
-billed by the monthly AI bill and a credit balance cannot stop an AI reply.
+`AiCreditTests`).
+
+**Consumption + enforcement (phase 2).** `consumption` lines are written only
+by the single-writer sweep `Data/Ai/AiCreditSweep.cs` (the AI-ops worker every
+30 s, and the credit reads), never inline at the 16 `crm_llmusage` write
+sites. One line per (scope, batch of usage ids), `ref = llmusage:<from>..<to>`,
+`idempotency_key = consumption:<scope>:<key>:<currency>:<from>-<to>`, actor
+`system`, source `system`. Each usage row is priced and attributed exactly as
+the AI bill does it (`LlmPricing.RowCost` → its company: own entity's top-level
+ancestor, else the contact's sole company → `AiPriceBooks.Resolve` on the row's
+own entity chain with **that row's month's** terms →
+`EffectivePrice.UsageAmount`), summed **unrounded** and rounded once to 6 dp per
+line. The monthly fee and a flat plan's fixed amount are not usage and are never
+debited. Only an account with `enabled = true` is debited, and only for usage
+created after the account was opened; a row carrying a `user_name` is also
+debited from that login's enabled per-login account. Unattributed usage is
+never debited. Enforcement (`Data/Ai/AiCreditGuard.cs`, through
+`AiControls.CreditBlock` → `AiEligibility`, rule `credit`, handover kind
+`credit`) stops the AI only for an **enabled** account with
+`balance <= -overdraft_limit`; a company with no row, or with `enabled = false`,
+is never debited, blocked or warned. `low_balance_threshold` 0 = warn at 10 % of
+the most recent credit added.
+
+Two `crm_setting` rows (organization-wide, JSON) hold the sweep's bookkeeping:
+
+- **`ai_credit_sweep`** — the cursor `{last, pending_from, pending_to, lease,
+  lease_until, started_at, at}`. `last` is a usage **id** (not a count — the test
+  lab deletes usage rows behind it). Claimed and advanced only by
+  compare-and-swap on the stored value under a 2-minute lease (single writer).
+  A batch first pins `pending_from..pending_to`, then writes its lines, then
+  advances — a crash replays the same range with the same idempotency keys, so
+  nothing is debited twice. The first pass sets `last` to the current highest
+  usage id and debits nothing (no backfill). Rows younger than 5 s wait a pass.
+- **`ai_credit_warned`** — `{sent: {"entity:<id>"|"user:<name>": "low"|"out"}}`:
+  the low-balance / out-of-credit notifications already sent. Re-armed when the
+  balance recovers (credit is not monthly), dropped for disabled accounts.
+
+### `crm_aicreditpayment` — Stripe Checkout top-ups (phase 3)
+`uuid` (server-generated, **unique** where non-blank, `uniq_aicreditpayment_uuid`
+— the session's `client_reference_id` and, as `chatbranch-topup-<uuid>`, the
+Stripe `Idempotency-Key`; never the row id, since demo and prod may share one
+Stripe account) · `entity_id` (the company, a top-level entity) · `offer_id`
+(no FK) · `provider` (`stripe`) · `mode` (`test` \| `live` — `STRIPE_MODE` when
+the session was opened) · `session_id` (`cs_…`, **unique where non-blank**,
+`uniq_aicreditpayment_session`) · `payment_intent_id` (learnt at completion;
+refunds and disputes match on it, `ix_aicreditpayment_intent`) ·
+`idempotency_key` (the caller's own `Idempotency-Key`, scoped `u<user id>:<key>`,
+**unique where non-blank**, `uniq_aicreditpayment_idem` — a double-clicked Pay
+button returns the first session) · `checkout_url` · `amount_minor` (what Stripe
+charges, in sen/cents; ×1 for zero-decimal currencies, three-decimal currencies
+refused) · `currency` (the billing currency at creation) · `credit_amount` +
+`bonus_amount` (**decided at creation, never re-derived from a webhook**) ·
+`status` (`created` \| `paid` \| `review` \| `failed` \| `expired` \|
+`refunded` \| `disputed`) · `status_detail` · `refunded_minor` /
+`disputed_minor` (cumulative clawbacks, capped together at `amount_minor`) ·
+`created_by_user_id` · `created_by` · `last_event_id` · `created_at` /
+`updated_at` / `completed_at`. Index `ix_aicreditpayment_entity_status`.
+
+`review` = money was received but **not** credited (Stripe's amount/currency
+disagree with the row, the row's mode disagrees with the event, or the billing
+currency — or the company's balance currency — changed since the checkout
+opened). Superadmins are notified; a person refunds in Stripe or grants by hand.
+
+The webhook credits a paid session with **three independent replay guards**:
+the ledger's `idempotency_key = stripe:<event id>` (the bonus line
+`stripe:<event id>:bonus`), the conditional `created → paid` UPDATE (status in
+the WHERE — only one delivery wins), and the unique `session_id`. A refund /
+dispute debits the refunded share of `credit_amount` **and** of `bonus_amount`
+as new `refund` / `chargeback` lines (keys `stripe:<event id>[:bonus]`); the
+original `topup` line is never edited. A payment held for `review` was never
+credited, so its refund debits nothing.
+
+### `crm_aicreditoffer` — promotions on AI credit (phase 4)
+`slug` (**unique** where non-blank, `uniq_aicreditoffer_slug`) · `label` ·
+`kind` (`bonus_pct` \| `bonus_fixed` \| `bundle`) · `pay_amount` (bundle: the
+price; bonus offers: the minimum purchase, 0 = none) · `credit_amount` (bundle:
+the credit received in total — the part above `pay_amount` is the bonus) ·
+`bonus_pct` · `bonus_fixed` · `currency` (unavailable in any other billing
+currency) · `active` · `starts_at` / `ends_at` (nullable) · `max_redemptions`
+(0 = unlimited) · `redemptions` · `entity_id` (only this company; null = every
+company) · `note` · `created_by` · `created_at` / `updated_at`.
+
+A redemption is claimed with ONE conditional UPDATE
+(`redemptions = redemptions + 1 WHERE … AND (max_redemptions = 0 OR redemptions < max_redemptions)`)
+when a checkout opens (or a billing manager grants the bonus by hand), and given
+back when the checkout expires, its delayed payment fails, or Stripe refuses to
+open it — so `max_redemptions` holds under any concurrency. The bonus is always
+its own `promo_bonus` ledger line carrying `offer_id` (and `payment_id` for a
+purchase), so paid and promotional credit stay separately auditable. An offer
+that was ever used cannot be deleted — deactivate it.
+
+### `crm_stripeevent` — Stripe webhook events, seen once
+`event_id` (`evt_…`, **unique where non-blank**, `uniq_stripeevent_event`) ·
+`type` · `livemode` · `status` (`claimed` \| `processed` \| `ignored`) ·
+`payment_id` · `amount_minor` (for a refund / dispute: the minor units this event
+takes back, decided once at claim) · `detail` · `received_at` · `processed_at`.
+The `crm_zernioevent` precedent, with one addition: a crediting event is
+**claimed** in the same transaction that moves its payment row and marked
+`processed` once its ledger lines exist — a crash in between is finished by
+Stripe's retry (the ledger keys make the re-run a no-op), never lost or doubled.
+`processed` / `ignored` events answer a repeat delivery with `{duplicate: true}`.
 
 ### `crm_aipricebook` — AI price books (named pricing plans)
 `slug` (**unique** where non-blank, `uniq_aipricebook_slug` — what a month's

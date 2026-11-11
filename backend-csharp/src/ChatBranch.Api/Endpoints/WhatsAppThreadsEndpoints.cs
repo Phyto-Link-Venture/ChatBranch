@@ -808,6 +808,9 @@ public static class WhatsAppThreadsEndpoints
             if (ChatBranch.Data.Ai.AiQuota.EntityBlock(db, sc, thread.EntityId) is { } entityQuota)
                 return Results.Json(new { ok = false, detail = ChatBranch.Data.Ai.AiQuota.Reason(entityQuota), quota = true },
                     statusCode: 429);
+            if (ChatBranch.Data.Ai.AiCreditGuard.EntityReason(db, sc, thread.EntityId) is string entityCredit)
+                return Results.Json(new { ok = false, detail = entityCredit, quota = true, credit = true },
+                    statusCode: 429);
 
             var account = await EffectiveAccount(db, wa, thread);
             // The conversation brain + STT engine are PER ACCOUNT (Settings →
