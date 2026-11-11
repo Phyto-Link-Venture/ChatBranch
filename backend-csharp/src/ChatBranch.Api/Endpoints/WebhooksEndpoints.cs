@@ -56,7 +56,19 @@ public static class WebhooksEndpoints
                             && pnids.Contains(a.ExternalId))
                 .ToListAsync();
             var env = MetaWebhookAuth.EnvCloudAccount();
-            var required = env != null || accounts.Any(a => a.AppSecret != "")
+            // ANY WhatsApp number (whatever its provider) means this is not a sandbox: a
+            // Baileys- or WAHA-only install has no Cloud number subscribed, so nothing Meta
+            // sends here can be legitimate, and leaving it unsigned let anyone POST a real
+            // customer's number and have text filed into that customer's conversation.
+            // Armed, the endpoint (a) requires a signature — with no Meta app secret known
+            // that is a 401 for every post, whatever its shape — and (b) routes by
+            // registered number only (below). whatsapp_accept_unknown_numbers restores the
+            // old permissive behaviour; an install with no WhatsApp number at all is unchanged.
+            var routingArmed = (env != null
+                                || await db.ChannelAccounts.AnyAsync(a => a.Channel == "whatsapp"
+                                    && a.ExternalId != ""))
+                               && !CloudInboxRouting.AcceptUnknownNumbers(sc);
+            var required = routingArmed || env != null || accounts.Any(a => a.AppSecret != "")
                            || await db.ChannelAccounts.AnyAsync(a => a.Channel == "whatsapp"
                                                                      && (a.Provider == "cloud" || a.Provider == "")
                                                                      && a.AccessToken != "" && a.ExternalId != "");
@@ -97,11 +109,8 @@ public static class WebhooksEndpoints
             // real customer's conversation by posting their number. Only an install with
             // no WhatsApp number at all (sandbox, demo) keeps the old permissive filing,
             // and the Setting whatsapp_accept_unknown_numbers restores it anywhere.
-            var routingArmed = env != null
-                               || await db.ChannelAccounts.AnyAsync(a => a.Channel == "whatsapp"
-                                   && a.ExternalId != "");
             var unroutable = new HashSet<string>(StringComparer.Ordinal);
-            if (routingArmed && !CloudInboxRouting.AcceptUnknownNumbers(sc))
+            if (routingArmed)
                 foreach (var (pnid, waba) in MetaWebhook.CloudNumbers(root))
                 {
                     // the env-default number is a legitimate account-less route (it carries
@@ -124,7 +133,7 @@ public static class WebhooksEndpoints
 
             foreach (var m in messages)
             {
-                if (unroutable.Contains(m.PhoneNumberId)) continue;
+                if (unroutable.Contains(m.PhoneNumberId) || (routingArmed && m.PhoneNumberId.Length == 0)) continue;
                 try
                 {
                     // a redelivered wamid already ran every side effect (AI, flows,
@@ -160,7 +169,7 @@ public static class WebhooksEndpoints
             // AI, flows, automations or a reopen (MessageReactions)
             foreach (var r in reactions)
             {
-                if (unroutable.Contains(r.PhoneNumberId)) continue;
+                if (unroutable.Contains(r.PhoneNumberId) || (routingArmed && r.PhoneNumberId.Length == 0)) continue;
                 try { MessageReactions.ApplyInbound(db, "whatsapp", r.From, r.TargetWamid, r.Emoji, accountId: AccountFor(r.PhoneNumberId)?.Id); }
                 catch { }
             }
@@ -171,7 +180,7 @@ public static class WebhooksEndpoints
             {
                 // a receipt bumps the thread's updated_at, so an unroutable number
                 // is not allowed to touch one either
-                if (unroutable.Contains(st.PhoneNumberId)) continue;
+                if (unroutable.Contains(st.PhoneNumberId) || (routingArmed && st.PhoneNumberId.Length == 0)) continue;
                 try { MetaWebhook.ApplyStatus(db, st, AccountFor(st.PhoneNumberId)); }
                 catch { }
             }

@@ -347,12 +347,39 @@ public class WhatsAppUnofficialOnlyWebhookTests : IClassFixture<ApiFactory>
         var json = CloudWebhookKit.Payload("PN-GHOST", from, "wamid.GH1", "appended by a stranger");
         var res = await _f.CreateClient().PostAsync("/api/whatsapp/webhook",
             new StringContent(json, Encoding.UTF8, "application/json"));
-        res.EnsureSuccessStatusCode();                                  // 200: Meta must stop retrying
-
+        // armed + no Meta app secret known: refused before anything is parsed or routed
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, res.StatusCode);
         Assert.Empty(CloudWebhookKit.Threads(_f, from));                // nothing filed, nowhere
-        var audit = Assert.Single(CloudWebhookKit.UnknownNumberAudits(_f, "PN-GHOST"));
-        Assert.DoesNotContain("appended by a stranger", audit.Detail ?? "");
-        Assert.DoesNotContain(from, audit.Detail ?? "");
+    }
+
+    [Fact]
+    public async Task A_payload_with_no_phone_number_id_cannot_slip_past_the_guard()
+    {
+        // the drop list is built from the numbers a payload NAMES, so a payload that
+        // names none (metadata stripped) must not fall through to an account-less filing
+        CloudWebhookKit.WithDb(_f, db =>
+        {
+            if (!db.ChannelAccounts.Any(a => a.Channel == ChatBranch.Domain.Channels.WhatsApp && a.ExternalId == "3"))
+                db.ChannelAccounts.Add(new ChannelAccount
+                {
+                    Channel = ChatBranch.Domain.Channels.WhatsApp, Provider = Providers.Baileys,
+                    Name = "WhatsApp (QR)", ExternalId = "3", CreatedAt = DateTime.UtcNow,
+                });
+            return db.SaveChanges();
+        });
+
+        var from = "60155800003";
+        var node = System.Text.Json.Nodes.JsonNode.Parse(
+            CloudWebhookKit.Payload("PN-ANY", from, "wamid.GH2", "no number named"))!;
+        foreach (var entry in node["entry"]!.AsArray())
+            foreach (var change in entry!["changes"]!.AsArray())
+                change!["value"]!.AsObject().Remove("metadata");
+        var res = await _f.CreateClient().PostAsync("/api/whatsapp/webhook",
+            new StringContent(node.ToJsonString(), Encoding.UTF8, "application/json"));
+
+        Assert.True(res.IsSuccessStatusCode || res.StatusCode == System.Net.HttpStatusCode.Unauthorized,
+            $"unexpected {(int)res.StatusCode}");
+        Assert.Empty(CloudWebhookKit.Threads(_f, from));                 // filed nowhere
     }
 }
 
