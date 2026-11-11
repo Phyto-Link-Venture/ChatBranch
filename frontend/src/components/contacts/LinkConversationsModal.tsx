@@ -66,7 +66,7 @@ export function LinkConversationsModal({
     setBusy(preview ? 'check' : 'link')
     setError(null)
     try {
-      const report = await cApi<LinkReport>('api/contacts/link-conversations', {
+      const report = await cApi<LinkReport>('contacts/link-conversations', {
         method: 'POST',
         body: JSON.stringify({ preview, entity: entity ?? undefined }),
       })
