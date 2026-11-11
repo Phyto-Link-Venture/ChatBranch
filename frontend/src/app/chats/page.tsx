@@ -295,8 +295,8 @@ function ChatsPage() {
     summarizingFor !== null &&
     activeId !== null &&
     summarizingFor === withThreadId(`messaging/threads/${activeId.channel}/${activeId.key}/summary`, activeId.thread_id)
-  const [summaryOpen, setSummaryOpen] = useState(true)
-  const lastAutoGen = useRef('')
+  // collapsed until someone asks for it: opening a chat costs no AI call
+  const [summaryOpen, setSummaryOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(true)
   // below xl the details panel is a drawer (assign, link a contact, labels… on phones too)
   const [infoDrawer, setInfoDrawer] = useState(false)
@@ -815,16 +815,17 @@ function ChatsPage() {
       .catch(() => setCanned([]))
   }, [quickReplyContactId, quickReplyChannel, quickReplyEntity])
 
-  // always-on chat summary: load the CACHED summary, auto-generate only when
-  // none exists yet; a "stale" flag shows when it's behind.
+  // chat summary: load the CACHED summary only (free). Nothing is generated
+  // until someone opens the summary (toggleSummary) — opening a chat must not
+  // spend an AI call on a summary nobody reads. A "stale" flag shows when it's behind.
   useEffect(() => {
+    setSummaryOpen(false)   // every chat starts with the summary folded away
     if (!activeId) {
       setSummaryState(null)
       summaryPathRef.current = null
       return
     }
     let cancelled = false
-    lastAutoGen.current = ''
     const path = withThreadId(`messaging/threads/${activeId.channel}/${activeId.key}/summary`, activeId.thread_id)
     summaryPathRef.current = path
     const check = async () => {
@@ -832,22 +833,6 @@ function ChatsPage() {
         const s = await api<SummaryState>(path)
         if (cancelled) return
         setSummaryState(s)
-        const needsRegen = s.message_count > 0 && !s.summary
-        // one automatic attempt per thread per message count: a failed or
-        // empty generation is not retried until the conversation changes
-        const attempt = `${path}|${s.message_count}`
-        if (needsRegen && lastAutoGen.current !== attempt) {
-          lastAutoGen.current = attempt
-          setSummarizingFor(path)
-          try {
-            const r = await api<SummaryState>(path, { method: 'POST', body: '{}' })
-            if (!cancelled) setSummaryState(r)
-          } catch {
-            /* AI/provider hiccup — cached version stays */
-          } finally {
-            setSummarizingFor((v) => (v === path ? null : v))
-          }
-        }
       } catch {
         /* thread may not exist yet */
       }
@@ -872,6 +857,15 @@ function ChatsPage() {
     } finally {
       setSummarizingFor((v) => (v === path ? null : v))
     }
+  }
+
+  // open/close the summary; opening one that was never generated generates it
+  // (the only automatic generation left — and it needs a click)
+  const toggleSummary = () => {
+    const next = !summaryOpen
+    setSummaryOpen(next)
+    if (next && summaryState && summaryState.message_count > 0 && !summaryState.summary && !summarizing)
+      void regenSummary()
   }
 
   // combined cross-channel view: poll the linked contact's merged conversation
@@ -2121,12 +2115,19 @@ function ChatsPage() {
                 </div>
               )}
 
-              {/* always-on AI summary — pinned above the conversation */}
+              {/* AI summary — folded by default, opened on demand, pinned above the conversation */}
               {summaryState && summaryState.message_count > 0 && (
                 <div className="shrink-0 border-b border-line bg-surface px-4 py-2.5 sm:px-5">
                   <div className="flex items-center gap-1.5">
                     <Sparkles size={12} className="shrink-0 text-brand-300" aria-hidden />
-                    <span className="eyebrow">{t('chats.page.summary')}</span>
+                    <button
+                      type="button"
+                      onClick={toggleSummary}
+                      aria-expanded={summaryOpen}
+                      className="eyebrow rounded transition-colors hover:text-text-high"
+                    >
+                      {t('chats.page.summary')}
+                    </button>
                     {summaryState.summary?.heuristic && (
                       <span
                         className="rounded border border-line px-1.5 py-px text-[9px] font-bold uppercase text-text-muted"
@@ -2158,7 +2159,7 @@ function ChatsPage() {
                       <RefreshCw size={11} className={summarizing ? 'animate-spin' : ''} aria-hidden />
                     </button>
                     <button
-                      onClick={() => setSummaryOpen(!summaryOpen)}
+                      onClick={toggleSummary}
                       title={t(summaryOpen ? 'chats.page.collapseSummary' : 'chats.page.expandSummary')}
                       aria-label={t(summaryOpen ? 'chats.page.collapseSummary' : 'chats.page.expandSummary')}
                       aria-expanded={summaryOpen}
