@@ -142,6 +142,7 @@ public static class MessageRecalls
                 var store = new MediaStore(dataDir ?? Sidecars.VoiceAgentBridge.ResolveDataDir(null));
                 if (store.Resolve(channel, m.MediaPath) is { } file)
                 {
+                    MediaOffload.Current?.Delete(file);   // the bucket copy (and its renderings) too
                     File.Delete(file);
                     var m4a = file + ".m4a";   // the AAC rendering of a voice note
                     if (File.Exists(m4a)) File.Delete(m4a);

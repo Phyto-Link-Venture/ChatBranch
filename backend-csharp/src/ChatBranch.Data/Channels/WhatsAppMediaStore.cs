@@ -234,18 +234,26 @@ public sealed class MediaStore
         var root = Path.GetFullPath(LibraryRoot());
         var full = Path.GetFullPath(Path.Combine(root, relPath));
         if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)) return null;
-        return File.Exists(full) ? full : null;
+        return Exists(full) ? full : null;
     }
 
-    /// <summary>Delete a library upload. Never throws — the row going is what matters.</summary>
+    /// <summary>Delete a library upload (and its offloaded copy). Never throws — the row going is what matters.</summary>
     public void DeleteLibrary(string relPath)
     {
         try
         {
-            if (ResolveLibrary(relPath) is { } full) File.Delete(full);
+            if (string.IsNullOrWhiteSpace(relPath)) return;
+            var root = Path.GetFullPath(LibraryRoot());
+            var full = Path.GetFullPath(Path.Combine(root, relPath));
+            if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)) return;
+            MediaOffload.Current?.Delete(full);
+            if (File.Exists(full)) File.Delete(full);
         }
         catch { /* a file already gone is the outcome we wanted */ }
     }
+
+    /// <summary>On disk — after bringing it back from object storage when it was offloaded.</summary>
+    private static bool Exists(string full) => MediaOffload.Current?.Hydrate(full) ?? File.Exists(full);
 
     private static string NormalizeExt(string ext)
     {
@@ -264,6 +272,6 @@ public sealed class MediaStore
         var root = Path.GetFullPath(Root(channel));
         var full = Path.GetFullPath(Path.Combine(root, relPath));
         if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)) return null;
-        return File.Exists(full) ? full : null;
+        return Exists(full) ? full : null;
     }
 }

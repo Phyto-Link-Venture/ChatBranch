@@ -48,7 +48,9 @@ public static partial class MessagingMedia
         if (string.IsNullOrWhiteSpace(relPath)) return null;
         var root = Path.GetFullPath(Root(dataDir));
         var full = Path.GetFullPath(Path.Combine(root, relPath));
-        return full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal) ? full : null;
+        if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)) return null;
+        MediaOffload.Current?.Hydrate(full);   // an offloaded file comes back before the caller opens it
+        return full;
     }
 
     private static readonly HashSet<string> ImageExts = new(StringComparer.OrdinalIgnoreCase)

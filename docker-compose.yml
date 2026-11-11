@@ -66,6 +66,14 @@ services:
       - DATABASE_PROVIDER=${DATABASE_PROVIDER:-sqlite}
       - DATABASE_URL=${DATABASE_URL:-postgres://chatbranch:${POSTGRES_PASSWORD:-chatbranch-local-dev}@postgres:5432/chatbranch}
       - DB_IMPORT_SQLITE=${DB_IMPORT_SQLITE:-}
+      # Attachments in Cloudflare R2 / any S3 API (Channels/MediaOffload.cs): off
+      # unless R2_BUCKET is set; the volume then keeps R2_KEEP_LOCAL_DAYS of media.
+      - R2_BUCKET=${R2_BUCKET:-}
+      - R2_ENDPOINT=${R2_ENDPOINT:-}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+      - R2_PREFIX=${R2_PREFIX:-chatbranch}
+      - R2_KEEP_LOCAL_DAYS=${R2_KEEP_LOCAL_DAYS:-7}
       # Security (docs/security.md). The first sign-in password of the seeded
       # superadmin — without it the POC password works once and must be changed.
       - SUPERADMIN_PASSWORD=${SUPERADMIN_PASSWORD:-}

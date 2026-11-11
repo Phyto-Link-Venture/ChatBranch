@@ -119,6 +119,9 @@ builder.WebHost.ConfigureKestrel(k => k.AddServerHeader = false);
 builder.Services.AddSingleton<ChatBranch.Data.Channels.IMetaMessagingClient, ChatBranch.Data.Channels.MetaMessagingClient>();
 builder.Services.AddScoped<ChatBranch.Data.Channels.WhatsAppTemplateCatalog>();
 builder.Services.AddSingleton(new ChatBranch.Data.Channels.MediaStore(dataDir));
+// Attachments kept in Cloudflare R2 when R2_BUCKET is set; the disk keeps the recent ones.
+ChatBranch.Data.Channels.MediaOffload.Current = ChatBranch.Data.Channels.MediaOffload.FromEnvironment(dataDir);
+builder.Services.AddHostedService<ChatBranch.Api.Workers.MediaOffloadWorker>();
 builder.Services.AddSingleton(new ChatBranch.Data.Channels.CallRecordings(dataDir));
 builder.Services.AddSingleton<ChatBranch.Data.Channels.MediaFetcher>();
 builder.Services.AddSingleton<ChatBranch.Data.Sidecars.LiveKitClient>();

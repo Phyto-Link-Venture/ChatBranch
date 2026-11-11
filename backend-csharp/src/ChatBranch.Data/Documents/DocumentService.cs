@@ -537,7 +537,7 @@ public class DocumentService
         }
         catch
         {
-            try { if (_media.Resolve(channel, row.FilePath) is { } f) File.Delete(f); } catch { }
+            try { if (_media.Resolve(channel, row.FilePath) is { } f) { MediaOffload.Current?.Delete(f); File.Delete(f); } } catch { }
             throw;
         }
         return row;

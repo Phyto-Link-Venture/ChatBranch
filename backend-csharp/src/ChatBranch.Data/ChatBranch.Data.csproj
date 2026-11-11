@@ -19,6 +19,11 @@
     <PackageReference Include="PdfPig" Version="0.1.11" />
   </ItemGroup>
 
+  <!-- message attachments offloaded to Cloudflare R2 over the S3 API (Channels/MediaOffload.cs) — Apache-2.0 -->
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="4.0.104.4" />
+  </ItemGroup>
+
   <!-- contact import (.xlsx) and invite-link QR codes — both MIT -->
   <ItemGroup>
     <PackageReference Include="ExcelDataReader" Version="3.7.0" />
