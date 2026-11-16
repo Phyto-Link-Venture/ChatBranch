@@ -248,23 +248,35 @@ public static class AiCredit
         }
 
         var now = DateTime.UtcNow;
+        // The account exists BEFORE the money moves. Created outside the transaction so a
+        // racing first credit for the same company / user (both see no account) doesn't
+        // abort it: the loser of the unique index simply reads the winner's empty account.
+        // On PostgreSQL a failed INSERT inside the transaction would poison it (and 500).
+        if (await AccountOf(db, scope, entityId, user, ct) == null)
+        {
+            var fresh = new AiCreditAccount
+            {
+                Scope = scope, EntityId = entityId, UserName = user,
+                Balance = 0, Currency = currency, Enabled = true,
+                CreatedAt = now, UpdatedAt = now,
+            };
+            db.AiCreditAccounts.Add(fresh);
+            try { await db.SaveChangesAsync(ct); }
+            catch (DbUpdateException)
+            {
+                db.Entry(fresh).State = EntityState.Detached;
+                // another request created it a moment ago — use theirs; anything else is real
+                if (await AccountOf(db, scope, entityId, user, ct) == null) throw;
+            }
+            db.Entry(fresh).State = EntityState.Detached;
+        }
+
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         try
         {
-            var account = await AccountOf(db, scope, entityId, user, ct);
-            if (account == null)
-            {
-                account = new AiCreditAccount
-                {
-                    Scope = scope, EntityId = entityId, UserName = user,
-                    Balance = 0, Currency = currency, Enabled = true,
-                    CreatedAt = now, UpdatedAt = now,
-                };
-                db.AiCreditAccounts.Add(account);
-                await db.SaveChangesAsync(ct);
-                db.Entry(account).State = EntityState.Detached;
-            }
-            else if (!string.Equals(account.Currency, currency, StringComparison.OrdinalIgnoreCase))
+            var account = await AccountOf(db, scope, entityId, user, ct)
+                          ?? throw new InvalidOperationException("The credit account could not be created.");
+            if (!string.Equals(account.Currency, currency, StringComparison.OrdinalIgnoreCase))
             {
                 await tx.RollbackAsync(ct);
                 return new Result(null, account, $"This balance is held in {account.Currency}, not {currency}. "

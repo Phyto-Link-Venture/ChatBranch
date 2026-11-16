@@ -210,7 +210,7 @@ export function ContactImportModal({
    * device, and they join the same pipeline as a file: preview first (nothing is
    * written), then the mapping and duplicate steps, then the import.
    */
-  const usePicked = async (rows: Record<string, string>[]) => {
+  const applyPicked = async (rows: Record<string, string>[]) => {
     setError(null)
     setNeedsGoogle(false)
     setBusy('contacts.import.reading')
@@ -355,7 +355,7 @@ export function ContactImportModal({
       </ol>
 
       {/* 1 — source: the phone's own contacts, in place of the source list */}
-      {step === 1 && deviceOpen && <DeviceContactsPicker busy={!!busy} onUse={(rows) => void usePicked(rows)} />}
+      {step === 1 && deviceOpen && <DeviceContactsPicker busy={!!busy} onUse={(rows) => void applyPicked(rows)} />}
 
       {/* 1 — source */}
       {step === 1 && !deviceOpen && (
