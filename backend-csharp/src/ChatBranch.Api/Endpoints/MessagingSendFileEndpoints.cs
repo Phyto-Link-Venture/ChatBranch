@@ -225,7 +225,7 @@ public static class MessagingSendFileEndpoints
             .FirstOrDefaultAsync(m => m.Id == messageId);
         if (row?.Thread == null)
             return new Loaded(null, "message", Problem(404, "no_such_message", "No message with that id."));
-        if (!ThreadAccessFilter.InScope(db, sc, me, row.Thread.EntityId))
+        if (!ThreadAccessFilter.InScope(db, sc, me, row.Thread))
             return new Loaded(null, "message", Problem(403, "out_of_scope",
                 "That message is in a conversation outside your scope."));
         if (row.RecalledAt != null)
@@ -286,7 +286,7 @@ public static class MessagingSendFileEndpoints
                     ? "This customer has a conversation in more than one of your companies — name one with thread_id or company."
                     : "That conversation is outside your scope."));
         var thread = opened.Thread!;
-        if (!ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
+        if (!ThreadAccessFilter.InScope(db, sc, me, thread))
             return new Outcome(false, Refused("out_of_scope", "That conversation is outside your scope."));
 
         if (thread.OptedOut && !force)

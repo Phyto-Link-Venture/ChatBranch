@@ -276,9 +276,10 @@ public static class AiControlsEndpoints
                 if (wanted.Count == 0) return Bad("thread_ids must list conversation ids.");
                 if (wanted.Count > BulkMax) return TooMany(wanted.Count);
                 var visible = await InboxThreadsEndpoints.VisibleEntityIdsAsync(db, sc, me);
+                var channels = ShellScope.ChannelAccountIds(db, me);
                 var rows = await db.Threads.AsNoTracking().Where(t => wanted.Contains(t.Id))
-                    .Select(t => new { t.Id, t.EntityId }).ToListAsync();
-                ids = rows.Where(r => visible == null || r.EntityId is not int e || visible.Contains(e))
+                    .Select(t => new { t.Id, t.EntityId, t.AccountId }).ToListAsync();
+                ids = rows.Where(r => ShellScope.ThreadVisible(r.EntityId, r.AccountId, visible, channels))
                     .Select(r => r.Id).ToList();
                 skipped.AddRange(wanted.Except(ids).Select(x => $"#{x}"));
             }

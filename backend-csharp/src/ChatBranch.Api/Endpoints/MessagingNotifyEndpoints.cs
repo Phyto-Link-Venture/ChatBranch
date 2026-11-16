@@ -123,7 +123,7 @@ public static class MessagingNotifyEndpoints
             var thread = opened.Thread!;
             // the conversation is named in the BODY, so the inbox's entity scope is checked
             // here rather than by the route filter (as POST /api/aicore/reply does)
-            if (!ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
+            if (!ThreadAccessFilter.InScope(db, sc, me, thread))
                 return Fail(403, "out_of_scope", "That conversation is outside your scope.");
 
             // a brand-new conversation may be opened with the chatbot off: a shop that only
@@ -141,6 +141,8 @@ public static class MessagingNotifyEndpoints
                     + "Use another channel, or have them send START.");
 
             // ---- 5. the number to send from --------------------------------------
+            if (!ShellScope.AccountAllowed(db, me, IntOrNull(body, "account_id")))
+                return Fail(403, "out_of_scope", "That channel isn't one of yours — ask a manager for access.");
             var sendingTemplate = template != null;
             var routing = new Routing(db, sc);
             var route = routing.ForThread(thread, RouteNeed.For(channel, template: sendingTemplate),

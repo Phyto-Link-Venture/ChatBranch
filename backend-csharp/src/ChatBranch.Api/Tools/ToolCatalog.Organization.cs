@@ -44,16 +44,18 @@ public static partial class ToolCatalog
                 A.Str("password", "Initial password — required only without a welcome email."),
                 A.Str("role", "agent (default) | admin | a custom role slug."),
                 A.IntList("entity_ids", "Entities this login is bounded to (none = the whole tenant)."),
+                A.IntList("channel_account_ids", "Channel accounts this login is limited to (channels_list_accounts ids; none = every channel in their entities)."),
                 A.Int("contact_id", "Bind the login to a customer contact."),
             });
         yield return T(u, "users_update", "Update a user",
-            "Change a user's role, entities, active flag, email or password (within your rights).",
+            "Change a user's role, entities, channel access, active flag, email or password (within your rights).",
             "POST", "/api/v1/users/{id:int}", usersManage,
             new[]
             {
                 A.Id("user"), A.Str("role", "New role."), A.Bool("active", "false = disable the login."),
                 A.Str("email", "Their email address (changing it cancels links already sent)."),
                 A.Str("password", "New password."), A.IntList("entity_ids", "Entities (replaces)."),
+                A.IntList("channel_account_ids", "Channel accounts they are limited to (replaces; [] = every channel in their entities)."),
                 A.Int("contact_id", "Linked customer contact (null to unlink)."),
             }, idempotent: true);
         yield return T(u, "users_send_invite", "Resend a welcome email / send a password reset link",

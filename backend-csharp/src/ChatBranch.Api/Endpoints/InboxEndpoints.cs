@@ -79,6 +79,9 @@ public static class InboxEndpoints
             // subtrees + ancestors + org-wide) — never a sibling outlet's numbers
             if (ShellScope.BoundInheritedIds(db, sc, me) is List<int> usable)
                 q = q.Where(a => a.EntityId == null || usable.Contains(a.EntityId.Value));
+            // someone limited to some channels: only those
+            if (ShellScope.ChannelAccountIds(db, me) is List<int> mine)
+                q = q.Where(a => mine.Contains(a.Id));
             // ?entity= (the switcher) narrows to what that outlet inherits
             if (ShellScope.ClampPick(ShellScope.BoundEntityIds(db, sc, me), await EntityId(db, entity)) is int picked)
                 q = sc.ScopeInherited(q, picked);
@@ -120,6 +123,9 @@ public static class InboxEndpoints
             }
             var rows = store.ListThreads(channel, entityId, status,
                                          limit is int n && n > 0 ? n : 100);
+            // the channel allow-list narrows further (unattributed conversations stay visible)
+            if (ShellScope.ChannelAccountIds(db, me) is List<int> mine)
+                rows = rows.Where(t => ShellScope.ThreadVisible(t.EntityId, t.AccountId, null, mine)).ToList();
             return Results.Ok(new { threads = await ThreadSummaries(db, sc, rows, entityId) });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.view");
 
@@ -138,6 +144,7 @@ public static class InboxEndpoints
              ScopingService sc, ChatBranch.Data.Channels.OutboundSender sender, ClaimsPrincipal me, HttpContext ctx) =>
         {
             // a named number must be one the caller may use
+            if (ShellScope.AccountNotAllowed(db, me, body.AccountId) is { } notMine) return notMine;
             if (body.AccountId is int named && ShellScope.BoundInheritedIds(db, sc, me) is List<int> usable
                 && await db.ChannelAccounts.AsNoTracking().Where(a => a.Id == named).Select(a => a.EntityId)
                     .FirstOrDefaultAsync() is int namedEntity && !usable.Contains(namedEntity))
@@ -191,8 +198,9 @@ public static class InboxEndpoints
                     && !usable.Contains(accountEntity))
                     return Results.Json(new { detail = "That number belongs to an entity outside your scope." },
                         statusCode: 403);
+                if (ShellScope.AccountNotAllowed(db, me, body.AccountId) is { } notMine) return notMine;
                 if (store.FindForAccount(body.Channel, body.Key, body.AccountId) is { } target
-                    && !ThreadAccessFilter.InScope(db, sc, me, target.EntityId))
+                    && !ThreadAccessFilter.InScope(db, sc, me, target))
                     return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             }
             // The same get-or-create, contact link (phone / email, only a contact the

@@ -49,8 +49,7 @@ public static class LiveEndpoints
 
             if (canChats)
             {
-                var scoped = ShellScope.ScopeThreads(db.Threads.AsNoTracking(),
-                    ShellScope.ThreadEntityIds(db, sc, me, entityId));
+                var scoped = ShellScope.VisibleThreads(db, sc, me, db.Threads.AsNoTracking(), entityId);
 
                 // ---- active calls
                 var calls = await scoped.Where(t => LiveCallStates.Contains(t.CallStatus))

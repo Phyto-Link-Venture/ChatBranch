@@ -45,6 +45,12 @@ public class Profile
     public ICollection<Entity> Entities { get; set; } = new List<Entity>();
     public ICollection<AuthToken> AuthTokens { get; set; } = new List<AuthToken>();
 
+    // Channel allow-list (crm_profile.channel_account_ids, JSON ids of ChannelAccount).
+    // Empty = every channel inside the person's entity scope (the default). Set =
+    // they see only conversations on those numbers / mailboxes / pages (plus the
+    // unattributed ones everybody sees). Never applies to a superadmin.
+    public List<int> ChannelAccountIds { get; set; } = new();
+
     // Per-user preferences as one JSON document ({appearance, notifications}).
     // Null = never chose anything: the organization defaults apply.
     public string? Preferences { get; set; }

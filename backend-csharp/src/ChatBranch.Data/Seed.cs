@@ -111,6 +111,7 @@ public static class Seed
         AddColumnIfMissing(db, "crm_notification", "category", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "crm_notification", "ref_key", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "crm_profile", "preferences", "TEXT NULL");
+        AddColumnIfMissing(db, "crm_profile", "channel_account_ids", "TEXT NOT NULL DEFAULT '[]'");
         AddTableIfMissing(db, "crm_savedview",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_savedview\" PRIMARY KEY AUTOINCREMENT, "
             + "\"user_id\" INTEGER NOT NULL, \"scope\" TEXT NOT NULL, \"name\" TEXT NOT NULL, "

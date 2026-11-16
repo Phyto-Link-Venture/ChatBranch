@@ -236,6 +236,65 @@ internal static class ShellScope
             ? qs
             : qs.Where(t => t.EntityId == null || (t.EntityId != null && entityIds.Contains(t.EntityId.Value)));
 
+    // ---- channel allow-list ---------------------------------------------------
+    //
+    // A person may be limited to some channel accounts (Profile.ChannelAccountIds).
+    // It narrows the conversation rule only, on top of the entity scope:
+    //   * an unattributed conversation (no entity) stays everybody's;
+    //   * a conversation inside their entity scope is theirs only when it runs on
+    //     one of their accounts, or on no account yet (nothing to filter on);
+    //   * an empty list = no channel narrowing (the default); superadmin never.
+
+    /// <summary>The caller's channel allow-list, or null for "every channel in scope".</summary>
+    internal static List<int>? ChannelAccountIds(AppDbContext db, ClaimsPrincipal me)
+    {
+        if (RoleOf(me) == Roles.SuperAdmin) return null;
+        var name = me.Identity?.Name;
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        var ids = db.Profiles.AsNoTracking()
+            .Where(p => p.User != null && p.User.Username == name)
+            .Select(p => p.ChannelAccountIds)
+            .FirstOrDefault();
+        return ids is { Count: > 0 } ? ids : null;
+    }
+
+    /// <summary>The conversation rule in memory: entity scope + channel allow-list
+    /// (null lists = no narrowing; an unattributed conversation is always visible).</summary>
+    internal static bool ThreadVisible(int? entityId, int? accountId, List<int>? entityIds, List<int>? accountIds) =>
+        entityId == null
+        || ((entityIds == null || entityIds.Contains(entityId.Value))
+            && (accountIds == null || accountId == null || accountIds.Contains(accountId.Value)));
+
+    /// <summary>The conversation rule as a query (see <see cref="ThreadVisible"/>).</summary>
+    internal static IQueryable<Thread> ScopeThreads(IQueryable<Thread> qs, List<int>? entityIds,
+        List<int>? accountIds)
+    {
+        if (accountIds == null) return ScopeThreads(qs, entityIds);
+        return entityIds == null
+            ? qs.Where(t => t.EntityId == null || t.AccountId == null || accountIds.Contains(t.AccountId.Value))
+            : qs.Where(t => t.EntityId == null
+                            || (entityIds.Contains(t.EntityId.Value)
+                                && (t.AccountId == null || accountIds.Contains(t.AccountId.Value))));
+    }
+
+    /// <summary>The conversations the caller may see (entity scope, optionally narrowed to
+    /// <paramref name="pickedEntityId"/>, plus their channel allow-list).</summary>
+    internal static IQueryable<Thread> VisibleThreads(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
+        IQueryable<Thread> qs, int? pickedEntityId = null) =>
+        ScopeThreads(qs, ThreadEntityIds(db, sc, me, pickedEntityId), ChannelAccountIds(db, me));
+
+    /// <summary>May the caller use this channel account (send on it, pick it, move a chat to it)?
+    /// True when they have no allow-list or it lists the account. Entity scope is checked apart.</summary>
+    internal static bool AccountAllowed(AppDbContext db, ClaimsPrincipal me, int? accountId) =>
+        accountId is not int id || ChannelAccountIds(db, me) is not List<int> mine || mine.Contains(id);
+
+    /// <summary>The 403 for a named account outside the caller's channel allow-list (null = fine).</summary>
+    internal static IResult? AccountNotAllowed(AppDbContext db, ClaimsPrincipal me, int? accountId) =>
+        AccountAllowed(db, me, accountId)
+            ? null
+            : Results.Json(new { detail = "That channel isn't one of yours — ask a manager for access." },
+                statusCode: StatusCodes.Status403Forbidden);
+
     /// <summary>The chat deep link the inbox understands (/chats?channel=…&amp;key=…&amp;thread_id=…):
     /// a customer has one conversation per company, so the id picks which.</summary>
     internal static string ChatUrl(string channel, string key, int? threadId = null) =>

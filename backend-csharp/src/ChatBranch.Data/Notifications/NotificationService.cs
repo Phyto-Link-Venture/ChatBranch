@@ -175,6 +175,11 @@ public static class NotificationService
             {
                 var prefs = UserNotificationPrefs.FromProfileJson(r.Preferences);
                 if (!prefs.Enabled(category)) continue;
+                // someone limited to some channels never hears about a conversation on another
+                // (an unattributed one, or one on no number yet, stays everybody's)
+                if (opts.Thread is { EntityId: not null, AccountId: int onAccount }
+                    && r.Channels is { Count: > 0 } mine && !mine.Contains(onAccount))
+                    continue;
                 if (category == NotificationCategories.Messages && prefs.OnlyAssigned
                     && opts.Thread != null && !await IsMineAsync(db, opts.Thread, r.UserId, r.Username, ct))
                     continue;
@@ -273,7 +278,7 @@ public static class NotificationService
 
     // ---- internals ------------------------------------------------------------
 
-    private sealed record Recipient(int UserId, string Username, string? Preferences);
+    private sealed record Recipient(int UserId, string Username, string? Preferences, List<int>? Channels = null);
 
     private static async Task<List<Recipient>> RecipientsAsync(AppDbContext db,
         NotificationAudience audience, CancellationToken ct)
@@ -285,9 +290,12 @@ public static class NotificationService
             var ids = audience.UserIds.ToList();
             var rows = await db.Users.AsNoTracking()
                 .Where(u => ids.Contains(u.Id) && u.IsActive)
-                .Select(u => new { u.Id, u.Username, Prefs = u.Profile != null ? u.Profile.Preferences : null })
+                .Select(u => new { u.Id, u.Username, Prefs = u.Profile != null ? u.Profile.Preferences : null,
+                    Role = u.Profile != null ? u.Profile.Role : "",
+                    Channels = u.Profile != null ? u.Profile.ChannelAccountIds : null })
                 .ToListAsync(ct);
-            foreach (var u in rows) byId[u.Id] = new Recipient(u.Id, u.Username, u.Prefs);
+            foreach (var u in rows)
+                byId[u.Id] = new Recipient(u.Id, u.Username, u.Prefs, u.Role == Roles.SuperAdmin ? null : u.Channels);
         }
 
         if (audience.RoleSlugs.Count > 0)
@@ -297,7 +305,7 @@ public static class NotificationService
             var rows = await db.Profiles.AsNoTracking()
                 .Where(p => roles.Contains(p.Role) && p.User != null && p.User.IsActive)
                 .Where(p => tenant == null || p.Role == Roles.SuperAdmin || p.TenantId == tenant)
-                .Select(p => new { p.UserId, p.User!.Username, p.Preferences, p.Role,
+                .Select(p => new { p.UserId, p.User!.Username, p.Preferences, p.Role, p.ChannelAccountIds,
                     Entities = p.Entities.Select(e => e.Id).ToList() })
                 .ToListAsync(ct);
             var sc = new ScopingService(db);
@@ -307,7 +315,8 @@ public static class NotificationService
                 if (p.Role == Roles.Admin && p.Entities.Count > 0
                     && (audience.EntityId is not int about || !sc.EntitySubtreeIds(p.Entities).Contains(about)))
                     continue;
-                byId[p.UserId] = new Recipient(p.UserId, p.Username, p.Preferences);
+                byId[p.UserId] = new Recipient(p.UserId, p.Username, p.Preferences,
+                    p.Role == Roles.SuperAdmin ? null : p.ChannelAccountIds);
             }
         }
 

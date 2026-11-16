@@ -753,6 +753,14 @@ public static class ApiV1Endpoints
             if (entityErr != null) return entityErr;
             var actorTenantId = TenantId(me);
             if (CreatorScopeError(db, me, actorRole, entities) is { } scopeErr) return scopeErr;
+            List<int> channelIds = new();
+            if (Has(body, "channel_account_ids"))
+            {
+                var (picked, chErr) = await ChannelAllowListAsync(db, sc, me, body, role,
+                    entities.Select(e => e.Id).ToList());
+                if (chErr != null) return chErr;
+                channelIds = picked!;
+            }
 
             // Tenant resolution, in precedence order: the entities pin it; else an
             // admin (or custom-role manager) creates inside their own; else a
@@ -788,7 +796,8 @@ public static class ApiV1Endpoints
                 db.Users.Add(user);
                 await db.SaveChangesAsync();
 
-                var profile = new Profile { UserId = user.Id, Role = role, TenantId = tenantId };
+                var profile = new Profile { UserId = user.Id, Role = role, TenantId = tenantId,
+                    ChannelAccountIds = channelIds };
                 foreach (var e in entities) profile.Entities.Add(e);
                 db.Profiles.Add(profile);
                 db.AuditLogs.Add(new AuditLog
@@ -891,7 +900,8 @@ public static class ApiV1Endpoints
         // body is UNTOUCHED (that's why this reads JsonElement and not a record:
         // "absent" and "set to null/empty" must stay distinguishable).
         app.MapPost("/api/v1/users/{id:int}", async (int id, JsonElement body,
-            ClaimsPrincipal me, AppDbContext db, ChatBranch.Api.Security.SecurityOptions security) =>
+            ClaimsPrincipal me, AppDbContext db, ChatBranch.Api.Security.SecurityOptions security,
+            ScopingService sc) =>
         {
             var actorRole = me.FindFirstValue(ClaimTypes.Role) ?? "";
             if (!await AdminEndpoints.HasCapabilityAsync(db, actorRole, "users.manage"))
@@ -973,6 +983,28 @@ public static class ApiV1Endpoints
                     return grantErr;
             }
 
+            // The channel allow-list, checked against the entities the user will have.
+            // Not named but the entities change: accounts the new scope can't use drop out.
+            List<int>? newChannels = null;
+            {
+                var effRole = newRole ?? profile.Role;
+                var effEntities = newEntities?.Select(e => e.Id).ToList()
+                    ?? (effRole == Roles.SuperAdmin ? new List<int>() : profile.Entities.Select(e => e.Id).ToList());
+                if (Has(body, "channel_account_ids"))
+                {
+                    var (picked, chErr) = await ChannelAllowListAsync(db, sc, me, body, effRole, effEntities);
+                    if (chErr != null) return chErr;
+                    newChannels = picked;
+                }
+                else if (effRole == Roles.SuperAdmin && profile.ChannelAccountIds.Count > 0)
+                    newChannels = new List<int>();
+                else if (newEntities != null && profile.ChannelAccountIds.Count > 0)
+                {
+                    var usable = await UsableAccountIdsAsync(db, sc, effEntities);
+                    newChannels = profile.ChannelAccountIds.Where(usable.Contains).ToList();
+                }
+            }
+
             // Bind / unbind this login to a CONTACT — a registered customer who
             // signs in to use the integrations connected against their own
             // record. An int binds, null/0 unbinds.
@@ -1027,6 +1059,12 @@ public static class ApiV1Endpoints
                 if (newEntities.Count > 0 && profile.TenantId == null)
                     profile.TenantId = newEntities[0].TenantId;
                 changed.Add("entities");
+            }
+            if (newChannels != null
+                && !newChannels.OrderBy(x => x).SequenceEqual(profile.ChannelAccountIds.OrderBy(x => x)))
+            {
+                profile.ChannelAccountIds = newChannels;
+                changed.Add("channels");
             }
             if (newActive is bool active && active != target.IsActive)
             {
@@ -1349,6 +1387,58 @@ public static class ApiV1Endpoints
     }
 
     /// null = the key is present but isn't a list of ints (a 400, not "empty").
+    /// <summary>
+    /// The accounts a user bound to <paramref name="entityIds"/> may work on: the org-wide
+    /// ones plus those of their entities' subtrees and ancestors (what their inbox and
+    /// pickers inherit). No entities = every account.
+    /// </summary>
+    private static async Task<HashSet<int>> UsableAccountIdsAsync(AppDbContext db, ScopingService sc,
+        IReadOnlyCollection<int> entityIds)
+    {
+        var q = db.ChannelAccounts.AsNoTracking();
+        if (entityIds.Count > 0)
+        {
+            var inherited = sc.EntitySubtreeIds(entityIds)
+                .Concat(entityIds.SelectMany(e => sc.EntityChain(e))).Distinct().ToList();
+            q = q.Where(a => a.EntityId == null || inherited.Contains(a.EntityId.Value));
+        }
+        return (await q.Select(a => a.Id).ToListAsync()).ToHashSet();
+    }
+
+    /// <summary>
+    /// <c>channel_account_ids</c> on a user create / update: a list of channel account ids
+    /// (empty or null = every channel in their scope). Each must exist, be one the user's
+    /// entities may use, and be one the MANAGER may hand out (their own scope and allow-list).
+    /// Never for a super admin.
+    /// </summary>
+    private static async Task<(List<int>? Ids, IResult? Error)> ChannelAllowListAsync(AppDbContext db,
+        ScopingService sc, ClaimsPrincipal me, JsonElement body, string role, IReadOnlyCollection<int> entityIds)
+    {
+        var raw = body.GetProperty("channel_account_ids");
+        var ids = raw.ValueKind == JsonValueKind.Null ? new List<int>() : IntList(body, "channel_account_ids");
+        if (ids == null)
+            return (null, V1Error("bad_request", "channel_account_ids must be a list of channel account ids.", 400));
+        ids = ids.Distinct().ToList();
+        if (ids.Count == 0) return (ids, null);
+        if (role == Roles.SuperAdmin)
+            return (null, V1Error("bad_request", "Channel access does not apply to super admins.", 400));
+        var known = await db.ChannelAccounts.AsNoTracking().Where(a => ids.Contains(a.Id))
+            .Select(a => new { a.Id, a.EntityId }).ToListAsync();
+        if (known.Count != ids.Count)
+            return (null, V1Error("bad_request", "channel_account_ids must reference existing channel accounts.", 400));
+        var usable = await UsableAccountIdsAsync(db, sc, entityIds);
+        if (ids.Any(x => !usable.Contains(x)))
+            return (null, V1Error("bad_request",
+                "Some of those channels belong to an entity this user can't access — give them that entity first.", 400));
+        // the manager hands out only channels they may use themselves
+        var managerUsable = ShellScope.BoundInheritedIds(db, sc, me);
+        var managerChannels = ShellScope.ChannelAccountIds(db, me);
+        if (known.Any(a => (managerUsable != null && a.EntityId is int e && !managerUsable.Contains(e))
+                           || (managerChannels != null && !managerChannels.Contains(a.Id))))
+            return (null, V1Error("forbidden", "You can only give access to channels you can use yourself.", 403));
+        return (ids, null);
+    }
+
     private static List<int>? IntList(JsonElement body, string key)
     {
         if (body.ValueKind != JsonValueKind.Object || !body.TryGetProperty(key, out var v))

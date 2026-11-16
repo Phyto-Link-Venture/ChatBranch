@@ -124,8 +124,7 @@ public static class SearchEndpoints
     private static async Task<List<SearchHit>> ConversationsAsync(AppDbContext db, ScopingService sc,
         ClaimsPrincipal me, int? entityId, string term, string like, int per)
     {
-        var scoped = ShellScope.ScopeThreads(db.Threads.AsNoTracking(),
-            ShellScope.ThreadEntityIds(db, sc, me, entityId));
+        var scoped = ShellScope.VisibleThreads(db, sc, me, db.Threads.AsNoTracking(), entityId);
 
         // Identity matches first (who the conversation is with), then threads
         // whose MESSAGES mention the term — private notes included, since the

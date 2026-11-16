@@ -49,4 +49,15 @@ public static class ThreadAccessFilter
         var allowed = ShellScope.ThreadEntityIds(db, sc, me, null);
         return allowed == null || allowed.Contains(threadEntityId.Value);
     }
+
+    /// <summary>
+    /// The full rule for a conversation an endpoint found itself: entity scope AND the
+    /// caller's channel allow-list (<see cref="ShellScope.ThreadVisible"/>). Use this
+    /// whenever there is a conversation row; the entity-only overload is for placing a
+    /// NEW one.
+    /// </summary>
+    public static bool InScope(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
+        ChatBranch.Domain.Thread thread) =>
+        ShellScope.ThreadVisible(thread.EntityId, thread.AccountId,
+            ShellScope.ThreadEntityIds(db, sc, me, null), ShellScope.ChannelAccountIds(db, me));
 }

@@ -9,6 +9,7 @@ import {
   CircleCheck,
   KeyRound,
   Loader2,
+  MessagesSquare,
   MailPlus,
   Send,
   ShieldAlert,
@@ -64,6 +65,17 @@ interface ManagedUser {
   password_set?: boolean
   /** The newest set-password link not yet used (pending or expired). */
   invite_link?: InviteLink | null
+  /** Channel allow-list: [] / absent = every channel in their entities. */
+  channel_account_ids?: number[]
+}
+
+/** /api/whatsapp/accounts?channel=all row (picker shape) — the channel-access pool. */
+interface AccountRow {
+  id: number | string
+  name: string
+  channel: string
+  entity: string | null
+  entity_name?: string
 }
 
 /** A v1 refusal; `reason` is the password policy's stable code (translated by the page). */
@@ -259,6 +271,10 @@ export function UsersSettings() {
   // entity-access modal (agents)
   const [entitiesFor, setEntitiesFor] = useState<number | null>(null)
   const [entitiesDraft, setEntitiesDraft] = useState<number[]>([])
+  // channel-access modal (who may use which numbers / mailboxes / pages)
+  const [channelsFor, setChannelsFor] = useState<number | null>(null)
+  const [channelsDraft, setChannelsDraft] = useState<number[]>([])
+  const [accountPool, setAccountPool] = useState<AccountRow[]>([])
   // add-user modal
   const [showAdd, setShowAdd] = useState(false)
   const [newUsername, setNewUsername] = useState('')
@@ -297,6 +313,17 @@ export function UsersSettings() {
       .then((r) => (r.ok ? r.json() : { entities: [] }))
       .then((d) => setEntityPool(Array.isArray(d.entities) ? d.entities : []))
       .catch(() => setEntityPool([]))
+    // Channel accounts for the channel-access modal (the ones this manager may hand out).
+    fetch(`${API}/whatsapp/accounts?channel=all`, { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : { accounts: [] }))
+      .then((d) =>
+        setAccountPool(
+          (Array.isArray(d?.accounts) ? (d.accounts as AccountRow[]) : []).filter(
+            (a) => typeof a.id === 'number' || /^\d+$/.test(String(a.id)),
+          ),
+        ),
+      )
+      .catch(() => setAccountPool([]))
     // Contacts to bind a customer login to.
     fetch(`${API}/contacts`, { headers: authHeaders() })
       .then((r) => (r.ok ? r.json() : { contacts: [] }))
@@ -562,6 +589,43 @@ export function UsersSettings() {
       setEntitiesFor(null)
     }, t('admin.users.entityAccessUpdated', { user: u.username }))
 
+  const saveChannels = (u: ManagedUser) =>
+    run(async () => {
+      await api(`users/${u.id}`, {
+        method: 'POST',
+        body: JSON.stringify({ channel_account_ids: channelsDraft }),
+      })
+      setChannelsFor(null)
+    }, t('admin.users.channelAccessUpdated', { user: u.username }))
+
+  const accountById = useMemo(() => new Map(accountPool.map((a) => [Number(a.id), a])), [accountPool])
+
+  /** The accounts a user may be limited to: the org-wide ones plus those of their entities,
+   *  everything beneath them and the levels above (what their inbox inherits). No entities = all. */
+  const accountsFor = (u: ManagedUser): AccountRow[] => {
+    if (u.entities.length === 0) return accountPool
+    const byId = new Map(entityPool.map((e) => [e.id, e]))
+    const ok = new Set<string>()
+    for (const root of u.entities) {
+      // ancestors
+      let cur = byId.get(root.id)
+      while (cur) {
+        ok.add(cur.slug)
+        cur = cur.parent_id != null ? byId.get(cur.parent_id) : undefined
+      }
+      // descendants
+      const stack = [root.id]
+      while (stack.length) {
+        const id = stack.pop()!
+        const row = byId.get(id)
+        if (row) ok.add(row.slug)
+        entityPool.filter((e) => e.parent_id === id).forEach((e) => stack.push(e.id))
+      }
+      ok.add(root.slug)
+    }
+    return accountPool.filter((a) => !a.entity || ok.has(a.entity))
+  }
+
   // entity name lookup with the tree's main/sub knowledge, for the table chips
   const entityDepth = useMemo(
     () => new Map(orderEntityTree(entityPool).map((o) => [o.row.id, o.depth])),
@@ -727,6 +791,29 @@ export function UsersSettings() {
         ),
     },
     {
+      key: 'channels',
+      header: t('admin.users.channelAccess'),
+      width: 200,
+      value: (u) => (u.channel_account_ids ?? []).map((id) => accountById.get(id)?.name ?? `#${id}`).join(' '),
+      render: (u) => {
+        const ids = u.role === 'superadmin' ? [] : (u.channel_account_ids ?? [])
+        if (ids.length === 0) return <span className="text-[12px] text-text-muted">{t('admin.users.allChannels')}</span>
+        return (
+          <div className="flex flex-wrap items-center gap-1">
+            {ids.slice(0, 3).map((id) => (
+              <span
+                key={id}
+                className="inline-flex items-center rounded-md border border-line bg-well px-1.5 py-px text-[11px] font-semibold text-text-mid"
+              >
+                {accountById.get(id)?.name ?? `#${id}`}
+              </span>
+            ))}
+            {ids.length > 3 && <span className="text-[11px] text-text-faint">+{ids.length - 3}</span>}
+          </div>
+        )
+      },
+    },
+    {
       key: 'contact',
       header: t('admin.users.col.contact'),
       width: 220,
@@ -790,6 +877,22 @@ export function UsersSettings() {
               className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
             >
               <Building2 size={14} aria-hidden />
+            </button>
+          )}
+          {/* channel access: anyone below superadmin */}
+          {u.role !== 'superadmin' && canManage(u) && (
+            <button
+              disabled={busy}
+              onClick={() => {
+                setMsg(null)
+                setChannelsDraft(u.channel_account_ids ?? [])
+                setChannelsFor(u.id)
+              }}
+              title={t('admin.users.channelAccess')}
+              aria-label={t('admin.users.channelAccessFor', { user: u.username })}
+              className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
+            >
+              <MessagesSquare size={14} aria-hidden />
             </button>
           )}
           {canManage(u) && (
@@ -858,7 +961,7 @@ export function UsersSettings() {
     },
   ]
 
-  const modalOpen = showAdd || pwFor !== null || entitiesFor !== null || emailFor !== null
+  const modalOpen = showAdd || pwFor !== null || entitiesFor !== null || emailFor !== null || channelsFor !== null
   // why a welcome email can't go out right now (null = it can)
   const inviteBlocker = invites && !invites.ready ? inviteProblem(invites.problem) : null
   const inviteOn = sendInvite && !!invites?.ready
@@ -1237,6 +1340,82 @@ export function UsersSettings() {
                   onChange={setEntitiesDraft}
                   disabled={busy}
                 />
+              )}
+            </div>
+          </Modal>
+        )
+      })()}
+
+      {/* channel-access modal */}
+      {(() => {
+        const channelsUser = channelsFor !== null ? users.find((u) => u.id === channelsFor) : undefined
+        const pool = channelsUser ? accountsFor(channelsUser) : []
+        // grouped by entity, org-wide first
+        const groups = new Map<string, AccountRow[]>()
+        for (const a of pool) {
+          const label = a.entity ? (a.entity_name || a.entity) : t('admin.users.orgWideChannel')
+          groups.set(label, [...(groups.get(label) ?? []), a])
+        }
+        const toggle = (id: number) =>
+          setChannelsDraft((d) => (d.includes(id) ? d.filter((x) => x !== id) : [...d, id]))
+        return (
+          <Modal
+            open={!!channelsUser}
+            onClose={() => setChannelsFor(null)}
+            title={
+              channelsUser
+                ? t('admin.users.channelAccessTitle', { user: channelsUser.username })
+                : t('admin.users.channelAccess')
+            }
+            subtitle={t('admin.users.channelModalSubtitle')}
+            size="lg"
+            footer={
+              <>
+                <span className="mr-auto text-[12px] text-text-muted">
+                  {channelsDraft.length === 0
+                    ? t('admin.users.allChannels')
+                    : t('common.counts.selected', { count: channelsDraft.length })}
+                </span>
+                <Button variant="ghost" onClick={() => setChannelsFor(null)}>
+                  {t('common.actions.cancel')}
+                </Button>
+                <Button variant="primary" disabled={busy} onClick={() => channelsUser && saveChannels(channelsUser)}>
+                  {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} {t('admin.users.saveChannelAccess')}
+                </Button>
+              </>
+            }
+          >
+            <div className="flex flex-col gap-3">
+              {msg && !msg.ok && <ErrorBox text={msg.text} />}
+              {pool.length === 0 ? (
+                <p className="text-[13px] text-text-muted">{t('admin.users.noChannelsAvailable')}</p>
+              ) : (
+                [...groups.entries()].map(([label, rows]) => (
+                  <div key={label} className="flex flex-col gap-1">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-faint">{label}</div>
+                    {rows.map((a) => {
+                      const id = Number(a.id)
+                      return (
+                        <label
+                          key={id}
+                          className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-line px-3 py-2 text-[13px] hover:bg-fill-hover"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={channelsDraft.includes(id)}
+                            onChange={() => toggle(id)}
+                            disabled={busy}
+                            className="h-4 w-4 accent-[var(--brand-500)]"
+                          />
+                          <span className="font-semibold text-text-high">{a.name}</span>
+                          <span className="ml-auto rounded-md bg-fill px-1.5 py-px text-[11px] text-text-muted">
+                            {a.channel}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                ))
               )}
             </div>
           </Modal>

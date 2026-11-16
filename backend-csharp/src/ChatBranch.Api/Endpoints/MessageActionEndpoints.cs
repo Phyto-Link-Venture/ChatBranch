@@ -151,7 +151,7 @@ public static class MessageActionEndpoints
                 ? await db.Threads.Include(x => x.Account).FirstOrDefaultAsync(x => x.Id == id)
                 : await db.Threads.Include(x => x.Account)
                     .FirstOrDefaultAsync(x => x.Channel == toChannel && x.Key == toKey);
-            if (target == null || !ThreadAccessFilter.InScope(db, sc, me, target.EntityId))
+            if (target == null || !ThreadAccessFilter.InScope(db, sc, me, target))
                 return Results.Json(new { detail = "That conversation was not found." }, statusCode: 404);
             if (target.Id == found.Thread.Id)
                 return Results.Json(new { detail = "That is the same conversation." }, statusCode: 400);

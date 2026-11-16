@@ -70,7 +70,7 @@ public static class MessagingStickerEndpoints
                         + "name one with thread_id or company.")
                     : Problem(403, "out_of_scope", "That conversation is outside your scope.");
             var thread = opened.Thread!;
-            if (!ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
+            if (!ThreadAccessFilter.InScope(db, sc, me, thread))
                 return Problem(403, "out_of_scope", "That conversation is outside your scope.");
 
             if (thread.OptedOut && !force)

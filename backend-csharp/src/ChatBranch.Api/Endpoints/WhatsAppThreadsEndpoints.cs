@@ -203,7 +203,8 @@ public static class WhatsAppThreadsEndpoints
             {
                 var pickedEntity = await db.ChannelAccounts.AsNoTracking()
                     .Where(a => a.Id == picked).Select(a => a.EntityId).FirstOrDefaultAsync();
-                if (!ThreadAccessFilter.InScope(db, sc, me, pickedEntity))
+                if (!ThreadAccessFilter.InScope(db, sc, me, pickedEntity)
+                    || !ShellScope.AccountAllowed(db, me, picked))
                 {
                     if (explicitAccount)
                         return Results.Json(new { detail = "That number belongs to an outlet outside your scope." },
@@ -611,6 +612,7 @@ public static class WhatsAppThreadsEndpoints
             if (row == null) return Results.NotFound(new { detail = "Account not found." });
             // someone bound to entities only moves a chat onto a number their outlets
             // may use (their subtrees, those above them, the org-wide ones)
+            if (ShellScope.AccountNotAllowed(db, me, row.Id) is { } notMine) return notMine;
             if (ShellScope.BoundInheritedIds(db, sc, me) is List<int> usable
                 && row.EntityId is int rowEntity && !usable.Contains(rowEntity))
                 return Results.Json(new { detail = "That number belongs to an entity outside your scope." },

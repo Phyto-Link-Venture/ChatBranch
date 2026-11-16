@@ -532,6 +532,8 @@ public static class AdminEndpoints
         tenant = u.Profile?.Tenant?.Slug,
         entities = (u.Profile?.Entities ?? new List<Entity>())
             .Select(e => new { id = e.Id, name = e.Name, slug = e.Slug }),
+        // Channel allow-list: [] = every channel inside their entities; else only these accounts.
+        channel_account_ids = u.Profile?.ChannelAccountIds ?? new List<int>(),
         // An admin bound to entities manages only those companies (and branches).
         company_admin = RoleOf(u) == Roles.Admin && (u.Profile?.Entities.Count ?? 0) > 0,
         // Customer login: the Contact this user signs in as (integrations are

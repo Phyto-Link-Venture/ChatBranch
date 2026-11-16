@@ -16,7 +16,8 @@ namespace ChatBranch.Api.Auth;
 ///
 /// <list type="number">
 ///   <item>Only conversations the caller may SEE count (the inbox rule,
-///         <see cref="ShellScope.ThreadEntityIds"/>; unassigned = everyone's).</item>
+///         <see cref="ShellScope.ThreadEntityIds"/> + the caller's channel allow-list,
+///         <see cref="ShellScope.ThreadVisible"/>; unassigned = everyone's).</item>
 ///   <item><c>thread_id</c> picks one exactly (it must be one of them, else 404).</item>
 ///   <item><c>company</c> (a top-level entity id or slug, or <c>none</c> for the
 ///         unattributed conversation) narrows to that company's.</item>
@@ -76,7 +77,8 @@ public static class ThreadResolver
         if (rows.Count == 0) return threadId != null ? Pick.Missing : Pick.NoneYet;
 
         var allowed = ShellScope.ThreadEntityIds(db, sc, me, null);
-        var visible = rows.Where(r => allowed == null || r.EntityId == null || allowed.Contains(r.EntityId.Value)).ToList();
+        var channels = ShellScope.ChannelAccountIds(db, me);
+        var visible = rows.Where(r => ShellScope.ThreadVisible(r.EntityId, r.AccountId, allowed, channels)).ToList();
         int? CompanyOf(Row r) => r.CompanyEntityId ?? sc.CompanyOf(r.EntityId);
 
         if (threadId is int tid)
@@ -104,8 +106,11 @@ public static class ThreadResolver
 
         if (visible.Count == 0)
             // their own company already talks to this customer, in a branch they may not
-            // open: hidden (404) — never a second conversation for the same company
-            return roots.Count > 0 && rows.Any(r => CompanyOf(r) is int c && mine.Contains(c))
+            // open — or on a channel outside their allow-list: hidden (404) — never a
+            // second conversation for the same company
+            return (roots.Count > 0 && rows.Any(r => CompanyOf(r) is int c && mine.Contains(c)))
+                   || (channels != null && rows.Any(r => r.EntityId is int e
+                       && (allowed == null || allowed.Contains(e))))
                 ? Pick.Missing
                 : Pick.NoneYet;   // only other companies' conversations: none of the caller's yet
         return visible.Count == 1

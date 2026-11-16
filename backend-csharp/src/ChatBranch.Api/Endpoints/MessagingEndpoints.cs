@@ -247,7 +247,8 @@ public static class MessagingEndpoints
     private static Func<Thread, bool> ThreadFilter(AppDbContext db, ScopingService sc, ClaimsPrincipal me)
     {
         var ids = ShellScope.ThreadEntityIds(db, sc, me, null);
-        return t => ids == null || t.EntityId == null || ids.Contains(t.EntityId.Value);
+        var accounts = ShellScope.ChannelAccountIds(db, me);
+        return t => ShellScope.ThreadVisible(t.EntityId, t.AccountId, ids, accounts);
     }
 
     private static Task<bool> ContactVisibleAsync(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int id) =>
@@ -497,9 +498,7 @@ public static class MessagingEndpoints
                 .Where(t => t.Channel != Channels.WhatsApp);
             // the inbox rule: agents are bounded by their assigned entities (an
             // out-of-scope ?entity= narrows instead of widening)
-            var allowed = ShellScope.ThreadEntityIds(db, sc, me, entityId);
-            var rows = await (allowed == null ? q
-                : q.Where(t => t.EntityId == null || allowed.Contains(t.EntityId.Value))).ToListAsync();
+            var rows = await ShellScope.VisibleThreads(db, sc, me, q, entityId).ToListAsync();
 
             var ids = rows.Select(t => t.Id).ToList();
             var last = await db.Messages.AsNoTracking()

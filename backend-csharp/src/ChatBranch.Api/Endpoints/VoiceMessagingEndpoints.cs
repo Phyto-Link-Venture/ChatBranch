@@ -942,6 +942,8 @@ public static class VoiceMessagingEndpoints
             // entity-bound callers: only the accounts their outlets may use
             if (ShellScope.BoundInheritedIds(db, sc, me) is List<int> usable)
                 q = q.Where(a => a.EntityId == null || usable.Contains(a.EntityId.Value));
+            if (ShellScope.ChannelAccountIds(db, me) is List<int> mine)
+                q = q.Where(a => mine.Contains(a.Id));
             if (ShellScope.ClampPick(ShellScope.BoundEntityIds(db, sc, me), await InboxEndpoints.EntityId(db, entity)) is int picked)
                 q = sc.ScopeInherited(q, picked);
             var rows = await q.OrderBy(a => a.Id).ToListAsync();

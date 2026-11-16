@@ -210,12 +210,13 @@ public static class ContactsEndpoints
             // only conversations the caller may open (the inbox rule): a contact both
             // companies can see never shows one company the other's conversations
             var allowed = ShellScope.ThreadEntityIds(db, sc, me, null);
+            var allowedAccounts = ShellScope.ChannelAccountIds(db, me);
             var threads = (await db.Threads.AsNoTracking().Include(t => t.Account)
                 .Where(t => t.ContactId == id ||
                             (tail != "" && t.Channel == Channels.WhatsApp &&
                              t.ContactId == null && t.Key.EndsWith(tail)))
                 .ToListAsync())
-                .Where(t => allowed == null || t.EntityId == null || allowed.Contains(t.EntityId.Value))
+                .Where(t => ShellScope.ThreadVisible(t.EntityId, t.AccountId, allowed, allowedAccounts))
                 .ToList();
 
             // One pass over this contact's messages — never N+1 per thread.

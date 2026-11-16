@@ -38,6 +38,9 @@ internal static class ThreadStart
         int? RootIn(int company) => roots.FirstOrDefault(x => sc.CompanyOf(x) == company) is var hit && hit != 0 ? hit : company;
 
         // 1. the number the conversation goes out on decides
+        if (!ShellScope.AccountAllowed(db, me, accountId))
+            return new Place(Forbidden("That channel isn't one of yours — ask a manager for access."), null, null,
+                Why.OutOfScope);
         if (sc.AccountCompany(accountId) is int byAccount)
         {
             if (roots.Count > 0 && !mine.Contains(byAccount))

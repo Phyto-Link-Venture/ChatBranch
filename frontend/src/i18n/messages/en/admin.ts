@@ -616,6 +616,16 @@ export const admin = {
     entityModalSubtitle:
       'Tick a main entity to grant everything under it, or open Manage to pick sub-entities one by one. None ticked = the whole organization.',
     saveEntityAccess: 'Save entity access',
+    channelAccess: 'Channel access',
+    channelAccessFor: 'Channel access for {user}',
+    channelAccessTitle: 'Channel access — {user}',
+    channelModalSubtitle:
+      'Tick the numbers, mailboxes and pages this person may use. They will only see conversations on those channels, plus conversations not tied to any company. None ticked = every channel in their entities.',
+    saveChannelAccess: 'Save channel access',
+    channelAccessUpdated: 'Channel access updated for {user}.',
+    allChannels: 'All channels',
+    noChannelsAvailable: 'No channels are connected for this person’s entities yet.',
+    orgWideChannel: 'Organization-wide',
     email: 'Email',
     emailPlaceholder: 'e.g. aina@acme.com',
     emailHint: 'Where the welcome email and password links go.',

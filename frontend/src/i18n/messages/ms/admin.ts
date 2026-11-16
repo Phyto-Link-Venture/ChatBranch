@@ -618,6 +618,16 @@ export const admin: Dict<typeof source> = {
     entityModalSubtitle:
       'Tanda entiti utama untuk memberi akses kepada semua di bawahnya, atau buka Urus untuk memilih sub-entiti satu demi satu. Tiada yang ditanda = seluruh organisasi.',
     saveEntityAccess: 'Simpan akses entiti',
+    channelAccess: 'Akses saluran',
+    channelAccessFor: 'Akses saluran untuk {user}',
+    channelAccessTitle: 'Akses saluran — {user}',
+    channelModalSubtitle:
+      'Tandakan nombor, peti mel dan halaman yang boleh digunakan oleh orang ini. Mereka hanya akan melihat perbualan pada saluran tersebut, serta perbualan yang tidak terikat kepada mana-mana syarikat. Tiada yang ditanda = semua saluran dalam entiti mereka.',
+    saveChannelAccess: 'Simpan akses saluran',
+    channelAccessUpdated: 'Akses saluran dikemas kini untuk {user}.',
+    allChannels: 'Semua saluran',
+    noChannelsAvailable: 'Belum ada saluran disambungkan untuk entiti orang ini.',
+    orgWideChannel: 'Seluruh organisasi',
     email: 'E-mel',
     emailPlaceholder: 'cth. aina@acme.com',
     emailHint: 'Ke mana e-mel alu-aluan dan pautan kata laluan dihantar.',

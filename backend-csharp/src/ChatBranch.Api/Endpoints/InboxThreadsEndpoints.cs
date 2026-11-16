@@ -251,7 +251,11 @@ public static class InboxThreadsEndpoints
     /// for (entity-scoped settings such as the reminder chatbot default resolve
     /// against it), null when several or none were picked.
     /// </summary>
-    internal sealed record EntityScope(List<int>? Ids, int? Picked);
+    internal sealed record EntityScope(List<int>? Ids, int? Picked)
+    {
+        /// <summary>The caller's channel allow-list (null = every channel in scope).</summary>
+        public List<int>? Accounts { get; init; }
+    }
 
     internal static async Task<EntityScope> ScopeEntityIdsAsync(AppDbContext db, ScopingService sc,
         ClaimsPrincipal me, string role, List<string> slugs)
@@ -275,8 +279,10 @@ public static class InboxThreadsEndpoints
                 if (picked.Count == 0) picked = assigned;
             }
         }
-        if (picked.Count == 0) return new EntityScope(null, null);
-        return new EntityScope(sc.EntitySubtreeIds(picked), picked.Count == 1 ? picked[0] : null);
+        var accounts = ShellScope.ChannelAccountIds(db, me);
+        if (picked.Count == 0) return new EntityScope(null, null) { Accounts = accounts };
+        return new EntityScope(sc.EntitySubtreeIds(picked), picked.Count == 1 ? picked[0] : null)
+            { Accounts = accounts };
     }
 
     // =========================================================================
@@ -324,8 +330,7 @@ public static class InboxThreadsEndpoints
             // it still counts, so a freshly started chat isn't closed under you.
             q = q.Where(t => db.Messages.Any(m => m.ThreadId == t.Id));
 
-        if (scope.Ids is List<int> ids)
-            q = q.Where(t => t.EntityId == null || ids.Contains(t.EntityId.Value));
+        q = ShellScope.ScopeThreads(q, scope.Ids, scope.Accounts);
 
         if (f.Channels.Count > 0) q = q.Where(t => f.Channels.Contains(t.Channel));
         if (f.Statuses.Count > 0) q = q.Where(t => f.Statuses.Contains(t.Status));
