@@ -136,7 +136,7 @@ export const guide = {
         },
         s4: {
           title: 'Theme',
-          body: 'Ten looks — Paper & Ink, Graphite Pro, Soft Blocks, Ocean, Forest, Midnight, Rose, Sand, Nord and High contrast. Each card is a small preview; click one to try it — you can always switch back.',
+          body: 'Fourteen looks — Paper & Ink, Graphite Pro, Soft Blocks, Ocean, Forest, Midnight, Rose, Sand, Nord, High contrast, Pixel Paper, Risograph, Lacquer and Clay. Each card is a small preview; click one to try it — you can always switch back.',
         },
         s5: {
           title: 'Mode',

@@ -612,7 +612,7 @@ public class SettingsCapabilityTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Appearance_accepts_the_ten_themes_fonts_spacing_and_layout_and_keeps_old_looks_loading()
+    public async Task Appearance_accepts_every_theme_fonts_spacing_and_layout_and_keeps_old_looks_loading()
     {
         var admin = await SettingsTestKit.Client(_f, "admin", "admin123");
 
@@ -638,7 +638,7 @@ public class SettingsCapabilityTests : IClassFixture<ApiFactory>
         Assert.Equal("top", a.GetProperty("navLayout").GetString());
         Assert.Equal("shadow", a.GetProperty("surface").GetString());
 
-        foreach (var theme in new[] { "paper", "graphite", "soft", "ocean", "forest", "midnight", "rose", "sand", "nord", "contrast" })
+        foreach (var theme in new[] { "paper", "graphite", "soft", "ocean", "forest", "midnight", "rose", "sand", "nord", "contrast", "pixel", "riso", "lacquer", "clay" })
             Assert.Equal(HttpStatusCode.OK,
                 (await admin.PutAsJsonAsync("/api/auth/preferences", new { appearance = new { theme } })).StatusCode);
 

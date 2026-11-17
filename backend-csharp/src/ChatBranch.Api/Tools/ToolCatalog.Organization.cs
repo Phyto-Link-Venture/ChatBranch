@@ -171,7 +171,7 @@ public static partial class ToolCatalog
             "PUT", "/api/auth/preferences", null,
             new[]
             {
-                A.Obj("appearance", "{theme: paper|graphite|soft|ocean|forest|midnight|rose|sand|nord|contrast, mode: light|dark|system, accent, textSize, fontScale (85-130|null), radius, headingFont, bodyFont, lineHeight, density, spacing (70-140|null), contentWidth, gutter, cardPadding, navLayout, navSide, navWidth, navStart, motion, surface} or null."),
+                A.Obj("appearance", "{theme: paper|graphite|soft|ocean|forest|midnight|rose|sand|nord|contrast|pixel|riso|lacquer|clay, mode: light|dark|system, accent, textSize, fontScale (85-130|null), radius, headingFont, bodyFont, lineHeight, density, spacing (70-140|null), contentWidth, gutter, cardPadding, navLayout, navSide, navWidth, navStart, motion, surface} or null."),
                 A.Any("locale", "en | ms | zh, or null."),
                 A.Any("time_zone", "Show times in: \"org\" (the business time zone), a zone such as Asia/Kuala_Lumpur, or null (the device's own)."),
             }, idempotent: true);

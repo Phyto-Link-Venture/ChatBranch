@@ -91,7 +91,7 @@ export const guide: Overlay<Messages['guide']> = {
           body: 'A live sample of headings, buttons and links. Pick something below and it changes right away.',
         },
         s4: {
-          body: 'Ten looks to choose from — Paper & Ink, Graphite Pro, Soft Blocks, Ocean, Forest, Midnight, Rose, Sand, Nord and High contrast. Each card is a small preview; click one to try — don’t like, just switch back.',
+          body: 'Fourteen looks to choose from — Paper & Ink, Graphite Pro, Soft Blocks, Ocean, Forest, Midnight, Rose, Sand, Nord, High contrast, Pixel Paper, Risograph, Lacquer and Clay. Each card is a small preview; click one to try — don’t like, just switch back.',
         },
         s5: {
           body: 'Light, Dark, or System to just follow whatever your phone or computer is set to.',

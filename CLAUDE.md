@@ -2245,7 +2245,7 @@ When you fix one of these, update this table, `README.md` and
 
 Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
-- **Ten switchable themes × light/dark**, all CSS variables on `<html>`
+- **Fourteen switchable themes × light/dark**, all CSS variables on `<html>`
   defined in `src/app/globals.css`: `theme-paper` = **Paper & Ink** (default:
   warm paper, ink type, Fraunces serif headings, ONE tangerine accent),
   `theme-graphite` = Graphite Pro (neutral, violet accent, compact),
@@ -2254,7 +2254,14 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   `theme-midnight` (deep navy/indigo, best dark), `theme-rose` (blush +
   raspberry, Fraunces), `theme-sand` (desert linen + terracotta, Source Serif
   headings), `theme-nord` (frosted grey-blue, IBM Plex Sans), `theme-contrast`
-  (High contrast — black/white, 7:1 text). Every theme defines the SAME token
+  (High contrast — black/white, 7:1 text), and four OJO-derived looks (Nov 2026):
+  `theme-pixel` = Pixel Paper (white dot grid, Pixelify Sans headings, pixel-
+  stepped card edges), `theme-riso` = Risograph (pink/teal overprint text-shadow
+  on headings, grain, sharp, Dela Gothic One latin-only), `theme-lacquer`
+  (black lacquer + oxblood/jade/gold, Cormorant Garamond, best dark),
+  `theme-clay` (cream clay, grape/mint, Fredoka, puffy inset card shadows). Their
+  textures sit on `.shell-root` and `.ui-card` and only apply while Surfaces =
+  Theme (no `data-surface`). Every theme defines the SAME token
   set in both modes (a dark block must redefine every colour its light block
   sets, or the light value leaks through — `:root.theme-x` and `:root.dark`
   tie on specificity). `npm run check:contrast`

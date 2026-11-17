@@ -649,8 +649,12 @@ function themeFontId(theme: ThemeName, heading: boolean): string {
   const body: Record<ThemeName, string> = {
     paper: 'schibsted', graphite: 'geist', soft: 'nunito', ocean: 'jakarta', forest: 'dmsans',
     midnight: 'inter', rose: 'manrope', sand: 'schibsted', nord: 'plex', contrast: 'inter',
+    pixel: 'schibsted', riso: 'Work Sans', lacquer: 'Figtree', clay: 'Figtree',
   }
-  const display: Partial<Record<ThemeName, string>> = { paper: 'fraunces', forest: 'lora', rose: 'fraunces', sand: 'sourceserif' }
+  const display: Partial<Record<ThemeName, string>> = {
+    paper: 'fraunces', forest: 'lora', rose: 'fraunces', sand: 'sourceserif',
+    pixel: 'Pixelify Sans', riso: 'Dela Gothic One', lacquer: 'Cormorant Garamond', clay: 'Fredoka',
+  }
   return heading ? display[theme] ?? body[theme] : body[theme]
 }
 

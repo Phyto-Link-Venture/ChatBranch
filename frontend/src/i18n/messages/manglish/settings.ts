@@ -124,7 +124,7 @@ export const settings: Overlay<Messages['settings']> = {
     resetOffline: 'Reset here already, but cannot reach the server.',
     orgCleared: 'Organization default cleared — new users will start on Paper & Ink, light.',
     orgSaved: 'Saved as the organization default for everyone who hasn’t picked their own look yet.',
-    themeHint: 'Ten looks, each one got light and dark',
+    themeHint: 'Fourteen looks, each one got light and dark',
     modeHint: 'System just follows your device',
     devicePrefersDark: 'Your device prefers dark right now.',
     devicePrefersLight: 'Your device prefers light right now.',

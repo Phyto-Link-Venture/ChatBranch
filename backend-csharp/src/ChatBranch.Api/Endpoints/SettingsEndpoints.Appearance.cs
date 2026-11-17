@@ -64,7 +64,7 @@ public static partial class SettingsEndpoints
 
     private static readonly Dictionary<string, string[]> AppearanceChoices = new()
     {
-        ["theme"] = new[] { "paper", "graphite", "soft", "ocean", "forest", "midnight", "rose", "sand", "nord", "contrast" },
+        ["theme"] = new[] { "paper", "graphite", "soft", "ocean", "forest", "midnight", "rose", "sand", "nord", "contrast", "pixel", "riso", "lacquer", "clay" },
         ["mode"] = new[] { "light", "dark", "system" },
         ["textSize"] = new[] { "sm", "md", "lg", "xl" },
         ["radius"] = new[] { "theme", "square", "sharp", "round" },

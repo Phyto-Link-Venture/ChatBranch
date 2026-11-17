@@ -139,7 +139,7 @@ export const guide: Dict<typeof source> = {
         },
         s4: {
           title: 'Tema',
-          body: 'Sepuluh rupa — Kertas & Dakwat, Grafit Pro, Blok Lembut, Lautan, Hutan, Tengah Malam, Mawar, Pasir, Nord dan Kontras tinggi. Setiap kad ialah pratonton kecil; klik satu untuk mencubanya — anda sentiasa boleh menukar semula.',
+          body: 'Empat belas rupa — Kertas & Dakwat, Grafit Pro, Blok Lembut, Lautan, Hutan, Tengah Malam, Mawar, Pasir, Nord, Kontras tinggi, Kertas Piksel, Risograf, Lakuer dan Tanah Liat. Setiap kad ialah pratonton kecil; klik satu untuk mencubanya — anda sentiasa boleh menukar semula.',
         },
         s5: {
           title: 'Mod',

@@ -24,7 +24,7 @@ import { API } from '@/lib/apiBase'
 import { authHeaders, getAuth } from './auth'
 import type { MessageKey } from '@/i18n'
 
-export const THEME_IDS = ['paper', 'graphite', 'soft', 'ocean', 'forest', 'midnight', 'rose', 'sand', 'nord', 'contrast'] as const
+export const THEME_IDS = ['paper', 'graphite', 'soft', 'ocean', 'forest', 'midnight', 'rose', 'sand', 'nord', 'contrast', 'pixel', 'riso', 'lacquer', 'clay'] as const
 export type ThemeName = (typeof THEME_IDS)[number]
 export type Mode = 'light' | 'dark' | 'system'
 export type TextSize = 'sm' | 'md' | 'lg' | 'xl'
@@ -194,6 +194,30 @@ export const THEMES: ThemeDef[] = [
     light: sw('#FFFFFF', '#FFFFFF', '#000000', '#000000', '#0040B0', '#767676'),
     dark: sw('#000000', '#0A0A0A', '#FFFFFF', '#FFFFFF', '#FFD60A', '#8A8A8A'),
     radius: 3, font: `'Inter Variable', 'Inter', ${SANS_TAIL}`, weight: 800, inkPrimary: true,
+  },
+  {
+    id: 'pixel', name: 'settings.appearance.themes.pixel.name', blurb: 'settings.appearance.themes.pixel.blurb',
+    light: sw('#FFFFFF', '#FFFFFF', '#0E0E10', '#1E4BD2', '#F0542D', '#0E0E10'),
+    dark: sw('#111214', '#17191C', '#F4F5F7', '#5B82FF', '#FF6E4A', '#8A8F99'),
+    radius: 0, font: `'Pixelify Sans Variable', 'Pixelify Sans', ${SANS_TAIL}`, weight: 700,
+  },
+  {
+    id: 'riso', name: 'settings.appearance.themes.riso.name', blurb: 'settings.appearance.themes.riso.blurb',
+    light: sw('#F3EFE6', '#FBF9F4', '#1A1A1A', '#006E70', '#FF48B0', '#1A1A1A'),
+    dark: sw('#141416', '#1C1C1F', '#F1EEE8', '#19C3C6', '#FF5CBC', '#BDB7AE'),
+    radius: 0, font: `'Dela Gothic One', 'Arial Black', ${SANS_TAIL}`, weight: 400,
+  },
+  {
+    id: 'lacquer', name: 'settings.appearance.themes.lacquer.name', blurb: 'settings.appearance.themes.lacquer.blurb',
+    light: sw('#F3EADB', '#FBF5EA', '#2A100D', '#7A1E1E', '#C9A24A', '#E0D0B4'),
+    dark: sw('#140C0B', '#1D1211', '#F6EBDD', '#A3302C', '#C9A24A', '#3B2C1F'),
+    radius: 14, font: `'Cormorant Garamond Variable', 'Cormorant Garamond', ${SERIF_TAIL}`, weight: 600,
+  },
+  {
+    id: 'clay', name: 'settings.appearance.themes.clay.name', blurb: 'settings.appearance.themes.clay.blurb',
+    light: sw('#FFF6E9', '#FFFBF5', '#2A1E4A', '#6B4BD8', '#7EE0B8', '#EADFCF'),
+    dark: sw('#17112B', '#261C45', '#FBF7FF', '#9C82FF', '#6FD9AE', '#3A2E62'),
+    radius: 22, font: `'Fredoka Variable', 'Fredoka', ${SANS_TAIL}`, weight: 600,
   },
 ]
 

@@ -9,7 +9,7 @@
               .theme-soft          = Soft Blocks
      mode   : .light (default) / .dark
      + seven more looks below (ocean, forest, midnight, rose, sand, nord,
-       contrast) — 10 in all, each light + dark, checked for contrast by
+       contrast, plus pixel, riso, lacquer, clay) — 14 in all, each light + dark, checked for contrast by
        scripts/check-theme-contrast.mjs (npm run check:contrast)
    lib/theme.ts applies the classes plus any per-user overrides (accent
    colour, text scale, corner style, fonts, line height, density, page width,
@@ -1257,6 +1257,595 @@
   --c-blue: 138 184 255;
   --c-blue-400: 147 190 255;
   --c-blue-300: 156 196 255;
+}
+
+/* ── Four OJO-derived looks (2026-11) ───────────────────────────────────────
+   pixel   = Pixel Paper   — white dot grid, cobalt + tomato, pixel headings
+   riso    = Risograph     — fluoro pink + teal overprint on grainy stock, sharp
+   lacquer = Lacquer       — black lacquer, oxblood, jade, gold leaf (best dark)
+   clay    = Clay          — cream clay, grape + mint, puffy rounded cards
+   Tokens follow the same contract as above; each look's signature texture
+   (dots, grain, sheen, clay depth) lives in the small rule set after the
+   tokens and only applies while Appearance → Surfaces is left on "Theme". */
+
+/* Pixel Paper — light */
+:root.theme-pixel {
+  --font-sans: 'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Pixelify Sans Variable', 'Pixelify Sans', 'Courier New', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
+  --display-weight: 700;
+  --display-tracking: 0;
+  --r-md: 0px;
+  --r-lg: 2px;
+  --r-xl: 2px;
+  --r-2xl: 3px;
+  --r-3xl: 4px;
+
+  --app: #ffffff;
+  --surface: #f4f6f8;
+  --panel: #ffffff;
+  --card: #ffffff;
+  --well: #eef2f5;
+  --text-primary: #1b1c20;
+  --text-heading: #0e0e10;
+  --text-high: #26282d;
+  --text-mid: #44474f;
+  --text-muted: #5b5f69;
+  --text-faint: #8e929b;
+  --line: #d6dbe1;
+  --line-strong: #0e0e10;
+  --fill: rgba(14, 14, 16, 0.05);
+  --fill-hover: rgba(14, 14, 16, 0.09);
+  --fill-subtle: rgba(14, 14, 16, 0.03);
+  --nav-active-bg: #e1e9ff;
+  --nav-active-text: #1a3fb0;
+  --primary: #1e4bd2;
+  --on-primary: #ffffff;
+  --accent: #f0542d;
+  --on-accent: #0e0e10;
+  --focus: #f0542d;
+  --shadow-pop: 0 0 0 2px #0e0e10, 5px 5px 0 2px #0e0e10;
+  --scrim: rgba(14, 14, 16, 0.4);
+  --dot: #c9cdd2;
+  --pixel-edge: #0e0e10;
+  --brand-ink: #1a3fb0;
+  --amber-ink: #7a5600;
+  --green-ink: #1f7a44;
+  --red-ink: #b33a17;
+  --blue-ink: #1a3fb0;
+  --purple-ink: #6b3fa0;
+  --cyan-ink: #0b6e75;
+  --c-brand: 30 75 210;
+  --c-brand-400: 26 63 176;
+  --c-brand-300: 26 63 176;
+  --c-brand-200: 20 48 140;
+  --c-green: 46 158 91;
+  --c-green-600: 31 122 68;
+  --c-green-300: 31 122 68;
+  --c-amber: 224 161 0;
+  --c-amber-600: 176 125 0;
+  --c-amber-400: 122 86 0;
+  --c-amber-300: 122 86 0;
+  --c-red: 240 84 45;
+  --c-red-400: 179 58 23;
+  --c-red-300: 179 58 23;
+  --c-purple: 124 77 196;
+  --c-purple-600: 107 63 160;
+  --c-purple-700: 88 50 135;
+  --c-purple-400: 107 63 160;
+  --c-purple-300: 107 63 160;
+  --c-cyan: 18 140 150;
+  --c-cyan-600: 11 110 117;
+  --c-cyan-300: 11 110 117;
+  --c-blue: 30 75 210;
+  --c-blue-400: 26 63 176;
+  --c-blue-300: 26 63 176;
+}
+/* Pixel Paper — dark ("night grid") */
+:root.theme-pixel.dark {
+  --app: #111214;
+  --surface: #0d0e10;
+  --panel: #111214;
+  --card: #17191c;
+  --well: #1d2024;
+  --text-primary: #e6e8ec;
+  --text-heading: #f4f5f7;
+  --text-high: #dadde3;
+  --text-mid: #b9bdc5;
+  --text-muted: #9a9fa9;
+  --text-faint: #6b707b;
+  --line: #2a2d33;
+  --line-strong: #8a8f99;
+  --fill: rgba(244, 245, 247, 0.05);
+  --fill-hover: rgba(244, 245, 247, 0.09);
+  --fill-subtle: rgba(244, 245, 247, 0.03);
+  --nav-active-bg: #1a2547;
+  --nav-active-text: #a9beff;
+  --primary: #5b82ff;
+  --on-primary: #08112e;
+  --accent: #ff6e4a;
+  --on-accent: #2a0a02;
+  --focus: #ff6e4a;
+  --shadow-pop: 0 0 0 2px #8a8f99, 5px 5px 0 2px #000000;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --dot: #2e3136;
+  --pixel-edge: #8a8f99;
+  --brand-ink: #a9beff;
+  --amber-ink: #ffdb80;
+  --green-ink: #8be3ae;
+  --red-ink: #ffaf98;
+  --blue-ink: #a9beff;
+  --purple-ink: #d2b8ff;
+  --cyan-ink: #7fdde4;
+  --c-brand: 91 130 255;
+  --c-brand-400: 120 152 255;
+  --c-brand-300: 169 190 255;
+  --c-brand-200: 200 214 255;
+  --c-green: 76 196 127;
+  --c-green-600: 66 176 112;
+  --c-green-300: 139 227 174;
+  --c-amber: 255 210 92;
+  --c-amber-600: 230 188 80;
+  --c-amber-400: 255 219 128;
+  --c-amber-300: 255 219 128;
+  --c-red: 255 110 74;
+  --c-red-400: 255 140 112;
+  --c-red-300: 255 175 152;
+  --c-purple: 170 130 255;
+  --c-purple-600: 155 115 240;
+  --c-purple-700: 140 100 225;
+  --c-purple-400: 190 160 255;
+  --c-purple-300: 210 184 255;
+  --c-cyan: 60 200 210;
+  --c-cyan-600: 50 180 190;
+  --c-cyan-300: 127 221 228;
+  --c-blue: 91 130 255;
+  --c-blue-400: 120 152 255;
+  --c-blue-300: 169 190 255;
+}
+
+/* Risograph — light ("white stock") */
+:root.theme-riso {
+  --font-sans: 'Work Sans Variable', 'Work Sans', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Dela Gothic One', 'Arial Black', Impact, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --display-weight: 400;
+  --display-tracking: 0;
+  --r-md: 0px;
+  --r-lg: 0px;
+  --r-xl: 0px;
+  --r-2xl: 0px;
+  --r-3xl: 0px;
+
+  --app: #f3efe6;
+  --surface: #ebe6da;
+  --panel: #f3efe6;
+  --card: #fbf9f4;
+  --well: #ece7dc;
+  --text-primary: #222020;
+  --text-heading: #1a1a1a;
+  --text-high: #2e2b29;
+  --text-mid: #4c4846;
+  --text-muted: #5f5a56;
+  --text-faint: #908a81;
+  --line: #cfc8bb;
+  --line-strong: #1a1a1a;
+  --fill: rgba(26, 26, 26, 0.05);
+  --fill-hover: rgba(26, 26, 26, 0.09);
+  --fill-subtle: rgba(26, 26, 26, 0.03);
+  --nav-active-bg: #ffd3ea;
+  --nav-active-text: #8f0d56;
+  --primary: #006e70;
+  --on-primary: #ffffff;
+  --accent: #ff48b0;
+  --on-accent: #1a1a1a;
+  --focus: #ff48b0;
+  --shadow-pop: 0 0 0 1.5px #1a1a1a, 5px 5px 0 0 rgba(0, 165, 168, 0.55);
+  --scrim: rgba(26, 22, 18, 0.4);
+  --riso-a: rgba(255, 72, 176, 0.6);
+  --riso-b: rgba(0, 165, 168, 0.55);
+  --brand-ink: #b8126f;
+  --amber-ink: #7a5600;
+  --green-ink: #1f6b3e;
+  --red-ink: #b42318;
+  --blue-ink: #1f5fa8;
+  --purple-ink: #6b3f7d;
+  --cyan-ink: #006e70;
+  --c-brand: 255 72 176;
+  --c-brand-400: 214 30 140;
+  --c-brand-300: 184 18 111;
+  --c-brand-200: 150 12 90;
+  --c-green: 47 125 79;
+  --c-green-600: 31 107 62;
+  --c-green-300: 31 107 62;
+  --c-amber: 230 170 30;
+  --c-amber-600: 180 130 10;
+  --c-amber-400: 122 86 0;
+  --c-amber-300: 122 86 0;
+  --c-red: 210 50 40;
+  --c-red-400: 180 35 24;
+  --c-red-300: 180 35 24;
+  --c-purple: 122 78 140;
+  --c-purple-600: 107 63 125;
+  --c-purple-700: 90 50 110;
+  --c-purple-400: 107 63 125;
+  --c-purple-300: 107 63 125;
+  --c-cyan: 0 165 168;
+  --c-cyan-600: 0 130 133;
+  --c-cyan-300: 0 110 112;
+  --c-blue: 31 95 168;
+  --c-blue-400: 31 95 168;
+  --c-blue-300: 31 95 168;
+}
+/* Risograph — dark ("black stock") */
+:root.theme-riso.dark {
+  --app: #141416;
+  --surface: #111113;
+  --panel: #141416;
+  --card: #1c1c1f;
+  --well: #18181b;
+  --text-primary: #e9e5de;
+  --text-heading: #f1eee8;
+  --text-high: #ddd8cf;
+  --text-mid: #bdb7ae;
+  --text-muted: #a09a91;
+  --text-faint: #716c64;
+  --line: #3a3a3f;
+  --line-strong: #bdb7ae;
+  --fill: rgba(241, 238, 232, 0.05);
+  --fill-hover: rgba(241, 238, 232, 0.09);
+  --fill-subtle: rgba(241, 238, 232, 0.03);
+  --nav-active-bg: #4a1636;
+  --nav-active-text: #ff8fd0;
+  --primary: #19c3c6;
+  --on-primary: #06201f;
+  --accent: #ff5cbc;
+  --on-accent: #1a0010;
+  --focus: #ff5cbc;
+  --shadow-pop: 0 0 0 1.5px #bdb7ae, 5px 5px 0 0 rgba(25, 195, 198, 0.35);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --riso-a: rgba(255, 92, 188, 0.7);
+  --riso-b: rgba(25, 195, 198, 0.65);
+  --brand-ink: #ff8fd0;
+  --amber-ink: #ffdb80;
+  --green-ink: #8be3ae;
+  --red-ink: #ff9d90;
+  --blue-ink: #9cc4f5;
+  --purple-ink: #d9b4e6;
+  --cyan-ink: #6fe0e2;
+  --c-brand: 255 92 188;
+  --c-brand-400: 255 120 200;
+  --c-brand-300: 255 143 208;
+  --c-brand-200: 255 180 225;
+  --c-green: 76 196 127;
+  --c-green-600: 66 176 112;
+  --c-green-300: 139 227 174;
+  --c-amber: 255 210 92;
+  --c-amber-600: 230 188 80;
+  --c-amber-400: 255 219 128;
+  --c-amber-300: 255 219 128;
+  --c-red: 255 110 100;
+  --c-red-400: 255 140 130;
+  --c-red-300: 255 157 144;
+  --c-purple: 200 140 220;
+  --c-purple-600: 185 125 205;
+  --c-purple-700: 170 110 190;
+  --c-purple-400: 210 160 228;
+  --c-purple-300: 217 180 230;
+  --c-cyan: 25 195 198;
+  --c-cyan-600: 20 175 178;
+  --c-cyan-300: 111 224 226;
+  --c-blue: 100 160 230;
+  --c-blue-400: 130 180 240;
+  --c-blue-300: 156 196 245;
+}
+
+/* Lacquer — light ("daylight") */
+:root.theme-lacquer {
+  --font-sans: 'Figtree Variable', 'Figtree', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Cormorant Garamond Variable', 'Cormorant Garamond', Georgia, 'Songti SC', 'Noto Serif CJK SC', 'PingFang SC', serif;
+  --display-weight: 600;
+  --display-tracking: -0.01em;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+  --r-2xl: 18px;
+  --r-3xl: 22px;
+
+  --app: #f3eadb;
+  --surface: #ede2cf;
+  --panel: #f3eadb;
+  --card: #fbf5ea;
+  --well: #f1e6d4;
+  --text-primary: #34201b;
+  --text-heading: #2a100d;
+  --text-high: #3f2a24;
+  --text-mid: #5a443b;
+  --text-muted: #67534a;
+  --text-faint: #9a8579;
+  --line: #e0d0b4;
+  --line-strong: #c9b48c;
+  --fill: rgba(90, 40, 20, 0.05);
+  --fill-hover: rgba(90, 40, 20, 0.09);
+  --fill-subtle: rgba(90, 40, 20, 0.03);
+  --nav-active-bg: #ead9bd;
+  --nav-active-text: #7a1e1e;
+  --primary: #7a1e1e;
+  --on-primary: #fff6ec;
+  --accent: #c9a24a;
+  --on-accent: #2a100d;
+  --focus: #7a1e1e;
+  --shadow-pop: 0 24px 48px -16px rgba(70, 30, 10, 0.35), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  --scrim: rgba(42, 16, 13, 0.42);
+  --sheen: rgba(122, 30, 30, 0.08);
+  --gloss: rgba(255, 255, 255, 0.7);
+  --brand-ink: #7a5a12;
+  --amber-ink: #7a5a12;
+  --green-ink: #1f5e51;
+  --red-ink: #8f2622;
+  --blue-ink: #2c5a8a;
+  --purple-ink: #6b3a5e;
+  --cyan-ink: #1f5e51;
+  --c-brand: 201 162 74;
+  --c-brand-400: 169 130 43;
+  --c-brand-300: 122 90 18;
+  --c-brand-200: 100 72 12;
+  --c-green: 47 122 107;
+  --c-green-600: 37 104 91;
+  --c-green-300: 31 94 81;
+  --c-amber: 201 162 74;
+  --c-amber-600: 169 130 43;
+  --c-amber-400: 122 90 18;
+  --c-amber-300: 122 90 18;
+  --c-red: 163 48 44;
+  --c-red-400: 143 38 34;
+  --c-red-300: 143 38 34;
+  --c-purple: 140 80 120;
+  --c-purple-600: 120 66 102;
+  --c-purple-700: 100 54 86;
+  --c-purple-400: 107 58 94;
+  --c-purple-300: 107 58 94;
+  --c-cyan: 47 122 107;
+  --c-cyan-600: 37 104 91;
+  --c-cyan-300: 31 94 81;
+  --c-blue: 50 100 150;
+  --c-blue-400: 44 90 138;
+  --c-blue-300: 44 90 138;
+}
+/* Lacquer — dark (the signature look) */
+:root.theme-lacquer.dark {
+  --app: #140c0b;
+  --surface: #110a09;
+  --panel: #140c0b;
+  --card: #1d1211;
+  --well: #100908;
+  --text-primary: #e8dacb;
+  --text-heading: #f6ebdd;
+  --text-high: #e0d0bf;
+  --text-mid: #c4b3a2;
+  --text-muted: #a8968a;
+  --text-faint: #75655b;
+  --line: #3b2c1f;
+  --line-strong: #5a4428;
+  --fill: rgba(246, 235, 221, 0.05);
+  --fill-hover: rgba(246, 235, 221, 0.09);
+  --fill-subtle: rgba(246, 235, 221, 0.03);
+  --nav-active-bg: #2e1a17;
+  --nav-active-text: #e3c27a;
+  --primary: #a3302c;
+  --on-primary: #fbefe4;
+  --accent: #c9a24a;
+  --on-accent: #140c0b;
+  --focus: #e9cd86;
+  --shadow-pop: 0 30px 60px -20px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 230, 200, 0.06) inset;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --sheen: rgba(122, 30, 30, 0.3);
+  --gloss: rgba(255, 228, 190, 0.06);
+  --brand-ink: #e3c27a;
+  --amber-ink: #e9cd86;
+  --green-ink: #8fd3c2;
+  --red-ink: #f2a296;
+  --blue-ink: #9fc0e6;
+  --purple-ink: #d9aecb;
+  --cyan-ink: #8fd3c2;
+  --c-brand: 201 162 74;
+  --c-brand-400: 215 180 100;
+  --c-brand-300: 227 194 122;
+  --c-brand-200: 240 215 160;
+  --c-green: 62 142 126;
+  --c-green-600: 80 160 144;
+  --c-green-300: 143 211 194;
+  --c-amber: 201 162 74;
+  --c-amber-600: 215 180 100;
+  --c-amber-400: 233 205 134;
+  --c-amber-300: 233 205 134;
+  --c-red: 163 48 44;
+  --c-red-400: 200 90 80;
+  --c-red-300: 242 162 150;
+  --c-purple: 170 110 150;
+  --c-purple-600: 185 125 165;
+  --c-purple-700: 155 95 135;
+  --c-purple-400: 205 150 185;
+  --c-purple-300: 217 174 203;
+  --c-cyan: 62 142 126;
+  --c-cyan-600: 80 160 144;
+  --c-cyan-300: 143 211 194;
+  --c-blue: 100 150 200;
+  --c-blue-400: 130 170 215;
+  --c-blue-300: 159 192 230;
+}
+
+/* Clay — light */
+:root.theme-clay {
+  --font-sans: 'Figtree Variable', 'Figtree', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Fredoka Variable', 'Fredoka', ui-rounded, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --display-weight: 600;
+  --display-tracking: -0.01em;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-2xl: 26px;
+  --r-3xl: 30px;
+
+  --app: #fff6e9;
+  --surface: #fbeedb;
+  --panel: #fff6e9;
+  --card: #fffbf5;
+  --well: #f7ecdc;
+  --text-primary: #35295a;
+  --text-heading: #2a1e4a;
+  --text-high: #3d3166;
+  --text-mid: #574c78;
+  --text-muted: #625882;
+  --text-faint: #9d94b4;
+  --line: #eadfcf;
+  --line-strong: #d9c9b2;
+  --fill: rgba(96, 64, 150, 0.05);
+  --fill-hover: rgba(96, 64, 150, 0.09);
+  --fill-subtle: rgba(96, 64, 150, 0.03);
+  --nav-active-bg: #ece6ff;
+  --nav-active-text: #4a2fb0;
+  --primary: #6b4bd8;
+  --on-primary: #ffffff;
+  --accent: #7ee0b8;
+  --on-accent: #143d2e;
+  --focus: #ffb020;
+  --shadow-pop: 0 18px 32px -14px rgba(96, 64, 150, 0.32), 0 4px 10px -4px rgba(96, 64, 150, 0.16);
+  --scrim: rgba(42, 30, 74, 0.35);
+  --clay-shadow: 0 14px 28px -14px rgba(96, 64, 150, 0.3), 0 3px 8px -4px rgba(96, 64, 150, 0.14), inset 0 2px 0 rgba(255, 255, 255, 0.85), inset 0 -4px 0 rgba(96, 64, 150, 0.06);
+  --brand-ink: #4a2fb0;
+  --amber-ink: #7a5500;
+  --green-ink: #146b4a;
+  --red-ink: #a33e1e;
+  --blue-ink: #2a5bb0;
+  --purple-ink: #4a2fb0;
+  --cyan-ink: #0f6b62;
+  --c-brand: 107 75 216;
+  --c-brand-400: 90 60 200;
+  --c-brand-300: 74 47 176;
+  --c-brand-200: 60 36 150;
+  --c-green: 80 190 140;
+  --c-green-600: 50 150 110;
+  --c-green-300: 20 107 74;
+  --c-amber: 255 196 60;
+  --c-amber-600: 220 160 20;
+  --c-amber-400: 122 85 0;
+  --c-amber-300: 122 85 0;
+  --c-red: 230 100 70;
+  --c-red-400: 190 75 45;
+  --c-red-300: 163 62 30;
+  --c-purple: 107 75 216;
+  --c-purple-600: 90 60 200;
+  --c-purple-700: 74 47 176;
+  --c-purple-400: 74 47 176;
+  --c-purple-300: 74 47 176;
+  --c-cyan: 60 180 170;
+  --c-cyan-600: 30 140 130;
+  --c-cyan-300: 15 107 98;
+  --c-blue: 70 120 220;
+  --c-blue-400: 50 100 200;
+  --c-blue-300: 42 91 176;
+}
+/* Clay — dark ("grape night") */
+:root.theme-clay.dark {
+  --app: #17112b;
+  --surface: #140f26;
+  --panel: #17112b;
+  --card: #261c45;
+  --well: #1d1638;
+  --text-primary: #ece6fa;
+  --text-heading: #fbf7ff;
+  --text-high: #e0d8f5;
+  --text-mid: #c9bfe6;
+  --text-muted: #a79cc8;
+  --text-faint: #786e9c;
+  --line: #3a2e62;
+  --line-strong: #4d3f7d;
+  --fill: rgba(251, 247, 255, 0.05);
+  --fill-hover: rgba(251, 247, 255, 0.09);
+  --fill-subtle: rgba(251, 247, 255, 0.03);
+  --nav-active-bg: #33275e;
+  --nav-active-text: #cbbdff;
+  --primary: #9c82ff;
+  --on-primary: #160d33;
+  --accent: #6fd9ae;
+  --on-accent: #0c2b20;
+  --focus: #ffb020;
+  --shadow-pop: 0 18px 32px -14px rgba(0, 0, 0, 0.6), inset 0 2px 0 rgba(255, 255, 255, 0.08);
+  --scrim: rgba(5, 3, 15, 0.6);
+  --clay-shadow: 0 14px 28px -14px rgba(0, 0, 0, 0.6), inset 0 2px 0 rgba(255, 255, 255, 0.08), inset 0 -4px 0 rgba(0, 0, 0, 0.18);
+  --brand-ink: #cbbdff;
+  --amber-ink: #ffe08f;
+  --green-ink: #9bf0cb;
+  --red-ink: #ffb8a3;
+  --blue-ink: #a8c4ff;
+  --purple-ink: #cbbdff;
+  --cyan-ink: #8ee8de;
+  --c-brand: 156 130 255;
+  --c-brand-400: 175 155 255;
+  --c-brand-300: 203 189 255;
+  --c-brand-200: 225 216 255;
+  --c-green: 111 217 174;
+  --c-green-600: 95 200 158;
+  --c-green-300: 155 240 203;
+  --c-amber: 255 214 107;
+  --c-amber-600: 235 195 90;
+  --c-amber-400: 255 224 143;
+  --c-amber-300: 255 224 143;
+  --c-red: 255 140 110;
+  --c-red-400: 255 160 135;
+  --c-red-300: 255 184 163;
+  --c-purple: 156 130 255;
+  --c-purple-600: 140 115 240;
+  --c-purple-700: 124 95 240;
+  --c-purple-400: 175 155 255;
+  --c-purple-300: 203 189 255;
+  --c-cyan: 90 210 195;
+  --c-cyan-600: 75 195 180;
+  --c-cyan-300: 142 232 222;
+  --c-blue: 120 160 255;
+  --c-blue-400: 145 180 255;
+  --c-blue-300: 168 196 255;
+}
+
+/* Signature textures. The page ground carries the texture (the shell, and
+   the full-height bg-panel column most pages sit in); cards pick up each look's
+   edge only while the Surfaces option is left on "Theme" (no data-surface). */
+.theme-pixel .shell-root,
+.theme-pixel .bg-panel {
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.4px);
+  background-size: 24px 24px;
+}
+html.theme-pixel:not([data-surface]) .ui-card {
+  border-color: transparent;
+  box-shadow: -2px 0 0 0 var(--pixel-edge), 2px 0 0 0 var(--pixel-edge), 0 -2px 0 0 var(--pixel-edge), 0 2px 0 0 var(--pixel-edge);
+}
+.theme-pixel .eyebrow {
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+}
+
+.theme-riso .shell-root,
+.theme-riso .bg-panel {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 1.6 -0.55'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.35'/%3E%3C/svg%3E");
+}
+.theme-riso .display {
+  text-shadow: 1.5px 1px 0 var(--riso-a), -1px -0.5px 0 var(--riso-b);
+}
+html.theme-riso:not([data-surface]) .ui-card {
+  border-color: var(--line-strong);
+}
+
+.theme-lacquer .shell-root,
+.theme-lacquer .bg-panel {
+  background-image: radial-gradient(1200px 640px at 18% -12%, var(--sheen), transparent 62%);
+}
+html.theme-lacquer:not([data-surface]) .ui-card {
+  background-image: linear-gradient(180deg, var(--gloss), transparent 42%);
+  box-shadow: inset 0 1px 0 var(--gloss), 0 18px 40px -26px rgba(0, 0, 0, 0.55);
+}
+
+html.theme-clay:not([data-surface]) .ui-card {
+  border-color: transparent;
+  box-shadow: var(--clay-shadow);
 }
 
 @layer base {
