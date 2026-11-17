@@ -305,31 +305,13 @@ WhatsApp / Telegram). Index `thread_id`. Written only by
 `Channels/MessageReactions.cs`; a reaction is never a `crm_message` row and
 only bumps the thread's `updated_at`.
 
-### `crm_socialthread` — what a social conversation is about (Zernio)
-One row per `crm_thread` of channel `social` (**unique** `thread_id`):
-`kind` (`comment` \| `review` \| `dm`) · `platform` (Zernio's id: instagram,
-facebook, googlebusiness…) · `zernio_account_id` · `account_username` ·
-`post_id` (the platform's post id — what a comment reply / hide / private reply
-addresses) · `zernio_post_id` · `post_text` · `post_permalink` · `post_media_url`
-· `root_comment_id` (the top-level comment the thread is about) · `review_id`
-(the FULL review name, e.g. `accounts/…/locations/…/reviews/…`; the thread key
-carries a URL-safe short form) · `conversation_id` (Zernio's DM conversation) ·
-`rating` (1–5, reviews) · `hidden` · `private_replied` · `author_id` /
-`author_name` / `author_handle` / `author_avatar` · timestamps. Index
-`(zernio_account_id, root_comment_id)`. Written by `Social/ZernioWebhook.cs`;
-read by `Social/SocialTransport.cs` (replies) and the inbox payloads' `social`.
+### `crm_socialthread`, `crm_socialpost` — removed (Nov 2026)
+Social-media comments / reviews / posts are out of ChatBranch's scope; both tables
+were dropped (one-off SQL at deploy) and are no longer created by `Seed.EnsureColumns`.
 
-### `crm_socialprofile` — entity → Zernio profile
+### `crm_socialprofile` — entity → Zernio profile (managed connections)
 `entity_id` (null = the organization: the key's default profile) · `profile_id`
 (**unique**) · `external_id` (`cb-entity-<id>`) · `name` · `created_at`.
-
-### `crm_socialpost` — posts composed in ChatBranch
-`entity_id` · `zernio_post_id` ("" = a local draft) · `content` · `media`
-(JSON `[{url, type}]`) · `account_ids` / `platforms` (JSON) · `scheduled_at`
-(UTC, null = now) · `timezone` · `status` (`draft` \| `scheduled` \|
-`publishing` \| `published` \| `partial` \| `failed` \| `deleted`) · `error` ·
-`results` (JSON `[{account_id, platform, status, url, error}]`) · `created_by` ·
-timestamps. Kept in step by the `post.*` webhooks and a reconcile on read.
 
 ### `crm_zernioevent` — webhook dedupe
 `event_id` (**unique**, Zernio's `X-Zernio-Event-Id`) · `event` · `received_at`.

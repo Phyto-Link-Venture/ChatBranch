@@ -11,7 +11,6 @@ export const chats = {
   channels: {
     email: 'Email',
     website: 'Website',
-    social: 'Social',
   },
   roles: {
     superadmin: 'Superadmin',

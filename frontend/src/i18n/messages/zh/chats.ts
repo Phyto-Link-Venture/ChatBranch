@@ -11,7 +11,6 @@ export const chats: Dict<typeof source> = {
   channels: {
     email: '电子邮件',
     website: '网站',
-    social: '社交媒体',
   },
   roles: {
     superadmin: '超级管理员',

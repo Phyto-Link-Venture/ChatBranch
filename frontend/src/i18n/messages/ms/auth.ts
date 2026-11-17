@@ -13,7 +13,7 @@ export const auth: Dict<typeof source> = {
     expired: 'Sesi anda telah tamat — sila log masuk semula.',
     signIn: 'Log masuk',
     provisioned: 'Akaun disediakan oleh pentadbir anda — hubungi mereka jika anda tidak dapat log masuk.',
-    tagline: 'Satu peti masuk untuk WhatsApp, e-mel, media sosial, sembang web dan suara.',
+    tagline: 'Satu peti masuk untuk WhatsApp, Messenger, Instagram, e-mel, sembang web dan suara.',
     invalid: 'Nama pengguna dan kata laluan itu tidak sepadan.',
     locked_one: 'Terlalu banyak cubaan gagal. Cuba lagi dalam {count} minit.',
     locked_other: 'Terlalu banyak cubaan gagal. Cuba lagi dalam {count} minit.',

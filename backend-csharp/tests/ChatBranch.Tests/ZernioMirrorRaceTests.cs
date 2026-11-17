@@ -1,7 +1,7 @@
 using System.Text.Json;
 using ChatBranch.Data;
 using ChatBranch.Data.Audit;
-using ChatBranch.Data.Social;
+using ChatBranch.Data.Zernio;
 using ChatBranch.Domain;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -12,11 +12,11 @@ namespace ChatBranch.Tests;
 
 /// <summary>
 /// One Zernio account = one mirrored inbox. The WhatsApp onboarding callback
-/// (<c>SocialEndpoints.WhatsApp</c>) and the <c>account.connected</c> webhook
+/// (<c>ZernioEndpoints.WhatsApp</c>) and the <c>account.connected</c> webhook
 /// (<c>ZernioWebhook</c>) can both mirror the same account at the same moment; both
 /// looked the account up, found nothing and inserted — two inboxes for one number.
 /// Partial unique indexes now refuse the second row, and the mirror
-/// (<see cref="SocialAccounts.Upsert"/>, the ONE code path every Zernio channel goes
+/// (<see cref="ZernioAccounts.Upsert"/>, the ONE code path every Zernio channel goes
 /// through) treats that refusal as "already mirrored": it refreshes the winner instead
 /// of failing the request with a 500.
 /// </summary>
@@ -91,26 +91,24 @@ public class ZernioMirrorRaceTests
             var race = new RaceInterceptor(() =>
             {
                 using var other = new AppDbContext(Options(file));
-                new SocialAccounts(other, new NullZernioClient()).Upsert(acct, null, "", intent: "inbox");
+                new ZernioAccounts(other, new NullZernioClient()).Upsert(acct, null, "", intent: "inbox");
             });
             using var db = new AppDbContext(Options(file, race));
-            var accounts = new SocialAccounts(db, new NullZernioClient());
+            var accounts = new ZernioAccounts(db, new NullZernioClient());
 
             var row = accounts.Upsert(acct, null, "", intent: "inbox");      // must not throw
             Assert.NotNull(row);
 
             // the request carries on: a later save in the same context does not re-fail
-            AuditTrail.Write(db, "social.connect", channel, "after the race", actor: "test");
+            AuditTrail.Write(db, "zernio.connect", channel, "after the race", actor: "test");
             db.SaveChanges();
 
             using var check = new AppDbContext(Options(file));
             var rows = check.ChannelAccounts.AsNoTracking()
                 .Where(a => a.Provider == Providers.Zernio && a.ExternalId == zid).ToList();
-            Assert.Single(rows, a => a.Channel == channel);
-            Assert.True(rows.Count(a => a.Channel == ChatBranch.Domain.Channels.Social) <= 1);
-            Assert.Equal(rows.Select(a => a.Channel).Distinct().Count(), rows.Count);
-            Assert.Equal(rows.Single(a => a.Channel == channel).Id,
-                (row.Channel == channel ? row : accounts.FindNative(zid))!.Id);
+            var only = Assert.Single(rows);
+            Assert.Equal(channel, only.Channel);
+            Assert.Equal(only.Id, row!.Id);
         });
     }
 
@@ -143,7 +141,7 @@ public class ZernioMirrorRaceTests
                 db.ChannelAccounts.Add(Row("whatsapp", ""));
                 db.ChannelAccounts.Add(Row("whatsapp", ""));
                 db.ChannelAccounts.Add(Row("whatsapp", "Z-ONE", provider: "baileys"));
-                db.ChannelAccounts.Add(Row(ChatBranch.Domain.Channels.Social, "Z-ONE"));   // its social twin
+                db.ChannelAccounts.Add(Row("telegram", "Z-ONE"));   // the same id on another channel
                 db.SaveChanges();
 
                 // upgrade path: an old database without the indexes, already holding a duplicate

@@ -115,7 +115,7 @@ public static class WhatsAppProviders
     public static bool Configured(ChannelAccount a) => Of(a) switch
     {
         Providers.Baileys => true, // paired through the gateway, no credentials here
-        Providers.Zernio => ChatBranch.Data.Social.ZernioNative.Configured(a), // Zernio holds the grant
+        Providers.Zernio => ChatBranch.Data.Zernio.ZernioNative.Configured(a), // Zernio holds the grant
         // WAHA: we only need to know WHERE it is and WHICH session. Its API key is optional
         // (a WAHA started without WAHA_API_KEY accepts unauthenticated calls), and the paired
         // number is learned, so neither can gate "can this send for real".

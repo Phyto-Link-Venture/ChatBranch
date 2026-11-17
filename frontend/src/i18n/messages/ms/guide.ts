@@ -351,40 +351,6 @@ export const guide: Dict<typeof source> = {
         },
       },
     },
-    social: {
-      title: 'Siaran media sosial',
-      intro: 'Tulis siaran sekali dan terbitkan ke akaun media sosial anda — sekarang atau kemudian.',
-      steps: {
-        s1: {
-          title: 'Siaran media sosial',
-          body: 'Siaran dihantar ke akaun media sosial yang disambungkan di halaman Saluran.',
-        },
-        s2: {
-          title: 'Siarkan ke',
-          body: 'Pilih akaun yang akan menerima siaran. Ia dikumpulkan mengikut rangkaian, dan setiap rangkaian ada pembilang aksara sendiri di bawah teks.',
-        },
-        s3: {
-          title: 'Draf dengan AI',
-          body: 'Terangkan siaran dalam satu baris, pilih nada, dan AI menulis versi pertama yang boleh anda sunting.',
-        },
-        s4: {
-          title: 'Foto dan video',
-          body: 'Tambah gambar atau video. Ia dimuat naik sekali dan dihantar bersama siaran.',
-        },
-        s5: {
-          title: 'Sekarang atau kemudian',
-          body: 'Terbitkan sekarang menghantarnya serta-merta. Jadualkan memilih tarikh dan masa dalam zon waktu perniagaan anda.',
-        },
-        s6: {
-          title: 'Siaran anda',
-          body: 'Setiap siaran dengan statusnya — dijadualkan, diterbitkan, sebahagian diterbitkan atau gagal — dan pautan ke salinan setiap akaun. Cuba semula yang gagal, padam yang tidak diperlukan lagi.',
-        },
-        s7: {
-          title: 'Senarai atau kalendar',
-          body: 'Tukar antara senarai dan kalendar minggu atau bulan.',
-        },
-      },
-    },
     automations: {
       title: 'Automasi',
       intro: 'Peraturan ringkas “apabila ini berlaku, lakukan itu” untuk perbualan.',
@@ -753,7 +719,7 @@ export const guide: Dict<typeof source> = {
         },
         s3: {
           title: 'Disambungkan',
-          body: 'Setiap peti masuk dan akaun media sosial ialah satu kad: cara ia disambungkan, cawangannya, titik berwarna untuk kesihatannya (hijau berfungsi, kuning atau merah perlu perhatian) dan apa yang boleh dilakukan.',
+          body: 'Setiap peti masuk (termasuk sambungan terurus) ialah satu kad: cara ia disambungkan, cawangannya, titik berwarna untuk kesihatannya (hijau berfungsi, kuning atau merah perlu perhatian) dan apa yang boleh dilakukan.',
         },
         s4: {
           title: 'Tunjuk satu jenis',
@@ -765,7 +731,7 @@ export const guide: Dict<typeof source> = {
         },
         s6: {
           title: 'Tambah saluran',
-          body: 'Satu jubin bagi setiap saluran, dikumpulkan mengikut jenis — aplikasi pemesejan, rangkaian sosial, SMS/e-mel/suara, China, sembang laman web dan pasaran dalam talian. Klik satu untuk bermula; TikTok dan Douyin memerlukan kelulusan platform dahulu.',
+          body: 'Satu jubin bagi setiap saluran, dikumpulkan mengikut jenis — aplikasi pemesejan, SMS/e-mel/suara, China, sembang laman web dan pasaran dalam talian. Klik satu untuk bermula; TikTok dan Douyin memerlukan kelulusan platform dahulu.',
         },
         s7: {
           title: 'Lanjutan',
@@ -773,7 +739,7 @@ export const guide: Dict<typeof source> = {
         },
         s8: {
           title: 'Kaedah dan cawangan',
-          body: 'Setiap kad menunjukkan cara ia disambungkan (Cloud API, YCloud, QR, Sambungan terurus…) dan cawangan pemiliknya. Untuk akaun media sosial anda boleh menukar cawangan di sini; log masuk Facebook menyenaraikan Halamannya, masing-masing dengan cawangan sendiri.',
+          body: 'Setiap kad menunjukkan cara ia disambungkan (Cloud API, YCloud, QR, Sambungan terurus…) dan cawangan pemiliknya. Untuk sambungan terurus anda boleh menukar cawangan di sini; akaun Messenger menyenaraikan Halaman Facebooknya dan yang mana menerima mesej.',
         },
       },
     },

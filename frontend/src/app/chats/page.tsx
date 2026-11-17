@@ -114,8 +114,6 @@ import { useApp } from '@/lib/AppContext'
 import { tagMeta } from '@/lib/tags'
 import PendingDraftBanner from '@/components/chats/PendingDraftBanner'
 import IdentityBanner from '@/components/chats/IdentityBanner'
-import { SocialContextCard, SocialKindChip } from '@/components/chats/SocialParts'
-import type { SocialMeta } from '@/lib/social'
 import { subscribeChatStream } from '@/lib/chatStream'
 import { AiBubbleFeedback, useAiFeedback } from '@/components/ai-learning/BubbleFeedback'
 import { useFormat, useT, type MessageKey } from '@/i18n'
@@ -565,8 +563,6 @@ function ChatsPage() {
           human_window_open?: boolean
           human_window_expires_at?: string | null
           is_group?: boolean
-          /** social threads (channel "social", via Zernio) */
-          social?: SocialMeta | null
           messages: UiMessage[]
         }>(withThreadId(`messaging/threads/${activeId.channel}/${activeId.key}`, activeId.thread_id))
         settle(th.thread_id)
@@ -592,7 +588,6 @@ function ChatsPage() {
           window_expires_at: th.window_expires_at,
           human_window_open: th.human_window_open,
           human_window_expires_at: th.human_window_expires_at,
-          social: th.social ?? null,
           messages: th.messages,
         })
       }
@@ -1391,11 +1386,6 @@ function ChatsPage() {
   const optedOut = activeIsWa && active?.opted_out === true
   // a group chat: no contact behind it, each inbound message names its author
   const isGroup = !!active?.is_group
-  // a social thread (comment / review / DM via Zernio): public, no contact identity asks
-  const social = active?.social ?? null
-  const isSocial = !!social
-  // comments and reviews are answered in PUBLIC on the platform
-  const publicReply = isSocial && social?.kind !== 'dm'
   // who a quote / reply "from them" is by — a group has no single contact
   const quoteName = isGroup ? t('chats.group.member') : active ? active.contact_name || active.name : ''
 
@@ -1868,7 +1858,6 @@ function ChatsPage() {
                         <Users size={10} aria-hidden /> {t('chats.group.badge')}
                       </span>
                     )}
-                    {social && <SocialKindChip social={social} className="text-[10.5px]" />}
                     {multiCompany && active.company && (
                       <span
                         className="inline-flex max-w-[180px] shrink-0 items-center gap-1 rounded-full border border-line-strong px-2 py-px text-[10.5px] font-semibold text-text-high"
@@ -1896,14 +1885,6 @@ function ChatsPage() {
                     <ChannelLogo channel={threadLogo(active)} size={13} />
                     <span className="truncate">
                       {active.sub}
-                      {social?.account_username && (
-                        <>
-                          {' · '}
-                          {t('social.inbox.toAccount', {
-                            account: social.account_username.startsWith('@') ? social.account_username : `@${social.account_username}`,
-                          })}
-                        </>
-                      )}
                       {active.channel === 'whatsapp' && active.account_id && waAccounts.length > 0 && (
                         <>
                           {' · '}
@@ -1966,7 +1947,7 @@ function ChatsPage() {
                     </button>
                   )}
                   {/* the AI only answers chats linked to a contact — say so instead of looking broken */}
-                  {active.channel !== 'email' && active.ai_enabled && !optedOut && !active.contact_id && !isGroup && !isSocial && (
+                  {active.channel !== 'email' && active.ai_enabled && !optedOut && !active.contact_id && !isGroup && (
                     <span
                       title={t('chats.page.aiNeedsContactHint')}
                       className="inline-flex h-8 shrink-0 items-center rounded-full border border-line px-2.5 text-[11px] font-semibold text-[var(--amber-ink)]"
@@ -2051,24 +2032,13 @@ function ChatsPage() {
               </div>
 
               {/* unknown customer: "asking who they are" + the Create contact quick action (never a group) */}
-              {active.contact_id == null && !isGroup && !isSocial && (
+              {active.contact_id == null && !isGroup && (
                 <IdentityBanner
                   channel={active.channel}
                   threadKey={active.key}
                   threadId={active.thread_id}
                   refreshToken={active.messages.length}
                   onCreated={() => void Promise.all([refreshActive(), refreshThreads()])}
-                />
-              )}
-
-              {/* social thread: the post / review it is about, Hide / Unhide, Reply privately */}
-              {social && (
-                <SocialContextCard
-                  threadKey={active.key}
-                  threadId={active.thread_id}
-                  social={social}
-                  canAct={canSendChats}
-                  onChanged={() => void Promise.all([refreshActive(), refreshThreads()])}
                 />
               )}
 
@@ -2393,12 +2363,6 @@ function ChatsPage() {
                                   {senderLabel(t, m.sender)}
                                 </span>
                               )}
-                              {/* social threads: the commenter / reviewer / sender by name */}
-                              {isSocial && !isGroup && m.dir === 'in' && !m.private && (m.sender?.name || social?.author?.name || social?.author?.handle) && (
-                                <span className={`cb-sender cb-sender-${m.sender?.id ? senderTone(m.sender.id) : 0}`}>
-                                  {m.sender?.name || social?.author?.name || social?.author?.handle}
-                                </span>
-                              )}
                               {m.private && (
                                 <span className="cb-bubble-source">
                                   <Lock size={8} className="mr-0.5 inline" aria-hidden /> {t('chats.page.privateNote')}
@@ -2695,9 +2659,7 @@ function ChatsPage() {
                               ? 'chats.page.attachSocialClosed'
                               : pendingFile
                                 ? 'chats.page.phCaption'
-                                : publicReply
-                                  ? 'social.inbox.phPublic'
-                                  : active.channel === 'email'
+                                : active.channel === 'email'
                                   ? 'chats.page.phEmail'
                                   : 'chats.page.phDefault',
                       )}

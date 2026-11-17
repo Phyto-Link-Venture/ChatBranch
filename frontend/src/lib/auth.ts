@@ -80,10 +80,6 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'channels.manage', area: 'Channels', label: 'Manage channel accounts', lbl: 'admin.caps.channelsManage' },
   { capability: 'integrations.view', area: 'Integrations', label: 'View integrations', lbl: 'admin.caps.integrationsView' },
   { capability: 'integrations.manage', area: 'Integrations', label: 'Manage integrations', lbl: 'admin.caps.integrationsManage' },
-  // social media via Zernio: see posts, publish / schedule them, connect / disconnect accounts
-  { capability: 'social.view', area: 'Channels', label: 'View social posts', lbl: 'admin.caps.socialView' },
-  { capability: 'social.publish', area: 'Channels', label: 'Publish & schedule social posts', lbl: 'admin.caps.socialPublish' },
-  { capability: 'social.manage', area: 'Channels', label: 'Connect social accounts', lbl: 'admin.caps.socialManage' },
   { capability: 'users.view', area: 'Users', label: 'View users', lbl: 'admin.caps.usersView' },
   { capability: 'users.manage', area: 'Users', label: 'Create & manage users', lbl: 'admin.caps.usersManage' },
   { capability: 'entities.view', area: 'Entities', label: 'View entities & tenants', lbl: 'admin.caps.entitiesView' },

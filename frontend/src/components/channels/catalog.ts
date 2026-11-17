@@ -16,19 +16,15 @@
 import type { MessageKey } from '@/i18n'
 import type { Inbox, InboxKind } from './inboxes'
 
-export type ChannelGroup = 'messaging' | 'social' | 'sms_voice' | 'china' | 'website' | 'marketplace'
+export type ChannelGroup = 'messaging' | 'sms_voice' | 'china' | 'website' | 'marketplace'
 
 export const CHANNEL_GROUPS: { id: ChannelGroup; label: MessageKey; hint: MessageKey }[] = [
   { id: 'messaging', label: 'channels.groups.messaging', hint: 'channels.groups.messagingHint' },
-  { id: 'social', label: 'channels.groups.social', hint: 'channels.groups.socialHint' },
   { id: 'sms_voice', label: 'channels.groups.smsVoice', hint: 'channels.groups.smsVoiceHint' },
   { id: 'china', label: 'channels.groups.china', hint: 'channels.groups.chinaHint' },
   { id: 'website', label: 'channels.groups.website', hint: 'channels.groups.websiteHint' },
   { id: 'marketplace', label: 'channels.groups.marketplace', hint: 'channels.groups.marketplaceHint' },
 ]
-
-/** Zernio's `purpose`: a native ChatBranch inbox (DMs) or social features (posts / comments). */
-export type ZernioPurpose = 'inbox' | 'social'
 
 /** The marketplace channels the seller service carries (Channels/Commerce). */
 export type CommerceChannel = 'shopee' | 'lazada' | 'tiktok_shop' | 'shopify'
@@ -51,8 +47,8 @@ export interface MethodDef {
   id: MethodId
   /** Native setup: the inbox kind whose drawer steps run as step 3. */
   kind?: InboxKind
-  /** Zernio setup: POST /api/social/connect {platform, entity, purpose}. */
-  zernio?: { platform: string; purpose: ZernioPurpose }
+  /** Managed connection (Zernio) setup: POST /api/social/connect {platform, entity}. */
+  zernio?: { platform: string }
   /** Marketplace: the shops come from the seller service. */
   commerce?: CommerceChannel
   /** Card title, the one-line pro / con, and the badge connected cards carry. */
@@ -101,19 +97,11 @@ const BADGE = {
   direct: 'channels.methods.badges.direct',
 } as const satisfies Record<string, MessageKey>
 
-/** "via Zernio" for a native channel's DMs (a ChatBranch inbox with provider "zernio"). */
+/** A managed connection (Zernio) for a native channel (a ChatBranch inbox with provider "zernio"). */
 const zernioInbox = (platform: string): MethodDef => ({
   id: 'zernio',
-  zernio: { platform, purpose: 'inbox' },
+  zernio: { platform },
   ...m('zernioInbox'),
-  badge: BADGE.zernio,
-})
-
-/** "via Zernio" for a social network (posts, comments, reviews, DMs where offered). */
-const zernioSocial = (platform: string): MethodDef => ({
-  id: 'zernio',
-  zernio: { platform, purpose: 'social' },
-  ...m('zernioSocial'),
   badge: BADGE.zernio,
 })
 
@@ -121,15 +109,6 @@ const zernioSocial = (platform: string): MethodDef => ({
 const direct = (kind: InboxKind): MethodDef => ({ id: 'direct', kind, ...m('direct') })
 
 const seller = (channel: CommerceChannel): MethodDef => ({ id: 'seller', commerce: channel, ...m('seller') })
-
-const social = (id: string, logo: string, brand: string): ChannelDef => ({
-  id,
-  logo,
-  brand,
-  blurb: `channels.catalog.blurbs.${id}` as MessageKey,
-  group: 'social',
-  methods: [zernioSocial(id)],
-})
 
 const blurb = (id: string) => `channels.catalog.blurbs.${id}` as MessageKey
 
@@ -180,29 +159,15 @@ export const CHANNELS: ChannelDef[] = [
   { id: 'viber', logo: 'viber', brand: 'Viber', blurb: 'channels.kinds.viber.blurb', group: 'messaging', methods: [direct('viber')] },
   { id: 'zalo', logo: 'zalo', brand: 'Zalo', blurb: 'channels.kinds.zalo.blurb', group: 'messaging', methods: [direct('zalo')] },
 
-  // Social networks — via Zernio (TikTok also has its own Business Messaging API)
-  social('facebook', 'facebook', 'Facebook Page'),
+  // TikTok's Business Messaging API: direct messages only
   {
     id: 'tiktok',
     logo: 'tiktok',
     brand: 'TikTok',
     blurb: blurb('tiktok'),
-    group: 'social',
-    methods: [
-      { id: 'tiktok_direct', kind: 'tiktok', ...m('tiktokDirect'), badge: BADGE.direct },
-      zernioSocial('tiktok'),
-    ],
+    group: 'messaging',
+    methods: [{ id: 'tiktok_direct', kind: 'tiktok', ...m('tiktokDirect'), badge: BADGE.direct }],
   },
-  social('youtube', 'youtube', 'YouTube'),
-  social('linkedin', 'linkedin', 'LinkedIn'),
-  social('twitter', 'x', 'X'),
-  social('threads', 'threads', 'Threads'),
-  social('pinterest', 'pinterest', 'Pinterest'),
-  social('googlebusiness', 'googlebusiness', 'Google Business'),
-  social('bluesky', 'bluesky', 'Bluesky'),
-  social('reddit', 'reddit', 'Reddit'),
-  social('discord', 'discord', 'Discord'),
-  social('snapchat', 'snapchat', 'Snapchat'),
 
   // SMS, email & voice
   {

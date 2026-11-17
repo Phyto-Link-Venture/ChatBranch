@@ -58,13 +58,13 @@ public class OutboundSender
     private readonly TelegramChannel? _telegram;
     /// <summary>LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo (<see cref="MoreChannels"/>).</summary>
     private readonly MoreChannelSender? _more;
-    /// <summary>Messenger / Instagram connected through Zernio (<see cref="ChatBranch.Data.Social.ZernioNative"/>).</summary>
-    private readonly ChatBranch.Data.Social.ZernioNativeTransport? _zernio;
+    /// <summary>Messenger / Instagram connected through Zernio (<see cref="ChatBranch.Data.Zernio.ZernioNative"/>).</summary>
+    private readonly ChatBranch.Data.Zernio.ZernioNativeTransport? _zernio;
 
     public OutboundSender(AppDbContext db, ThreadStore threads, IWhatsAppCloudClient whatsapp,
         ChatBranch.Data.Sidecars.IBaileysGateway baileys, IMetaMessagingClient? meta = null,
         MediaStore? media = null, EmailChannel? email = null, TelegramChannel? telegram = null,
-        MoreChannelSender? more = null, ChatBranch.Data.Social.ZernioNativeTransport? zernio = null)
+        MoreChannelSender? more = null, ChatBranch.Data.Zernio.ZernioNativeTransport? zernio = null)
     {
         _more = more;
         _zernio = zernio;
@@ -95,7 +95,7 @@ public class OutboundSender
 
     /// <summary>A Messenger / Instagram inbox connected through Zernio, live.</summary>
     private bool ZernioSocial(ChannelAccount? account) =>
-        account != null && ChatBranch.Data.Social.ZernioNative.Is(account) && _zernio != null && _zernio.Live(account);
+        account != null && ChatBranch.Data.Zernio.ZernioNative.Is(account) && _zernio != null && _zernio.Live(account);
 
     /// <summary>A Messenger / Instagram text: the Send API, or Zernio's conversation for a Zernio inbox.</summary>
     private SendOutcome SocialText(ChannelAccount account, Thread thread, string text, string? tag) =>
@@ -718,7 +718,7 @@ public class OutboundSender
             return SocialSend(thread, account!, source, text, humanAgent,
                 tag => ZernioSocial(account)
                     ? _zernio!.SendAsync(account!, thread.Key, "", tag, attachmentUrl: url,
-                        attachmentType: ChatBranch.Data.Social.ZernioNativeTransport.AttachmentType(mediaType))
+                        attachmentType: ChatBranch.Data.Zernio.ZernioNativeTransport.AttachmentType(mediaType))
                         .GetAwaiter().GetResult().ToOutcome()
                     : _meta!.SendAttachmentAsync(account!, thread.Key, mediaType, url, tag).GetAwaiter().GetResult());
         return _threads.AppendMessage(thread, MessageDirection.Out, source, text, status: "sandbox", accountId: acctId);
@@ -793,7 +793,7 @@ public class OutboundSender
         var (url, err) = _zernio!.UploadAsync(bytes, mime, name).GetAwaiter().GetResult();
         if (url.Length == 0) return new SendOutcome(false, "", err);
         return _zernio.SendAsync(account, thread.Key, "", tag, attachmentUrl: url,
-            attachmentType: ChatBranch.Data.Social.ZernioNativeTransport.AttachmentType(mediaType))
+            attachmentType: ChatBranch.Data.Zernio.ZernioNativeTransport.AttachmentType(mediaType))
             .GetAwaiter().GetResult().ToOutcome();
     }
 

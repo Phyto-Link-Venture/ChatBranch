@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_ORIGIN),
   title: 'ChatBranch Help Center',
   description:
-    'Help for ChatBranch, the shared inbox for WhatsApp, email, social and website chat with an AI that answers customers: guides, troubleshooting and the full user manual.',
+    'Help for ChatBranch, the shared inbox for WhatsApp, Messenger, Instagram, email, SMS, website chat and calls with an AI that answers customers: guides, troubleshooting and the full user manual.',
   alternates: { canonical: '/help' },
   robots: INDEXABLE ? undefined : { index: false, follow: false },
 }

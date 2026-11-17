@@ -1,11 +1,11 @@
 'use client'
 
 /**
- * Settings → App & provider keys → "Zernio (social media)": the ONE deployment-wide Zernio API key
+ * Settings → App & provider keys → "Zernio (managed connections)": the ONE deployment-wide Zernio API key
  * (super admin; saved through the global settings endpoint like the other app
  * keys and masked on read), the webhook Zernio calls us on, and which entity
- * owns which Zernio profile. Social accounts themselves are connected per entity
- * on /channels.
+ * owns which Zernio profile. The managed inboxes themselves (WhatsApp, Messenger,
+ * Instagram, Telegram, SMS) are connected per entity on /channels.
  *
  * Reads GET /api/zernio/status; Test = POST /api/zernio/test; Register webhook =
  * POST /api/zernio/webhook/register. A server without these endpoints shows a
@@ -14,10 +14,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { AlertCircle, CheckCircle, KeyRound, Loader2, RefreshCw, Share2, Webhook } from 'lucide-react'
+import { AlertCircle, CheckCircle, KeyRound, Loader2, Plug, RefreshCw, Webhook } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useAccess } from '@/lib/useAccess'
-import { SocialApiError, errMessage, isNotSetUp, socialApi, type ZernioStatus } from '@/lib/social'
+import { ZernioApiError, errMessage, isNotSetUp, zernioApi, type ZernioStatus } from '@/lib/zernio'
 import { useT } from '@/i18n'
 
 const inputCls =
@@ -40,12 +40,12 @@ export function ZernioCard() {
 
   const load = useCallback(async () => {
     try {
-      const s = await socialApi<ZernioStatus>('zernio/status')
+      const s = await zernioApi<ZernioStatus>('zernio/status')
       setStatus(s)
       setState('ok')
     } catch (e) {
       if (isNotSetUp(e)) setState('missing')
-      else if (e instanceof SocialApiError && e.status === 403) setState('denied')
+      else if (e instanceof ZernioApiError && e.status === 403) setState('denied')
       else {
         setLoadError(errMessage(e))
         setState('error')
@@ -63,9 +63,9 @@ export function ZernioCard() {
     setMsg(null)
     try {
       // the app-keys mechanism: global settings, write-only, masked on read
-      await socialApi('whatsapp/settings', { method: 'POST', body: JSON.stringify({ zernio_api_key: key.trim() }) })
+      await zernioApi('whatsapp/settings', { method: 'POST', body: JSON.stringify({ zernio_api_key: key.trim() }) })
       setKey('')
-      setMsg({ ok: true, text: t('social.zernio.saved') })
+      setMsg({ ok: true, text: t('managed.zernio.saved') })
       await load()
     } catch (e) {
       setMsg({ ok: false, text: errMessage(e) })
@@ -78,14 +78,14 @@ export function ZernioCard() {
     setBusy('test')
     setMsg(null)
     try {
-      const r = await socialApi<{ profiles?: unknown[]; detail?: string }>('zernio/test', { method: 'POST' })
+      const r = await zernioApi<{ profiles?: unknown[]; detail?: string }>('zernio/test', { method: 'POST' })
       setMsg({
         ok: true,
-        text: r.detail || t('social.zernio.testOk', { count: Array.isArray(r.profiles) ? r.profiles.length : 0 }),
+        text: r.detail || t('managed.zernio.testOk', { count: Array.isArray(r.profiles) ? r.profiles.length : 0 }),
       })
       await load()
     } catch (e) {
-      setMsg({ ok: false, text: isNotSetUp(e) ? t('social.zernio.notSetUpBody') : errMessage(e) })
+      setMsg({ ok: false, text: isNotSetUp(e) ? t('managed.zernio.notSetUpBody') : errMessage(e) })
     } finally {
       setBusy('')
     }
@@ -95,8 +95,8 @@ export function ZernioCard() {
     setBusy('webhook')
     setMsg(null)
     try {
-      await socialApi('zernio/webhook/register', { method: 'POST' })
-      setMsg({ ok: true, text: t('social.zernio.webhookRegistered') })
+      await zernioApi('zernio/webhook/register', { method: 'POST' })
+      setMsg({ ok: true, text: t('managed.zernio.webhookRegistered') })
       await load()
     } catch (e) {
       setMsg({ ok: false, text: errMessage(e) })
@@ -117,9 +117,9 @@ export function ZernioCard() {
     <section data-tour="appkeys-zernio" aria-labelledby="zernio-h" className="flex flex-col gap-3">
       <div>
         <div className="flex items-center gap-2">
-          <Share2 size={15} className="text-brand-300" aria-hidden />
+          <Plug size={15} className="text-brand-300" aria-hidden />
           <h2 id="zernio-h" className="text-[14px] font-extrabold tracking-[-0.3px] text-text-heading">
-            {t('social.zernio.title')}
+            {t('managed.zernio.title')}
           </h2>
           {state === 'ok' && (
             <span
@@ -127,11 +127,11 @@ export function ZernioCard() {
                 configured ? 'bg-green/15 text-green-300' : 'bg-amber/15 text-amber-300'
               }`}
             >
-              {configured ? t('common.status.connected') : t('social.zernio.needsKey')}
+              {configured ? t('common.status.connected') : t('managed.zernio.needsKey')}
             </span>
           )}
         </div>
-        <p className="mt-0.5 max-w-[720px] text-[11px] leading-relaxed text-text-muted">{t('social.zernio.hint')}</p>
+        <p className="mt-0.5 max-w-[720px] text-[11px] leading-relaxed text-text-muted">{t('managed.zernio.hint')}</p>
       </div>
 
       <div className="flex max-w-[860px] flex-col gap-4 rounded-xl border border-line bg-card p-4">
@@ -142,8 +142,8 @@ export function ZernioCard() {
         )}
         {state === 'missing' && (
           <div className="rounded-lg border border-dashed border-line-strong px-3 py-2.5 text-[12px] leading-relaxed text-text-mid">
-            <div className="font-bold text-text-high">{t('social.zernio.notSetUpTitle')}</div>
-            {t('social.zernio.unavailable')}
+            <div className="font-bold text-text-high">{t('managed.zernio.notSetUpTitle')}</div>
+            {t('managed.zernio.unavailable')}
           </div>
         )}
         {state === 'error' && (
@@ -173,7 +173,7 @@ export function ZernioCard() {
             {/* API key */}
             <div className="flex flex-col gap-1.5">
               <span className="flex items-center gap-1.5 text-[11px] font-bold text-text-high">
-                <KeyRound size={12} aria-hidden /> {t('social.zernio.apiKey')}
+                <KeyRound size={12} aria-hidden /> {t('managed.zernio.apiKey')}
               </span>
               {configured && status?.key_masked && (
                 <span className="font-mono text-[12px] text-text-mid">{status.key_masked}</span>
@@ -185,8 +185,8 @@ export function ZernioCard() {
                     autoComplete="off"
                     value={key}
                     onChange={(e) => setKey(e.target.value)}
-                    placeholder={configured ? t('social.zernio.replaceKey') : t('social.zernio.keyPlaceholder')}
-                    aria-label={t('social.zernio.apiKey')}
+                    placeholder={configured ? t('managed.zernio.replaceKey') : t('managed.zernio.keyPlaceholder')}
+                    aria-label={t('managed.zernio.apiKey')}
                     className={`${inputCls} max-w-[420px] flex-1`}
                   />
                   <Button size="sm" onClick={saveKey} disabled={!key.trim() || busy !== ''}>
@@ -195,39 +195,39 @@ export function ZernioCard() {
                   </Button>
                   <Button variant="secondary" size="sm" onClick={test} disabled={!configured || busy !== ''}>
                     {busy === 'test' ? <Loader2 size={12} className="animate-spin" aria-hidden /> : <RefreshCw size={12} aria-hidden />}
-                    {t('social.zernio.test')}
+                    {t('managed.zernio.test')}
                   </Button>
                 </div>
               ) : (
-                <span className="text-[11px] text-text-muted">{t('social.zernio.superOnly')}</span>
+                <span className="text-[11px] text-text-muted">{t('managed.zernio.superOnly')}</span>
               )}
-              <span className="text-[10.5px] leading-relaxed text-text-muted">{t('social.zernio.keyHint')}</span>
+              <span className="text-[10.5px] leading-relaxed text-text-muted">{t('managed.zernio.keyHint')}</span>
             </div>
 
             {/* Webhook */}
             <div className="flex flex-col gap-1.5 border-t border-line pt-3">
               <span className="flex items-center gap-1.5 text-[11px] font-bold text-text-high">
-                <Webhook size={12} aria-hidden /> {t('social.zernio.webhook')}
+                <Webhook size={12} aria-hidden /> {t('managed.zernio.webhook')}
                 <span
                   className={`rounded-full px-2 py-px text-[10px] font-bold ${
                     webhook?.registered ? 'bg-green/15 text-green-300' : 'bg-fill text-text-muted'
                   }`}
                 >
-                  {webhook?.registered ? t('social.zernio.registered') : t('social.zernio.notRegistered')}
+                  {webhook?.registered ? t('managed.zernio.registered') : t('managed.zernio.notRegistered')}
                 </span>
               </span>
               {webhook?.url && <span className="break-all font-mono text-[11.5px] text-text-mid">{webhook.url}</span>}
               {webhook?.events && webhook.events.length > 0 && (
                 <span className="text-[10.5px] text-text-muted">
-                  {t('social.zernio.events', { events: webhook.events.join(', ') })}
+                  {t('managed.zernio.events', { events: webhook.events.join(', ') })}
                 </span>
               )}
-              <span className="text-[10.5px] leading-relaxed text-text-muted">{t('social.zernio.webhookHint')}</span>
+              <span className="text-[10.5px] leading-relaxed text-text-muted">{t('managed.zernio.webhookHint')}</span>
               {canKeys && (
                 <div>
                   <Button variant="secondary" size="sm" onClick={registerWebhook} disabled={!configured || busy !== ''}>
                     {busy === 'webhook' ? <Loader2 size={12} className="animate-spin" aria-hidden /> : <Webhook size={12} aria-hidden />}
-                    {webhook?.registered ? t('social.zernio.reRegister') : t('social.zernio.register')}
+                    {webhook?.registered ? t('managed.zernio.reRegister') : t('managed.zernio.register')}
                   </Button>
                 </div>
               )}
@@ -235,16 +235,16 @@ export function ZernioCard() {
 
             {/* Entity → profile */}
             <div className="flex flex-col gap-1.5 border-t border-line pt-3">
-              <span className="text-[11px] font-bold text-text-high">{t('social.zernio.profiles')}</span>
-              <span className="text-[10.5px] leading-relaxed text-text-muted">{t('social.zernio.profilesHint')}</span>
+              <span className="text-[11px] font-bold text-text-high">{t('managed.zernio.profiles')}</span>
+              <span className="text-[10.5px] leading-relaxed text-text-muted">{t('managed.zernio.profilesHint')}</span>
               {profiles.length === 0 ? (
-                <span className="text-[11.5px] text-text-muted">{t('social.zernio.noProfiles')}</span>
+                <span className="text-[11.5px] text-text-muted">{t('managed.zernio.noProfiles')}</span>
               ) : (
                 <ul className="flex flex-col divide-y divide-line rounded-lg border border-line">
                   {profiles.map((p, i) => (
                     <li key={`${p.entity_id ?? 'org'}-${i}`} className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-[12px]">
                       <span className="font-semibold text-text-high">
-                        {p.entity_name || (p.entity_id == null ? t('social.zernio.orgProfile') : `#${p.entity_id}`)}
+                        {p.entity_name || (p.entity_id == null ? t('managed.zernio.orgProfile') : `#${p.entity_id}`)}
                       </span>
                       <span className="font-mono text-[11px] text-text-muted">{p.profile_id || '—'}</span>
                     </li>
@@ -252,8 +252,8 @@ export function ZernioCard() {
                 </ul>
               )}
               <span className="text-[11px] text-text-muted">
-                {t('social.zernio.connectOn')}{' '}
-                <Link href="/channels#social-accounts" className="font-semibold text-brand-300 hover:underline">
+                {t('managed.zernio.connectOn')}{' '}
+                <Link href="/channels" className="font-semibold text-brand-300 hover:underline">
                   {t('shell.nav.channels')}
                 </Link>
               </span>

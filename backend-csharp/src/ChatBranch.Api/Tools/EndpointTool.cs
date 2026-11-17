@@ -201,7 +201,7 @@ public sealed class EndpointTool : ChatBranchTool
     internal static readonly string[] ChannelNames =
     {
         "whatsapp", "email", "facebook", "instagram", "telegram", "website", "line", "viber", "sms",
-        "wechat", "tiktok", "douyin", "zalo", "social",
+        "wechat", "tiktok", "douyin", "zalo",
     };
 
     private string BuildSchema()

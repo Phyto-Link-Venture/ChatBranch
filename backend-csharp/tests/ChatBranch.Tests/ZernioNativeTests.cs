@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using ChatBranch.Data;
 using ChatBranch.Data.Channels;
-using ChatBranch.Data.Social;
+using ChatBranch.Data.Zernio;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -261,7 +261,7 @@ public class ZernioNativeTests : IClassFixture<ZernioFactory>
     }
 
     [Fact]
-    public async Task A_native_non_zernio_inbox_keeps_its_dms_unless_the_zernio_account_itself_is_the_inbox()
+    public async Task A_dm_for_an_unmirrored_account_is_ignored_and_a_managed_inbox_takes_its_own_dms()
     {
         var entity = InDb(db =>
         {
@@ -274,24 +274,13 @@ public class ZernioNativeTests : IClassFixture<ZernioFactory>
             db.SaveChanges();
             return e.Id;
         });
-        // a social-only Zernio account (comments) in that outlet: its DMs stay with the Meta inbox
-        var social = InDb(db =>
-        {
-            var a = new ChannelAccount
-            {
-                Channel = ChannelIds.Social, Provider = Providers.Zernio, ExternalId = "zs-" + U(), Name = "@kedai (Instagram)",
-                EntityId = entity, CreatedAt = DateTime.UtcNow,
-                Config = new Dictionary<string, object?> { ["platform"] = "instagram", ["zernio_status"] = "connected" },
-            };
-            db.ChannelAccounts.Add(a);
-            db.SaveChanges();
-            return a;
-        });
+        // a Zernio account ChatBranch never mirrored (no inbox here): its DMs are not ChatBranch's
+        var stranger = new ChannelAccount { ExternalId = "zs-" + U(), Channel = ChannelIds.Instagram };
         var igsid = "ig" + U();
-        var skipped = await Hook("message.received", Received(social, "instagram", "c-" + U(), "hello", new { id = igsid }, igsid));
-        Assert.Equal("skipped", skipped.GetProperty("result").GetString());
+        var skipped = await Hook("message.received", Received(stranger, "instagram", "c-" + U(), "hello", new { id = igsid }, igsid));
+        Assert.Equal("ignored", skipped.GetProperty("result").GetString());
         Assert.Null(ThreadOf(ChannelIds.Instagram, igsid));
-        Assert.False(InDb(db => db.ChannelAccounts.Any(a => a.ExternalId == social.ExternalId && a.Channel == ChannelIds.Instagram)));
+        Assert.False(InDb(db => db.ChannelAccounts.Any(a => a.ExternalId == stranger.ExternalId)));
 
         // the SAME outlet, but this Zernio account was connected as the inbox: its DMs are native
         var native = Native(ChannelIds.Instagram, entity);
@@ -339,11 +328,11 @@ public class ZernioNativeTests : IClassFixture<ZernioFactory>
         var waId = int.Parse(waRow.GetProperty("id").GetString()!);
         var wa = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Id == waId));
         Assert.Equal(Providers.Zernio, wa.Provider);
-        Assert.False(InDb(db => db.ChannelAccounts.Any(a => a.ExternalId == wa.ExternalId && a.Channel == ChannelIds.Social)));
+        Assert.Equal(1, InDb(db => db.ChannelAccounts.Count(a => a.ExternalId == wa.ExternalId)));
         Assert.Equal("EAAB-secret", _f.Zernio.Of("WhatsAppCredentials").Single()["accessToken"]);
 
         // Telegram: an access code + steps, then the poll connects it
-        var code = await (await c.PostAsJsonAsync("/api/social/connect", new { platform = "telegram", purpose = "inbox" }))
+        var code = await (await c.PostAsJsonAsync("/api/social/connect", new { platform = "telegram" }))
             .Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("pending", code.GetProperty("status").GetString());
         Assert.Equal("ZRN-ABC123", code.GetProperty("code").GetString());
@@ -361,12 +350,12 @@ public class ZernioNativeTests : IClassFixture<ZernioFactory>
         Assert.True(connected.GetProperty("connected").GetBoolean());
         Assert.Equal("telegram", connected.GetProperty("account").GetProperty("channel").GetString());
         Assert.True(InDb(db => db.ChannelAccounts.Any(a => a.ExternalId == tgId && a.Channel == ChannelIds.Telegram && a.Provider == Providers.Zernio)));
-        // …and its social twin (channel posts) shares the Zernio id
-        Assert.True(InDb(db => db.ChannelAccounts.Any(a => a.ExternalId == tgId && a.Channel == ChannelIds.Social)));
+        // one Zernio account = one inbox (no second row for channel posts)
+        Assert.Equal(1, InDb(db => db.ChannelAccounts.Count(a => a.ExternalId == tgId)));
 
         // SMS: pick a number, SMS goes on, the SMS account is the inbox
         _f.Zernio.PhoneNumbers.Add(new { _id = "num1", phoneNumber = "+60123000111", country = "MY", status = "active", smsCapable = true });
-        var pick = await (await c.PostAsJsonAsync("/api/social/connect", new { platform = "sms", purpose = "inbox" }))
+        var pick = await (await c.PostAsJsonAsync("/api/social/connect", new { platform = "sms" }))
             .Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("/api/social/connect/sms", pick.GetProperty("submit_url").GetString());
         var field = pick.GetProperty("fields")[0];
@@ -428,7 +417,7 @@ public class ZernioNativeTests : IClassFixture<ZernioFactory>
         Assert.Equal(HttpStatusCode.Conflict, (await c.DeleteAsync($"/api/whatsapp/accounts/{wa.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync("/api/whatsapp/accounts", new { provider = "zernio", name = "x" })).StatusCode);
 
-        // disconnect goes through the social path: Zernio is told, the inbox goes
+        // disconnect goes through the managed-connection path: Zernio is told, the inbox goes
         Assert.Equal(HttpStatusCode.OK, (await c.DeleteAsync($"/api/social/accounts/{tg.ExternalId}?confirm=true")).StatusCode);
         Assert.Equal(tg.ExternalId, _f.Zernio.Of("DeleteAccount").Single()["accountId"]);
         Assert.False(InDb(db => db.ChannelAccounts.Any(a => a.Id == tg.Id)));
@@ -443,7 +432,7 @@ public class ZernioNativeTests : IClassFixture<ZernioFactory>
     }
 
     [Fact]
-    public async Task A_synced_facebook_account_gets_a_messenger_inbox_at_its_selected_pages_outlet()
+    public async Task A_synced_facebook_account_gets_a_messenger_inbox_named_for_its_selected_page()
     {
         var c = await Admin();
         var (e1, slug1) = InDb(db =>
@@ -474,58 +463,32 @@ public class ZernioNativeTests : IClassFixture<ZernioFactory>
         Assert.Null(native.EntityId);
         Assert.Equal("Kopi KL", ZernioNative.Address(native));
 
-        // bind the selected Page to outlet 1: the Messenger inbox and the account's comments follow it
-        Assert.Equal(HttpStatusCode.OK, (await c.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P1", new { entity = slug1 })).StatusCode);
-        Assert.Equal(e1, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Id == native.Id).EntityId));
-        var social = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == fb && a.Channel == ChannelIds.Social));
-        var cid = "c-" + U();
-        await Hook("comment.received", new
-        {
-            id = Guid.NewGuid().ToString(), @event = "comment.received",
-            comment = new { id = cid, platformPostId = "fbp1", platform = "facebook", text = "Open?", author = new { id = "u1", name = "Lim" }, createdAt = DateTime.UtcNow.ToString("o") },
-            post = new { id = "zp", platformPostId = "fbp1" },
-            account = new { id = fb, accountId = fb, platform = "facebook" },
-        });
-        Assert.Equal(e1, ThreadOf(ChannelIds.Social, $"comment:{fb}:{cid}")!.EntityId);
-        Assert.Null(social.EntityId); // the account itself (and its posts' level) stays where it was
-
-        // selecting the other (unbound) Page moves the inbox back to the account's level
+        // selecting the other Page: the inbox now answers as that Page, at the same level
         Assert.Equal(HttpStatusCode.OK, (await c.PostAsync($"/api/social/accounts/{fb}/pages/P2/select", null)).StatusCode);
-        Assert.Null(InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Id == native.Id).EntityId));
-        Assert.Null(ThreadOf(ChannelIds.Social, $"comment:{fb}:{cid}")!.EntityId);
+        var after = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Id == native.Id));
+        Assert.Equal("Kopi PG", ZernioNative.Address(after));
+        Assert.Null(after.EntityId);
+        Assert.Equal(1, InDb(db => db.ChannelAccounts.Count(a => a.ExternalId == fb)));
     }
 
     [Fact]
-    public async Task The_ai_task_catalog_offers_the_social_media_app_with_its_opt_ins()
+    public async Task The_ai_task_catalog_has_no_social_media_tools_and_old_tasks_still_save()
     {
         var c = await Admin();
         var cat = (await c.GetFromJsonAsync<JsonElement>("/api/ai/tasks")).GetProperty("catalog").GetProperty("builtins");
-        var schedule = cat.EnumerateArray().Single(t => t.GetProperty("id").GetString() == "social_schedule_post");
-        Assert.Equal("Social media", schedule.GetProperty("app").GetString());
-        Assert.Equal("apps", schedule.GetProperty("group").GetString());
-        Assert.True(schedule.GetProperty("connected").GetBoolean());
-        Assert.True(schedule.GetProperty("write").GetBoolean());
-        Assert.Equal("allow_publish", schedule.GetProperty("settings")[0].GetProperty("key").GetString());
-        Assert.False(cat.EnumerateArray().Single(t => t.GetProperty("id").GetString() == "social_list_accounts").GetProperty("write").GetBoolean());
-        Assert.True(cat.EnumerateArray().Single(t => t.GetProperty("id").GetString() == "social_hide_comment").GetProperty("comment_only").GetBoolean());
-        foreach (var t in cat.EnumerateArray().Where(t => t.GetProperty("id").GetString()!.StartsWith("social_")))
-        {
-            Assert.DoesNotContain("Zernio", t.GetProperty("label").GetString());
-            Assert.DoesNotContain("Zernio", t.GetProperty("description").GetString());
-        }
+        Assert.DoesNotContain(cat.EnumerateArray(), t => t.GetProperty("id").GetString()!.StartsWith("social_"));
 
-        // a task saves the opt-in as "true"; anything else turns it off
+        // a task saved before the removal (a retired tool, an old opt-in) still saves: both are dropped
         var made = await c.PostAsJsonAsync("/api/ai/tasks", new
         {
-            name = "Auto post " + U(), instructions = "Post promos.", tools = new[] { "social_schedule_post" },
+            name = "Old promo task " + U(), instructions = "Note anything about promos.",
+            tools = new[] { "social_schedule_post", "add_private_note" },
             config = new Dictionary<string, object> { ["allow_publish"] = true },
         });
-        Assert.True(made.IsSuccessStatusCode);
-        Assert.Equal("true", (await made.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("config").GetProperty("allow_publish").GetString());
-
-        _f.Zernio.Configured = false;
-        cat = (await c.GetFromJsonAsync<JsonElement>("/api/ai/tasks")).GetProperty("catalog").GetProperty("builtins");
-        Assert.False(cat.EnumerateArray().Single(t => t.GetProperty("id").GetString() == "social_schedule_post").GetProperty("connected").GetBoolean());
+        Assert.True(made.IsSuccessStatusCode, await made.Content.ReadAsStringAsync());
+        var saved = await made.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(new[] { "add_private_note" }, saved.GetProperty("tools").EnumerateArray().Select(x => x.GetString()).ToArray());
+        Assert.False(saved.GetProperty("config").TryGetProperty("allow_publish", out _));
     }
 
     [Fact]

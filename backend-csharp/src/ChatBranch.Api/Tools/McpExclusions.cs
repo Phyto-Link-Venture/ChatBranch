@@ -59,12 +59,11 @@ public static class McpExclusions
 
     public static readonly IReadOnlyList<Rule> All = new Rule[]
     {
-        // social media through Zernio: the key, its webhook secret and file bytes stay with a person
+        // managed connections through Zernio: the key, its webhook secret and money moves stay with a person
         new("GET", "/api/zernio/status", CredentialRead),
         new("POST", "/api/zernio/test", "tests the deployment's Zernio API key (Settings → Integrations) — a credential check a person runs after saving the key"),
         new("POST", "/api/zernio/webhook/register", Credentials + " (it generates and stores the Zernio webhook signing secret)"),
         new("POST", "/api/social/connect/whatsapp", Credentials + " (a business's own Meta System User token for a managed WhatsApp connection — typed by a person, never by an assistant)"),
-        new("POST", "/api/social/media", "binary upload (multipart) of a post's photo or video — social_create_post takes public https media URLs instead"),
         new("POST", "/api/social/phone-numbers/purchase",
             "spends the owner's money: buying a number starts a recurring monthly charge on their bill. A person " +
             "decides that in the dashboard with the price in front of them (social_list_phone_numbers quotes it)"),

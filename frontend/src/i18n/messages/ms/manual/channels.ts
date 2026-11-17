@@ -342,7 +342,7 @@ export const channels: Dict<typeof source> = {
       },
       s4: {
         title: 'Buka blok',
-        body: 'Dalam ChatBranch, buka Saluran → “Saluran”. Di bawah “Tambah saluran” → “Media sosial”, klik “Messenger” atau “Instagram”.',
+        body: 'Dalam ChatBranch, buka Saluran → “Saluran”. Di bawah “Tambah saluran” → “Aplikasi pemesejan”, klik “Messenger” atau “Instagram”.',
       },
       s5: {
         title: 'Tampal butiran',
@@ -383,7 +383,7 @@ export const channels: Dict<typeof source> = {
     steps: {
       s1: {
         title: 'Cari blok saluran',
-        body: 'Di bar sisi, buka Saluran → “Saluran” dan tatal ke “Tambah saluran”. LINE, Viber dan Zalo berada di bawah “Aplikasi pemesejan”, TikTok di bawah “Media sosial”, SMS di bawah “SMS, e-mel & suara”, WeChat dan Douyin di bawah “China”. Blok bertanda “Perlu kelulusan” memerlukan kelulusan platform dahulu.',
+        body: 'Di bar sisi, buka Saluran → “Saluran” dan tatal ke “Tambah saluran”. LINE, Viber, Zalo dan TikTok berada di bawah “Aplikasi pemesejan”, SMS di bawah “SMS, e-mel & suara”, WeChat dan Douyin di bawah “China”. Blok bertanda “Perlu kelulusan” memerlukan kelulusan platform dahulu.',
       },
       s2: {
         title: 'Buka panduan ringkas',

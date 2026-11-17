@@ -22,7 +22,7 @@ public sealed class WhatsAppClientRouter : IWhatsAppCloudClient
     private readonly IWhatsAppCloudClient _twilio;
     /// <summary>WhatsApp through the operator's own WAHA server (unofficial).</summary>
     private readonly IWhatsAppCloudClient _waha;
-    /// <summary>WhatsApp via Zernio (<see cref="ChatBranch.Data.Social.ZernioWhatsAppClient"/>); null = not wired.</summary>
+    /// <summary>WhatsApp via Zernio (<see cref="ChatBranch.Data.Zernio.ZernioWhatsAppClient"/>); null = not wired.</summary>
     private readonly IWhatsAppCloudClient? _zernio;
 
     public WhatsAppClientRouter(IWhatsAppCloudClient meta, YCloudWhatsAppClient ycloud, TwilioWhatsAppClient twilio,

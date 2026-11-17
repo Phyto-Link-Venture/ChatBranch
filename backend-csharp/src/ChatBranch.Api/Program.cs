@@ -155,8 +155,8 @@ builder.Services.AddMoreChannels();
 // Marketplace seller channels (Shopee, Lazada, TikTok Shop, Shopify): the sidecar
 // client plus one IChannelTransport each, so they ride the same send path.
 builder.Services.AddCommerceChannels();
-// Social media through Zernio: the client, the "social" transport, accounts + webhook services
-builder.Services.AddSocialChannel();
+// Zernio as a managed connection for native messaging channels: the client, transports, accounts + webhook
+builder.Services.AddZernio();
 builder.Services.AddScoped<ChatBranch.Data.Channels.EmailSyncService>();
 // IMAP sync on the server, so mail arrives with no dashboard open (EMAIL_SYNC_WORKER=0 disables it)
 builder.Services.AddHostedService<ChatBranch.Api.Workers.EmailSyncWorker>();
@@ -196,8 +196,7 @@ builder.Services.AddScoped(sp => new ChatBranch.Data.Ai.Tasks.AiTaskService(
     sp.GetRequiredService<ChatBranch.Data.AppDbContext>(), sp.GetRequiredService<ChatBranch.Data.ScopingService>(),
     sp.GetRequiredService<ChatBranch.Data.Ai.ILlmClient>(),
     sp.GetRequiredService<ChatBranch.Data.Integrations.IntegrationActions>(),
-    sp.GetRequiredService<IHttpClientFactory>(), sp.GetRequiredService<ChatBranch.Data.Channels.MediaStore>(),
-    sp.GetService<ChatBranch.Data.Social.IZernioClient>()));
+    sp.GetRequiredService<IHttpClientFactory>(), sp.GetRequiredService<ChatBranch.Data.Channels.MediaStore>()));
 builder.Services.AddHostedService<ChatBranch.Api.Workers.AiTaskWorker>();
 // Contacts: identity registry + WhatsApp lookups (IdentityCheckWorker), invite
 // links, unknown-customer "who are you?", contact-book import (+ Google Contacts)
@@ -326,8 +325,8 @@ app.MapTelegramWebhookEndpoints();
 app.MapMoreChannelWebhookEndpoints();
 // The marketplace bridge: the seller service pushes buyer chats here.
 app.MapCommerceEndpoints();
-// ChatBranch × Zernio: social accounts, comments / reviews / DMs, posts, the signed webhook
-app.MapSocialEndpoints();
+// ChatBranch × Zernio: managed messaging accounts, connect flows, phone numbers, the signed webhook
+app.MapZernioEndpoints();
 app.MapWhatsAppBspWebhookEndpoints();
 // WhatsApp through the operator's own WAHA server (unofficial): pairing + its signed webhook
 app.MapWahaEndpoints();

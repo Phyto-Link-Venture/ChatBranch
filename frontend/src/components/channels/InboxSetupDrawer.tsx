@@ -579,7 +579,7 @@ export function InboxSetupDrawer({
       return fromWidget(w)
     }
 
-    // email + social → /api/messaging/accounts
+    // email, Messenger, Instagram (Meta) → /api/messaging/accounts
     const body: Record<string, unknown> = { name: name.trim(), ...who() }
     if (kind === 'email') {
       Object.assign(body, {
@@ -717,7 +717,6 @@ export function InboxSetupDrawer({
 
   /** Why a method can't be used by this person (null = it can). */
   const methodBlocked = (mth: MethodDef): string | null => {
-    if (mth.zernio) return can('social.manage') ? null : t('channels.drawer.needsSocial')
     if (mth.kind === 'voice' && !canKeys && !voiceConfigured) return t('channels.page.superOnly')
     return can('channels.manage') ? null : t('channels.page.addNeedsPermission')
   }

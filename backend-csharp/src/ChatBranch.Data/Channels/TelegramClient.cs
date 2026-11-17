@@ -265,10 +265,10 @@ public sealed class TelegramChannel
     private readonly ThreadStore _threads;
     private readonly ITelegramClient _client;
     /// <summary>A Telegram inbox connected through Zernio (managed connection); null = not wired.</summary>
-    private readonly ChatBranch.Data.Social.ZernioNativeTransport? _zernio;
+    private readonly ChatBranch.Data.Zernio.ZernioNativeTransport? _zernio;
 
     public TelegramChannel(AppDbContext db, ScopingService scoping, ThreadStore threads, ITelegramClient client,
-        ChatBranch.Data.Social.ZernioNativeTransport? zernio = null)
+        ChatBranch.Data.Zernio.ZernioNativeTransport? zernio = null)
     {
         _zernio = zernio;
         _db = db;
@@ -326,7 +326,7 @@ public sealed class TelegramChannel
             _db.SaveChanges();
         }
 
-        if (ChatBranch.Data.Social.ZernioNative.Is(bot) && _zernio != null)
+        if (ChatBranch.Data.Zernio.ZernioNative.Is(bot) && _zernio != null)
             return WithMedia(ZernioSend(thread, bot, text, source, media, replyToExternalId), media);
 
         TelegramResult result;
@@ -389,7 +389,7 @@ public sealed class TelegramChannel
         if (bot == null) return (false, true, "sandbox");
         if (!long.TryParse(messageId, out var mid) || mid <= 0)
             return (true, false, "That message has no Telegram id, so it can't carry a reaction.");
-        if (ChatBranch.Data.Social.ZernioNative.Is(bot) && _zernio != null)
+        if (ChatBranch.Data.Zernio.ZernioNative.Is(bot) && _zernio != null)
         {
             var z = _zernio.ReactAsync(bot, thread.Key, messageId, emoji).GetAwaiter().GetResult();
             return (true, z.Ok, z.Ok ? "sent" : z.Detail);

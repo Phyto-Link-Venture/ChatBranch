@@ -72,42 +72,36 @@ not coming back as buyer messages, Shopify's refusal, health verdicts).
 
 ---
 
-## 0b. Social media through Zernio (comments, Google reviews, DMs)
+## 0b. Managed connections through Zernio (WhatsApp, Messenger, Instagram DM, Telegram, SMS)
 
-Channel `social`, provider `zernio` (`Data/Social/`). ONE Zernio API key serves
-the deployment (Setting `zernio_api_key` → env `ZERNIO_API_KEY`, saved with the
-other app keys; base `zernio_base_url` → `ZERNIO_BASE_URL`, default
-`https://zernio.com/api/v1`). Each entity gets its own Zernio PROFILE
-(`externalId = cb-entity-<id>`, created on first connect); the organization
-level uses the key's default profile. Every connected Zernio account is a
-`ChannelAccount` (ExternalId = Zernio's account id, `Config.platform`,
-EntityId = its profile's entity, `ai_default: off` on creation), so routing,
-inbox settings, health and scoping work unchanged; `social` is in
-`MoreChannels.All` and `SocialTransport` is its `IChannelTransport`.
+Zernio is a CONNECTION METHOD on ChatBranch's native messaging channels
+(`Data/Zernio/`, `ZernioNative`): one Zernio account = ONE `ChannelAccount` on its
+native channel with `Provider = "zernio"` (ExternalId = Zernio's account id,
+`Config.platform`), so routing, windows, templates, flows, the AI, automations,
+inbox settings, health and scoping treat it like any other connection of that
+channel. Threads keep the native key (WhatsApp / SMS digits, PSID / IGSID, Telegram
+chat id) and a reply addresses Zernio's conversation id (`crm_zernioconversation`).
+ONE Zernio API key serves the deployment (Setting `zernio_api_key` → env
+`ZERNIO_API_KEY`, saved with the other app keys; base `zernio_base_url` →
+`ZERNIO_BASE_URL`, default `https://zernio.com/api/v1`). Each entity gets its own
+Zernio PROFILE (`externalId = cb-entity-<id>`, created on first connect); the
+organization level uses the key's default profile. A Messenger account's Facebook
+Pages are mirrored in `crm_socialpage`; the selected Page's conversations reach the
+inbox (`POST /api/social/accounts/{id}/pages/{pageId}/select`).
 
-| | Comment | Review (Google Business) | DM |
-|---|---|---|---|
-| Thread key | `comment:<account>:<root comment>` (replies join it) | `review:<account>:<review>` (URL-safe short id) | `dm:<account>:<conversation>` |
-| Receive | `comment.received` | `review.new` / `review.updated` (an edit → a new inbound; a reply written in Google → an outbound `external_client`) | `message.received` — **dropped when the entity has a native inbox for that platform** (Instagram, Messenger, WhatsApp, Telegram, SMS, TikTok) |
-| Reply | `POST /v1/inbox/comments/{postId} {accountId, message, commentId}` | `POST /v1/inbox/reviews/{reviewId}/reply` (Google keeps one reply; a second replaces it) | `POST /v1/inbox/conversations/{id}/messages` |
-| Delivery status | the REST answer (no `message.failed` for comments) | the REST answer | `message.sent` / `message.failed` |
-| Extras | hide / unhide (FB, IG, Threads, X, TikTok), one private reply (IG, FB) | rating on the thread | — |
-
-A social thread never links a contact, never runs the invite binder, STOP/START,
-flows, background AI tasks or the identity ask; team routing, automations and
-notifications run. A brand-new thread's AI is OFF unless the inbox's AI default is
-on, and a comment / review reply carries a "this is public: be brief and safe"
-system line (`SocialChannels.AiSystemLine`). The webhook (`POST /api/zernio/webhook`)
-verifies `X-Zernio-Signature` (no secret ⇒ 503, bad ⇒ 401) and dedupes on the event
-id; `POST /api/zernio/webhook/register` creates it with a generated secret.
-Not verified against a live Zernio account: tested with `FakeZernioClient`
-(`ZernioTests`). Gaps: Bluesky comment replies may need `parentCid`/`rootUri`,
-which the webhook does not carry; X comments do not fire `comment.received`;
-Facebook reviews have no webhook (list API only, not polled).
+**Scope:** ChatBranch is a connection hub for person-to-person messaging and calls.
+Zernio's social-media features — posts, public comments, reviews, other networks —
+are deliberately NOT used (removed Nov 2026): accounts of non-messaging platforms
+are never mirrored, and `comment.*` / `review.*` / `post.*` webhook events are
+answered 200 and ignored. The webhook (`POST /api/zernio/webhook`) verifies
+`X-Zernio-Signature` (no secret ⇒ 503, bad ⇒ 401) and dedupes on the event id;
+`POST /api/zernio/webhook/register` creates it with a generated secret, subscribed
+to `account.*` + `message.*` only. Not verified against a live Zernio account:
+tested with `FakeZernioClient` (`ZernioTests`, `ZernioNativeTests`).
 
 ### Self-serve WhatsApp onboarding (the client connects their own number)
 
-`POST /api/social/connect {platform:"whatsapp", purpose:"inbox", onboarding, signup}`
+`POST /api/social/connect {platform:"whatsapp", onboarding, signup}`
 runs **Meta's Embedded Signup** through Zernio
 (`GET /v1/connect/whatsapp?profileId=&redirect_url=&onboarding=&signup=`), so a client
 signs in to Meta in their own browser and picks the number — no System User token is
@@ -158,7 +152,7 @@ return every company's numbers on the key). `POST …/purchase` needs
 second number) and always sends `connectWhatsapp` explicitly, since Zernio defaults it
 to true. `DELETE …/{id}` needs `confirm=true` **and** the number typed back, and is
 refused for a number in another entity's profile. Both are audited
-(`social.phone_number.purchase` / `.release`) and both are deliberately **not** MCP
+(`zernio.phone_number.purchase` / `.release`) and both are deliberately **not** MCP
 tools (`McpExclusions`): they spend the owner's money and a release cannot be undone.
 A number bought through Zernio is pre-verified for WhatsApp and carries calls and SMS
 on the same number; a customer's own carrier number does not.

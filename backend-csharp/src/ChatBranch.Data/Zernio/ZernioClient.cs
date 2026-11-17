@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace ChatBranch.Data.Social;
+namespace ChatBranch.Data.Zernio;
 
 /// <summary>
 /// One round-trip to Zernio. <see cref="Error"/> is operator-facing (Zernio's own
@@ -73,7 +73,7 @@ public static class ZernioJson
 /// <summary>
 /// The Zernio REST API (<c>https://zernio.com/api/v1</c>, <c>Authorization: Bearer</c>).
 /// ONE key serves the whole deployment. Every method answers a <see cref="ZernioReply"/>
-/// and never throws — a social send or a webhook path must not fail on transport.
+/// and never throws — a send or a webhook path must not fail on transport.
 /// Paths and fields follow Zernio's OpenAPI spec (openapi.yaml, API 1.548).
 /// </summary>
 public interface IZernioClient
@@ -119,22 +119,6 @@ public interface IZernioClient
         CancellationToken ct = default);
     /// <summary>PUT /v1/webhooks/settings {webhookId, url, secret, events, isActive}.</summary>
     Task<ZernioReply> UpdateWebhookAsync(string webhookId, string url, string secret, IReadOnlyList<string> events,
-        CancellationToken ct = default);
-
-    // ---- the inbox: comments, reviews, DMs -------------------------------------
-    /// <summary>POST /v1/inbox/comments/{postId} {accountId, message, commentId} → {data:{commentId}}.</summary>
-    Task<ZernioReply> ReplyToCommentAsync(string accountId, string postId, string commentId, string message,
-        CancellationToken ct = default);
-    /// <summary>POST (hide) / DELETE (unhide) /v1/inbox/comments/{postId}/{commentId}/hide.</summary>
-    Task<ZernioReply> HideCommentAsync(string accountId, string postId, string commentId, bool hidden,
-        CancellationToken ct = default);
-    /// <summary>POST /v1/inbox/comments/{postId}/{commentId}/private-reply {accountId, message} (Instagram, Facebook).</summary>
-    Task<ZernioReply> PrivateReplyAsync(string accountId, string postId, string commentId, string message,
-        CancellationToken ct = default);
-    /// <summary>POST /v1/inbox/reviews/{reviewId}/reply {accountId, message} → {reply:{id…}} (reviewId URL-encoded).</summary>
-    Task<ZernioReply> ReplyToReviewAsync(string accountId, string reviewId, string message, CancellationToken ct = default);
-    /// <summary>POST /v1/inbox/conversations/{conversationId}/messages {accountId, message} → {data:{messageId}}.</summary>
-    Task<ZernioReply> SendMessageAsync(string accountId, string conversationId, string message,
         CancellationToken ct = default);
 
     // ---- native channels via Zernio (WhatsApp, Messenger, Instagram, Telegram, SMS) ----
@@ -196,19 +180,7 @@ public interface IZernioClient
     /// <summary>DELETE /v1/phone-numbers/{id} — releases it to the carrier pool. CANNOT BE UNDONE.</summary>
     Task<ZernioReply> ReleasePhoneNumberAsync(string phoneNumberId, CancellationToken ct = default);
 
-    // ---- posts + media ---------------------------------------------------------
-    /// <summary>POST /v1/posts → {post:{_id, status, platforms[]}}.</summary>
-    Task<ZernioReply> CreatePostAsync(Dictionary<string, object?> body, CancellationToken ct = default);
-    /// <summary>GET /v1/posts/{postId} → {post}.</summary>
-    Task<ZernioReply> GetPostAsync(string postId, CancellationToken ct = default);
-    /// <summary>PUT /v1/posts/{postId} → {post}.</summary>
-    Task<ZernioReply> UpdatePostAsync(string postId, Dictionary<string, object?> body, CancellationToken ct = default);
-    /// <summary>DELETE /v1/posts/{postId} (any status but published).</summary>
-    Task<ZernioReply> DeletePostAsync(string postId, CancellationToken ct = default);
-    /// <summary>POST /v1/posts/{postId}/retry → {post}.</summary>
-    Task<ZernioReply> RetryPostAsync(string postId, CancellationToken ct = default);
-    /// <summary>POST /v1/posts/{postId}/unpublish {platform, accountId} (a published post).</summary>
-    Task<ZernioReply> UnpublishPostAsync(string postId, string platform, string accountId, CancellationToken ct = default);
+    // ---- media (presigned uploads for attachments) -----------------------------
     /// <summary>POST /v1/media/presign {filename, contentType, size} → {uploadUrl, publicUrl}.</summary>
     Task<ZernioReply> PresignMediaAsync(string filename, string contentType, long size, CancellationToken ct = default);
     /// <summary>PUT the bytes to a presigned <paramref name="uploadUrl"/> (no Zernio auth header — the URL is signed).</summary>
@@ -235,11 +207,6 @@ public sealed class NullZernioClient : IZernioClient
     public Task<ZernioReply> ListWebhooksAsync(CancellationToken ct = default) => No();
     public Task<ZernioReply> CreateWebhookAsync(string n, string u, string s, IReadOnlyList<string> e, CancellationToken ct = default) => No();
     public Task<ZernioReply> UpdateWebhookAsync(string i, string u, string s, IReadOnlyList<string> e, CancellationToken ct = default) => No();
-    public Task<ZernioReply> ReplyToCommentAsync(string a, string p, string c, string m, CancellationToken ct = default) => No();
-    public Task<ZernioReply> HideCommentAsync(string a, string p, string c, bool h, CancellationToken ct = default) => No();
-    public Task<ZernioReply> PrivateReplyAsync(string a, string p, string c, string m, CancellationToken ct = default) => No();
-    public Task<ZernioReply> ReplyToReviewAsync(string a, string r, string m, CancellationToken ct = default) => No();
-    public Task<ZernioReply> SendMessageAsync(string a, string c, string m, CancellationToken ct = default) => No();
     public Task<ZernioReply> SendInboxMessageAsync(string a, string c, Dictionary<string, object?> b, CancellationToken ct = default) => No();
     public Task<ZernioReply> CreateConversationAsync(Dictionary<string, object?> b, CancellationToken ct = default) => No();
     public Task<ZernioReply> SendSmsAsync(string f, string t, string x, IReadOnlyList<string>? m = null, CancellationToken ct = default) => No();
@@ -258,12 +225,6 @@ public sealed class NullZernioClient : IZernioClient
     public Task<ZernioReply> PurchasePhoneNumberAsync(string p, string c, string? a, string? n, bool sms, bool wa,
         string? intent, CancellationToken ct = default) => No();
     public Task<ZernioReply> ReleasePhoneNumberAsync(string n, CancellationToken ct = default) => No();
-    public Task<ZernioReply> CreatePostAsync(Dictionary<string, object?> b, CancellationToken ct = default) => No();
-    public Task<ZernioReply> GetPostAsync(string p, CancellationToken ct = default) => No();
-    public Task<ZernioReply> UpdatePostAsync(string p, Dictionary<string, object?> b, CancellationToken ct = default) => No();
-    public Task<ZernioReply> DeletePostAsync(string p, CancellationToken ct = default) => No();
-    public Task<ZernioReply> RetryPostAsync(string p, CancellationToken ct = default) => No();
-    public Task<ZernioReply> UnpublishPostAsync(string p, string pl, string a, CancellationToken ct = default) => No();
     public Task<ZernioReply> PresignMediaAsync(string f, string c, long s, CancellationToken ct = default) => No();
     public Task<ZernioReply> UploadMediaAsync(string u, byte[] b, string c, CancellationToken ct = default) => No();
 }
@@ -426,37 +387,6 @@ public sealed class HttpZernioClient : IZernioClient
             ["webhookId"] = webhookId, ["url"] = url, ["secret"] = secret, ["events"] = events, ["isActive"] = true,
         }, ct);
 
-    public Task<ZernioReply> ReplyToCommentAsync(string accountId, string postId, string commentId, string message,
-        CancellationToken ct = default) =>
-        CallAsync(HttpMethod.Post, $"/inbox/comments/{E(postId)}", new Dictionary<string, object?>
-        {
-            ["accountId"] = accountId, ["message"] = message,
-            ["commentId"] = string.IsNullOrEmpty(commentId) ? null : commentId,
-        }, ct);
-
-    public Task<ZernioReply> HideCommentAsync(string accountId, string postId, string commentId, bool hidden,
-        CancellationToken ct = default) =>
-        hidden
-            ? CallAsync(HttpMethod.Post, $"/inbox/comments/{E(postId)}/{E(commentId)}/hide",
-                new Dictionary<string, object?> { ["accountId"] = accountId }, ct)
-            : CallAsync(HttpMethod.Delete, $"/inbox/comments/{E(postId)}/{E(commentId)}/hide?accountId={E(accountId)}",
-                null, ct);
-
-    public Task<ZernioReply> PrivateReplyAsync(string accountId, string postId, string commentId, string message,
-        CancellationToken ct = default) =>
-        CallAsync(HttpMethod.Post, $"/inbox/comments/{E(postId)}/{E(commentId)}/private-reply",
-            new Dictionary<string, object?> { ["accountId"] = accountId, ["message"] = message }, ct);
-
-    public Task<ZernioReply> ReplyToReviewAsync(string accountId, string reviewId, string message,
-        CancellationToken ct = default) =>
-        CallAsync(HttpMethod.Post, $"/inbox/reviews/{E(reviewId)}/reply",
-            new Dictionary<string, object?> { ["accountId"] = accountId, ["message"] = message }, ct);
-
-    public Task<ZernioReply> SendMessageAsync(string accountId, string conversationId, string message,
-        CancellationToken ct = default) =>
-        CallAsync(HttpMethod.Post, $"/inbox/conversations/{E(conversationId)}/messages",
-            new Dictionary<string, object?> { ["accountId"] = accountId, ["message"] = message }, ct);
-
     public Task<ZernioReply> SendInboxMessageAsync(string accountId, string conversationId,
         Dictionary<string, object?> body, CancellationToken ct = default) =>
         CallAsync(HttpMethod.Post, $"/inbox/conversations/{E(conversationId)}/messages",
@@ -567,26 +497,6 @@ public sealed class HttpZernioClient : IZernioClient
         CallAsync(HttpMethod.Delete, $"/phone-numbers/{E(phoneNumberId)}", null, ct);
 
     // publishing now runs every platform inside the request — give it room
-    public Task<ZernioReply> CreatePostAsync(Dictionary<string, object?> body, CancellationToken ct = default) =>
-        CallAsync(HttpMethod.Post, "/posts", body, ct, timeoutSeconds: 120);
-
-    public Task<ZernioReply> GetPostAsync(string postId, CancellationToken ct = default) =>
-        CallAsync(HttpMethod.Get, $"/posts/{E(postId)}", null, ct);
-
-    public Task<ZernioReply> UpdatePostAsync(string postId, Dictionary<string, object?> body,
-        CancellationToken ct = default) =>
-        CallAsync(HttpMethod.Put, $"/posts/{E(postId)}", body, ct, timeoutSeconds: 120);
-
-    public Task<ZernioReply> DeletePostAsync(string postId, CancellationToken ct = default) =>
-        CallAsync(HttpMethod.Delete, $"/posts/{E(postId)}", null, ct);
-
-    public Task<ZernioReply> RetryPostAsync(string postId, CancellationToken ct = default) =>
-        CallAsync(HttpMethod.Post, $"/posts/{E(postId)}/retry", null, ct, timeoutSeconds: 120);
-
-    public Task<ZernioReply> UnpublishPostAsync(string postId, string platform, string accountId,
-        CancellationToken ct = default) =>
-        CallAsync(HttpMethod.Post, $"/posts/{E(postId)}/unpublish",
-            new Dictionary<string, object?> { ["platform"] = platform, ["accountId"] = accountId }, ct);
 
     public Task<ZernioReply> PresignMediaAsync(string filename, string contentType, long size,
         CancellationToken ct = default) =>

@@ -6,8 +6,7 @@ import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { tagMeta } from '@/lib/tags'
 import { handoverKindLabel } from '@/lib/aiControls'
 import { Avatar, StatusTick } from './MessageParts'
-import { channelName, listStamp, logoKey, sameThread, statusLabel, threadIdentity, threadLogo, type ThreadRef, type UiThreadSummary } from './inboxTypes'
-import { SocialKindChip } from './SocialParts'
+import { channelName, listStamp, logoKey, sameThread, statusLabel, threadIdentity, type ThreadRef, type UiThreadSummary } from './inboxTypes'
 import { isHeaderSort, type FilterChip, type HeaderSort, type Sort, type TriState } from './inboxFilters'
 import { Segmented } from './Segmented'
 import { useFormat, useT } from '@/i18n'
@@ -308,7 +307,6 @@ export default function ChatListPane({
               <Avatar
                 name={row.name}
                 channel={merged ? undefined : row.channel}
-                logo={!merged && row.social ? threadLogo(row) : undefined}
                 strong={selected}
                 group={!!row.is_group}
               />
@@ -326,8 +324,6 @@ export default function ChatListPane({
                         <Users size={9} aria-hidden /> {t('chats.group.badge')}
                       </span>
                     )}
-                    {/* social threads: Comment / Review ★n / DM */}
-                    {row.social && <SocialKindChip social={row.social} />}
                   </span>
                   <span
                     className={`shrink-0 text-[11.5px] ${row.waiting ? 'font-semibold text-[color:var(--brand-ink)]' : 'text-text-muted'}`}
@@ -344,7 +340,7 @@ export default function ChatListPane({
                   )}
                   <span className={`truncate ${row.pending ? 'italic text-text-muted' : ''}`}>
                     {/* group chats: who wrote the newest inbound message */}
-                    {!row.pending && (row.is_group || !!row.social) && row.last_dir === 'in' && row.last_sender && (
+                    {!row.pending && row.is_group && row.last_dir === 'in' && row.last_sender && (
                       <span className="font-semibold text-text-high">{row.last_sender}: </span>
                     )}
                     {row.pending
@@ -414,7 +410,7 @@ export default function ChatListPane({
                     {(row.labels ?? []).length > 3 && (
                       <span className="text-[10.5px] text-text-muted">+{(row.labels ?? []).length - 3}</span>
                     )}
-                    {row.ai_enabled && !row.opted_out && !row.pending && row.channel !== 'email' && !row.contact_id && !row.is_group && !row.social ? (
+                    {row.ai_enabled && !row.opted_out && !row.pending && row.channel !== 'email' && !row.contact_id && !row.is_group ? (
                       // same state as the chat header: the AI only answers a chat linked to a contact
                       <span
                         title={t('chats.page.aiNeedsContactHint')}

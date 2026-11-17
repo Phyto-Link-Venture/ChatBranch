@@ -348,40 +348,6 @@ export const guide = {
         },
       },
     },
-    social: {
-      title: 'Social posts',
-      intro: 'Write a post once and publish it to your social accounts — now or later.',
-      steps: {
-        s1: {
-          title: 'Social posts',
-          body: 'Posts go out to the social accounts connected on the Channels page.',
-        },
-        s2: {
-          title: 'Post to',
-          body: 'Pick the accounts the post goes to. They are grouped by network, and each network gets its own character counter under the text.',
-        },
-        s3: {
-          title: 'Draft with AI',
-          body: 'Describe the post in a line, pick a tone, and the AI writes a first version you can edit.',
-        },
-        s4: {
-          title: 'Photos and videos',
-          body: 'Add pictures or a video. They upload once and go out with the post.',
-        },
-        s5: {
-          title: 'Now or later',
-          body: 'Publish now sends it straight away. Schedule picks a date and time in your business time zone.',
-        },
-        s6: {
-          title: 'Your posts',
-          body: 'Every post with its status — scheduled, published, partly published or failed — and a link to each account’s copy. Retry a failed one, delete one you no longer want.',
-        },
-        s7: {
-          title: 'List or calendar',
-          body: 'Switch between a list and a week or month calendar.',
-        },
-      },
-    },
     automations: {
       title: 'Automations',
       intro: 'Simple “when this happens, do that” rules for conversations.',
@@ -750,7 +716,7 @@ export const guide = {
         },
         s3: {
           title: 'Connected',
-          body: 'Every inbox and social account is one card: how it is connected, its outlet, a coloured dot for its health (green is working, amber or red needs attention) and what it can do.',
+          body: 'Every inbox is one card (a managed connection included): how it is connected, its outlet, a coloured dot for its health (green is working, amber or red needs attention) and what it can do.',
         },
         s4: {
           title: 'Show one kind',
@@ -762,7 +728,7 @@ export const guide = {
         },
         s6: {
           title: 'Add a channel',
-          body: 'One tile per channel, grouped by type — messaging apps, social networks, SMS/email/voice, China, website chat and marketplaces. Click one to start; TikTok and Douyin need approval from the platform first.',
+          body: 'One tile per channel, grouped by type — messaging apps, SMS/email/voice, China, website chat and marketplaces. Click one to start; TikTok and Douyin need approval from the platform first.',
         },
         s7: {
           title: 'Advanced',
@@ -770,7 +736,7 @@ export const guide = {
         },
         s8: {
           title: 'Method and outlet',
-          body: 'Each card shows how it is connected (Cloud API, YCloud, QR, Managed connection…) and which outlet it belongs to. For social accounts you can change the outlet right here; a Facebook login lists its Pages, each with its own outlet.',
+          body: 'Each card shows how it is connected (Cloud API, YCloud, QR, Managed connection…) and which outlet it belongs to. For a managed connection you can change the outlet right here; a Messenger account lists its Facebook Pages and which one reaches the inbox.',
         },
       },
     },

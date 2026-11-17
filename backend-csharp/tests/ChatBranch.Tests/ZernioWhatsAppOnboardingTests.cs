@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using ChatBranch.Data;
-using ChatBranch.Data.Social;
+using ChatBranch.Data.Zernio;
 using ChatBranch.Domain;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -156,7 +156,7 @@ public class ZernioWhatsAppOnboardingTests : IClassFixture<ZernioFactory>
         Assert.Contains("zernio=connected", again.Headers.Location!.ToString());
         Assert.Single(InDb(db => db.ChannelAccounts.AsNoTracking().Where(a => a.ExternalId == zid).ToList()));
         // one completion for THIS account, however often the callback is reloaded
-        Assert.Single(InDb(db => db.AuditLogs.Where(a => a.Action == "social.connect" && a.Target == "whatsapp"
+        Assert.Single(InDb(db => db.AuditLogs.Where(a => a.Action == "zernio.connect" && a.Target == "whatsapp"
                                                          && a.Detail.Contains("completed")
                                                          && a.Detail.Contains(zid)).ToList()));
     }
@@ -310,7 +310,7 @@ public class ZernioWhatsAppOnboardingTests : IClassFixture<ZernioFactory>
         Assert.Equal(true, sent["wantsSms"]);
         Assert.Equal(true, sent["connectWhatsapp"]);      // never left to Zernio's default
         Assert.Equal("cb-order-1", sent["purchaseIntentId"]);
-        var audit = Assert.Single(InDb(db => db.AuditLogs.Where(a => a.Action == "social.phone_number.purchase").ToList()));
+        var audit = Assert.Single(InDb(db => db.AuditLogs.Where(a => a.Action == "zernio.phone_number.purchase").ToList()));
         Assert.Contains("US$3.00/month", audit.Detail);
     }
 
@@ -339,7 +339,7 @@ public class ZernioWhatsAppOnboardingTests : IClassFixture<ZernioFactory>
         var done = await c.DeleteAsync("/api/social/phone-numbers/num-9?confirm=true&phone_number=%2B14155559999");
         Assert.Equal(HttpStatusCode.OK, done.StatusCode);
         Assert.Equal("num-9", Assert.Single(_f.Zernio.Released));
-        var audit = Assert.Single(InDb(db => db.AuditLogs.Where(a => a.Action == "social.phone_number.release").ToList()));
+        var audit = Assert.Single(InDb(db => db.AuditLogs.Where(a => a.Action == "zernio.phone_number.release").ToList()));
         Assert.Equal("+14155559999", audit.Target);
         Assert.Contains("irreversible", audit.Detail);
     }

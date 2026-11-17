@@ -5,7 +5,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using ChatBranch.Data;
-using ChatBranch.Data.Social;
+using ChatBranch.Data.Zernio;
 using ChatBranch.Domain;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
@@ -149,26 +149,6 @@ public sealed class FakeZernioClient : IZernioClient
         Do("UpdateWebhook", new() { ["webhookId"] = webhookId, ["url"] = url, ["secret"] = secret },
             () => ZernioReply.Of(new { success = true, webhook = new { _id = webhookId, url, events } }));
 
-    public Task<ZernioReply> ReplyToCommentAsync(string accountId, string postId, string commentId, string message, CancellationToken ct = default) =>
-        Do("ReplyToComment", new() { ["accountId"] = accountId, ["postId"] = postId, ["commentId"] = commentId, ["message"] = message },
-            () => ZernioReply.Of(new { success = true, data = new { commentId = Next("reply"), isReply = true } }));
-
-    public Task<ZernioReply> HideCommentAsync(string accountId, string postId, string commentId, bool hidden, CancellationToken ct = default) =>
-        Do("HideComment", new() { ["accountId"] = accountId, ["postId"] = postId, ["commentId"] = commentId, ["hidden"] = hidden },
-            () => ZernioReply.Of(new { status = "success", commentId, hidden }));
-
-    public Task<ZernioReply> PrivateReplyAsync(string accountId, string postId, string commentId, string message, CancellationToken ct = default) =>
-        Do("PrivateReply", new() { ["accountId"] = accountId, ["postId"] = postId, ["commentId"] = commentId, ["message"] = message },
-            () => ZernioReply.Of(new { success = true }));
-
-    public Task<ZernioReply> ReplyToReviewAsync(string accountId, string reviewId, string message, CancellationToken ct = default) =>
-        Do("ReplyToReview", new() { ["accountId"] = accountId, ["reviewId"] = reviewId, ["message"] = message },
-            () => ZernioReply.Of(new { status = "success", reply = new { id = Next("rr"), text = message }, platform = "googlebusiness" }));
-
-    public Task<ZernioReply> SendMessageAsync(string accountId, string conversationId, string message, CancellationToken ct = default) =>
-        Do("SendMessage", new() { ["accountId"] = accountId, ["conversationId"] = conversationId, ["message"] = message },
-            () => ZernioReply.Of(new { success = true, data = new { messageId = Next("pm"), conversationId } }));
-
     public Task<ZernioReply> SendInboxMessageAsync(string accountId, string conversationId, Dictionary<string, object?> body,
         CancellationToken ct = default) =>
         Do("SendInboxMessage", new(body) { ["accountId"] = accountId, ["conversationId"] = conversationId },
@@ -305,51 +285,12 @@ public sealed class FakeZernioClient : IZernioClient
             return ZernioReply.Of(new { message = "Phone number released" });
         });
 
-    public Task<ZernioReply> CreatePostAsync(Dictionary<string, object?> body, CancellationToken ct = default) =>
-        Do("CreatePost", body, () => ZernioReply.Of(new
-        {
-            post = new
-            {
-                _id = Next("zp"),
-                status = body.ContainsKey("publishNow") ? "published" : body.ContainsKey("isDraft") ? "draft" : "scheduled",
-                platforms = Platforms(body, body.ContainsKey("publishNow") ? "published" : "pending"),
-            },
-        }, 201));
-
-    public Task<ZernioReply> GetPostAsync(string postId, CancellationToken ct = default) =>
-        Do("GetPost", new() { ["postId"] = postId }, () => ZernioReply.Of(new { post = new { _id = postId, status = "scheduled" } }));
-
-    public Task<ZernioReply> UpdatePostAsync(string postId, Dictionary<string, object?> body, CancellationToken ct = default) =>
-        Do("UpdatePost", new(body) { ["postId"] = postId }, () => ZernioReply.Of(new { post = new { _id = postId, status = "scheduled" } }));
-
-    public Task<ZernioReply> DeletePostAsync(string postId, CancellationToken ct = default) =>
-        Do("DeletePost", new() { ["postId"] = postId }, () => ZernioReply.Of(new { message = "Post deleted" }));
-
-    public Task<ZernioReply> RetryPostAsync(string postId, CancellationToken ct = default) =>
-        Do("RetryPost", new() { ["postId"] = postId }, () => ZernioReply.Of(new
-        {
-            post = new { _id = postId, status = "published", platforms = new[] { new { platform = "instagram", accountId = "x", status = "published", platformPostUrl = "https://instagram.example/p/1" } } },
-        }));
-
-    public Task<ZernioReply> UnpublishPostAsync(string postId, string platform, string accountId, CancellationToken ct = default) =>
-        Do("UnpublishPost", new() { ["postId"] = postId, ["platform"] = platform, ["accountId"] = accountId }, () => ZernioReply.Of(new { success = true }));
-
     public Task<ZernioReply> PresignMediaAsync(string filename, string contentType, long size, CancellationToken ct = default) =>
         Do("Presign", new() { ["filename"] = filename, ["contentType"] = contentType, ["size"] = size },
             () => ZernioReply.Of(new { uploadUrl = "https://upload.example/put", publicUrl = $"https://media.zernio.com/temp/{filename}", expiresIn = 3600 }));
 
     public Task<ZernioReply> UploadMediaAsync(string uploadUrl, byte[] bytes, string contentType, CancellationToken ct = default) =>
         Do("Upload", new() { ["uploadUrl"] = uploadUrl, ["bytes"] = bytes.Length, ["contentType"] = contentType }, () => new ZernioReply(200, default, ""));
-
-    private static object[] Platforms(Dictionary<string, object?> body, string status) =>
-        body.TryGetValue("platforms", out var p) && p is IEnumerable<Dictionary<string, object?>> list
-            ? list.Select(x => (object)new
-            {
-                platform = x["platform"]?.ToString(), accountId = x["accountId"]?.ToString(), status,
-                platformSpecificData = x.GetValueOrDefault("platformSpecificData"),
-                platformPostUrl = status == "published" ? $"https://{x["platform"]}.example/p/1" : null,
-            }).ToArray()
-            : Array.Empty<object>();
 }
 
 /// <summary>The API host with the fake Zernio in place of the real client.</summary>
@@ -365,8 +306,9 @@ public class ZernioFactory : ApiFactory
 }
 
 /// <summary>
-/// ChatBranch × Zernio: the signed webhook, comments / reviews / DMs as inbox threads
-/// whose replies reach Zernio, account mirroring, entity profiles and social posts.
+/// ChatBranch × Zernio as a managed connection: the signed webhook, account mirroring onto native
+/// messaging inboxes, entity profiles, outlet moves and a Messenger account's Facebook Pages.
+/// Social-media features (posts, comments, reviews) are out of scope and must stay out.
 /// Every Zernio call goes to <see cref="FakeZernioClient"/>.
 /// </summary>
 public class ZernioTests : IClassFixture<ZernioFactory>
@@ -379,10 +321,10 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         _f = f;
         _ = _f.CreateClient();
         _f.Zernio.Reset();
-        InDb(db => { new ScopingService(db).SetSetting(SocialEndpointsSecret, Secret); return 0; });
+        InDb(db => { new ScopingService(db).SetSetting(WebhookSecretSetting, Secret); return 0; });
     }
 
-    private const string SocialEndpointsSecret = "zernio_webhook_secret";
+    private const string WebhookSecretSetting = "zernio_webhook_secret";
     private static string U() => Guid.NewGuid().ToString("N")[..10];
 
     private T InDb<T>(Func<AppDbContext, T> work)
@@ -393,17 +335,18 @@ public class ZernioTests : IClassFixture<ZernioFactory>
 
     private Task<HttpClient> Admin() => SettingsTestKit.Client(_f, "admin", "admin123");
 
+    /// <summary>A managed inbox (native channel, provider zernio) seeded straight into the mirror.</summary>
     private ChannelAccount Account(string platform, int? entityId = null)
     {
         return InDb(db =>
         {
             var a = new ChannelAccount
             {
-                Channel = ChannelIds.Social, Provider = Providers.Zernio, ExternalId = "acc-" + U(),
+                Channel = ZernioNative.ChannelFor(platform)!, Provider = Providers.Zernio, ExternalId = "acc-" + U(),
                 Name = $"@shop ({platform})", EntityId = entityId, CreatedAt = DateTime.UtcNow, HealthStatus = Health.Healthy,
                 Config = new Dictionary<string, object?>
                 {
-                    ["platform"] = platform, ["username"] = "shop", ["zernio_status"] = "connected", ["ai_default"] = "off",
+                    ["platform"] = platform, ["username"] = "shop", ["zernio_status"] = "connected",
                 },
             };
             db.ChannelAccounts.Add(a);
@@ -426,54 +369,36 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         return await _f.CreateClient().SendAsync(req);
     }
 
-    private static object Comment(ChannelAccount a, string commentId, string text, string? parent = null,
-        bool own = false) => new
+    /// <summary>An Instagram DM to a managed Instagram inbox (the IGSID keys the thread).</summary>
+    private static object Dm(ChannelAccount a, string igsid, string text, string? pmid = null) => new
     {
         id = Guid.NewGuid().ToString(),
-        @event = "comment.received",
-        comment = new
+        @event = "message.received",
+        message = new
         {
-            id = commentId, postId = "zp-77", platformPostId = "ig-post-1", platform = "instagram", text,
-            author = new { id = "u-9", username = "aisyah", name = "Aisyah", picture = "https://cdn.example/a.jpg", isOwnAccount = own },
-            createdAt = "2026-11-10T08:00:00Z", isReply = parent != null, parentCommentId = parent,
+            id = "m-" + U(), conversationId = "conv-" + igsid, platform = "instagram",
+            platformMessageId = pmid ?? "pm-" + U(), direction = "incoming", text,
+            attachments = Array.Empty<object>(), sender = new { id = igsid, name = "Aisyah" },
+            sentAt = DateTime.UtcNow.ToString("o"),
         },
-        post = new { id = "zp-77", platformPostId = "ig-post-1", content = "Our new menu!", imageUrl = "https://cdn.example/p.jpg", permalink = "https://instagram.com/p/1" },
+        conversation = new { id = "conv-" + igsid, platformConversationId = igsid, status = "active" },
         account = new { id = a.ExternalId, accountId = a.ExternalId, platform = "instagram", username = "shop" },
-        timestamp = "2026-11-10T08:00:01Z",
+        timestamp = DateTime.UtcNow.ToString("o"),
     };
 
-    private Thread? ThreadByKey(string key) =>
-        InDb(db => db.Threads.AsNoTracking().FirstOrDefault(t => t.Channel == ChannelIds.Social && t.Key == key));
-
-    // ---- vocabulary -------------------------------------------------------------
-
-    [Fact]
-    public void Keys_are_url_safe_and_split_back_into_kind_account_and_id()
-    {
-        Assert.Equal("comment:acc1:179", SocialChannels.ThreadKey("comment", "acc1", "179"));
-        Assert.Equal(("review", "acc1", "789"), SocialChannels.ParseKey(
-            SocialChannels.ThreadKey("review", "acc1", "accounts/1/locations/2/reviews/789")));
-        var bsky = SocialChannels.KeyPart("at://did:plc:abc/app.bsky.feed.post/3k");
-        Assert.DoesNotContain("/", bsky);
-        Assert.Equal(("", "", "nope"), SocialChannels.ParseKey("nope"));
-        Assert.Equal(1, SocialChannels.EntityFromExternalId("cb-entity-1"));
-        Assert.Null(SocialChannels.EntityFromExternalId("tenant_42"));
-        Assert.True(Data.Channels.MoreChannels.Handles(ChannelIds.Social));
-    }
-
-    // ---- the webhook: signature, dedupe -------------------------------------------
+    // ---- the webhook: signature, dedupe, out-of-scope events ----------------------------
 
     [Fact]
     public async Task The_webhook_needs_a_valid_signature()
     {
         var a = Account("instagram");
-        Assert.Equal(HttpStatusCode.Unauthorized, (await Hook("comment.received", Comment(a, "c-" + U(), "hi"), secret: null)).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await Hook("comment.received", Comment(a, "c-" + U(), "hi"), secret: "wrong")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await Hook("comment.received", Comment(a, "c-" + U(), "hi"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Hook("message.received", Dm(a, "ig-" + U(), "hi"), secret: null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Hook("message.received", Dm(a, "ig-" + U(), "hi"), secret: "wrong")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Hook("message.received", Dm(a, "ig-" + U(), "hi"))).StatusCode);
 
         // no secret registered = closed, never "accept unsigned"
-        InDb(db => { new ScopingService(db).SetSetting(SocialEndpointsSecret, ""); return 0; });
-        var closed = await Hook("comment.received", Comment(a, "c-" + U(), "hi"));
+        InDb(db => { new ScopingService(db).SetSetting(WebhookSecretSetting, ""); return 0; });
+        var closed = await Hook("message.received", Dm(a, "ig-" + U(), "hi"));
         Assert.Equal(HttpStatusCode.ServiceUnavailable, closed.StatusCode);
         Assert.Contains("not_configured", await closed.Content.ReadAsStringAsync());
     }
@@ -482,223 +407,77 @@ public class ZernioTests : IClassFixture<ZernioFactory>
     public async Task A_redelivered_event_is_stored_once()
     {
         var a = Account("instagram");
-        var cid = "c-" + U();
+        var igsid = "ig-" + U();
         var eventId = Guid.NewGuid().ToString();
-        Assert.Equal(HttpStatusCode.OK, (await Hook("comment.received", Comment(a, cid, "Ada halal?"), eventId: eventId)).StatusCode);
-        var again = await Hook("comment.received", Comment(a, cid, "Ada halal?"), eventId: eventId);
+        Assert.Equal(HttpStatusCode.OK, (await Hook("message.received", Dm(a, igsid, "Ada halal?", "pm-1"), eventId: eventId)).StatusCode);
+        var again = await Hook("message.received", Dm(a, igsid, "Ada halal?", "pm-1"), eventId: eventId);
         Assert.True((await again.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("duplicate").GetBoolean());
-        var thread = ThreadByKey($"comment:{a.ExternalId}:{cid}")!;
+        var thread = InDb(db => db.Threads.AsNoTracking().Single(t => t.Channel == ChannelIds.Instagram && t.Key == igsid));
         Assert.Equal(1, InDb(db => db.Messages.Count(m => m.ThreadId == thread.Id)));
     }
 
-    // ---- comments ----------------------------------------------------------------
-
     [Fact]
-    public async Task A_comment_opens_a_thread_and_a_reply_goes_back_as_a_comment_reply()
+    public async Task Social_media_events_are_acknowledged_and_ignored()
     {
         var a = Account("instagram");
-        var cid = "c-" + U();
-        await Hook("comment.received", Comment(a, cid, "Ada halal?"));
-        var key = $"comment:{a.ExternalId}:{cid}";
-        var thread = ThreadByKey(key);
-        Assert.NotNull(thread);
-        Assert.Equal(a.Id, thread!.AccountId);
-        Assert.Null(thread.ContactId);              // public: never a contact
-        Assert.False(thread.AiEnabled);             // the inbox's AI default is off
-
-        var msg = InDb(db => db.Messages.AsNoTracking().Single(m => m.ThreadId == thread.Id));
-        Assert.Equal("Ada halal?", msg.Text);
-        Assert.Equal("Aisyah", msg.SenderName);
-
-        // a reply to it joins the same thread
-        await Hook("comment.received", Comment(a, "c2-" + U(), "Me too", parent: cid));
-        Assert.Equal(2, InDb(db => db.Messages.Count(m => m.ThreadId == thread.Id)));
-
-        var c = await Admin();
-        var detail = await c.GetFromJsonAsync<JsonElement>($"/api/messaging/threads/social/{Uri.EscapeDataString(key)}");
-        var social = detail.GetProperty("social");
-        Assert.Equal("comment", social.GetProperty("kind").GetString());
-        Assert.Equal("instagram", social.GetProperty("platform").GetString());
-        Assert.Equal("https://instagram.com/p/1", social.GetProperty("post").GetProperty("permalink").GetString());
-        Assert.Equal("Aisyah", social.GetProperty("author").GetProperty("name").GetString());
-        Assert.Equal("Aisyah", detail.GetProperty("messages")[0].GetProperty("sender").GetProperty("name").GetString());
-
-        var inbox = await c.GetFromJsonAsync<JsonElement>("/api/inbox/threads?channel=social");
-        Assert.Contains(inbox.GetProperty("threads").EnumerateArray(),
-            t => t.GetProperty("key").GetString() == key && t.GetProperty("social").GetProperty("kind").GetString() == "comment");
-
-        var send = await c.PostAsJsonAsync($"/api/messaging/threads/social/{Uri.EscapeDataString(key)}/send", new { text = "Yes, halal!" });
-        Assert.Equal(HttpStatusCode.OK, send.StatusCode);
-        Assert.Equal("sent", (await send.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("message").GetProperty("status").GetString());
-        var call = Assert.Single(_f.Zernio.Of("ReplyToComment"));
-        Assert.Equal("ig-post-1", call["postId"]);
-        Assert.Equal(cid, call["commentId"]);
-        Assert.Equal(a.ExternalId, call["accountId"]);
-
-        // the platform echoing our own reply back is not a new customer message
-        var ourId = InDb(db => db.Messages.AsNoTracking().Where(m => m.ThreadId == thread.Id && m.Direction == "out")
-            .Select(m => m.ExternalId).Single());
-        await Hook("comment.received", Comment(a, ourId, "Yes, halal!", parent: cid, own: true));
-        Assert.Equal(3, InDb(db => db.Messages.Count(m => m.ThreadId == thread.Id)));
-    }
-
-    [Fact]
-    public async Task Hide_and_private_reply_reach_zernio()
-    {
-        var a = Account("facebook");
-        var cid = "c-" + U();
-        await Hook("comment.received", Comment(a, cid, "Spam spam"));
-        var key = Uri.EscapeDataString($"comment:{a.ExternalId}:{cid}");
-        var c = await Admin();
-
-        var hide = await c.PostAsJsonAsync($"/api/social/threads/{key}/hide", new { hidden = true });
-        Assert.Equal(HttpStatusCode.OK, hide.StatusCode);
-        var call = Assert.Single(_f.Zernio.Of("HideComment"));
-        Assert.Equal(true, call["hidden"]);
-        Assert.Equal(cid, call["commentId"]);
-        var detail = await c.GetFromJsonAsync<JsonElement>($"/api/messaging/threads/social/{key}");
-        Assert.True(detail.GetProperty("social").GetProperty("hidden").GetBoolean());
-
-        Assert.Equal(HttpStatusCode.OK, (await c.PostAsJsonAsync($"/api/social/threads/{key}/private-reply", new { text = "DM you" })).StatusCode);
-        Assert.Single(_f.Zernio.Of("PrivateReply"));
-        // platforms allow one private reply per comment
-        Assert.Equal(HttpStatusCode.Conflict, (await c.PostAsJsonAsync($"/api/social/threads/{key}/private-reply", new { text = "again" })).StatusCode);
-        // an agent without chats.send on that scope… has it; a stranger thread is 404
-        Assert.Equal(HttpStatusCode.NotFound, (await c.PostAsJsonAsync("/api/social/threads/comment%3Anope%3Anope/hide", new { hidden = true })).StatusCode);
-    }
-
-    // ---- reviews -------------------------------------------------------------------
-
-    [Fact]
-    public async Task A_google_review_becomes_a_thread_with_its_rating_and_a_reply_goes_to_the_review()
-    {
-        var a = Account("googlebusiness");
-        var rid = $"accounts/1/locations/2/reviews/r{U()}";
-        object Review(string text, int rating, object? reply = null) => new
+        var before = InDb(db => db.Threads.Count());
+        foreach (var ev in new[] { "comment.received", "review.new", "review.updated", "post.published", "post.failed" })
         {
-            id = Guid.NewGuid().ToString(), @event = "review.new",
-            review = new
+            var res = await Hook(ev, new
             {
-                id = rid, platform = "googlebusiness", rating, text,
-                reviewer = new { id = (string?)null, name = "Tan", profileImage = (string?)null },
-                createdAt = "2026-11-09T10:00:00Z", hasReply = reply != null, reply,
-            },
-            account = new { id = a.ExternalId, accountId = a.ExternalId, platform = "googlebusiness", username = "Kopi HQ" },
-            timestamp = "2026-11-09T10:00:01Z",
-        };
-        await Hook("review.new", Review("Slow service", 2));
-        var key = SocialChannels.ThreadKey("review", a.ExternalId, rid);
-        Assert.DoesNotContain("/", key);
-        var c = await Admin();
-        var detail = await c.GetFromJsonAsync<JsonElement>($"/api/messaging/threads/social/{Uri.EscapeDataString(key)}");
-        Assert.Equal("review", detail.GetProperty("social").GetProperty("kind").GetString());
-        Assert.Equal(2, detail.GetProperty("social").GetProperty("rating").GetInt32());
-
-        await c.PostAsJsonAsync($"/api/messaging/threads/social/{Uri.EscapeDataString(key)}/send", new { text = "Sorry, Tan!" });
-        var call = Assert.Single(_f.Zernio.Of("ReplyToReview"));
-        Assert.Equal(rid, call["reviewId"]);     // the FULL review name, not the key's short form
-
-        // the edit: rating up, text changed → a second inbound; the reply echo is not duplicated
-        await Hook("review.updated", Review("Better now", 4, new { text = "Sorry, Tan!", createdAt = "2026-11-10T00:00:00Z" }));
-        var thread = ThreadByKey(key)!;
-        Assert.Equal(2, InDb(db => db.Messages.Count(m => m.ThreadId == thread.Id && m.Direction == "in")));
-        Assert.Equal(1, InDb(db => db.Messages.Count(m => m.ThreadId == thread.Id && m.Direction == "out")));
-        Assert.Equal(4, InDb(db => db.SocialThreads.Single(s => s.ThreadId == thread.Id).Rating));
-    }
-
-    // ---- DMs -----------------------------------------------------------------------
-
-    private static object Dm(ChannelAccount a, string platform, string conv, string text) => new
-    {
-        id = Guid.NewGuid().ToString(), @event = "message.received",
-        message = new
-        {
-            id = "zm-" + Guid.NewGuid().ToString("N")[..6], conversationId = conv, platform,
-            platformMessageId = "pm-in-" + Guid.NewGuid().ToString("N")[..6], direction = "incoming", text,
-            attachments = Array.Empty<object>(), sender = new { id = "s-1", name = "Bob", username = "bob" },
-            sentAt = "2026-11-10T09:00:00Z", isRead = false,
-        },
-        conversation = new { id = conv, platformConversationId = "p-" + conv, status = "active" },
-        account = new { id = a.ExternalId, accountId = a.ExternalId, platform, username = "shop" },
-        timestamp = "2026-11-10T09:00:01Z",
-    };
-
-    [Fact]
-    public async Task A_dm_is_skipped_when_the_entity_has_a_native_inbox_for_that_platform()
-    {
-        var entity = InDb(db => db.Entities.First(e => e.Slug == "main").Id);
-        var ig = Account("instagram", entity);
-        InDb(db =>
-        {
-            db.ChannelAccounts.Add(new ChannelAccount
-            {
-                Channel = ChannelIds.Instagram, Name = "native ig " + U(), EntityId = entity, CreatedAt = DateTime.UtcNow,
+                id = Guid.NewGuid().ToString(), @event = ev,
+                comment = new { id = "c-" + U(), text = "nice", platform = "instagram" },
+                account = new { id = a.ExternalId, accountId = a.ExternalId, platform = "instagram" },
             });
-            db.SaveChanges();
-            return 0;
-        });
-        var conv = "conv-" + U();
-        var res = await Hook("message.received", Dm(ig, "instagram", conv, "hello"));
-        Assert.Equal("skipped", (await res.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("result").GetString());
-        Assert.Null(ThreadByKey($"dm:{ig.ExternalId}:{conv}"));
-
-        // X has no native ChatBranch channel: its DMs land here, and a reply is a Zernio message
-        var x = Account("twitter", entity);
-        var conv2 = "conv-" + U();
-        await Hook("message.received", Dm(x, "twitter", conv2, "price?"));
-        var key = $"dm:{x.ExternalId}:{conv2}";
-        Assert.NotNull(ThreadByKey(key));
-        var c = await Admin();
-        await c.PostAsJsonAsync($"/api/messaging/threads/social/{Uri.EscapeDataString(key)}/send", new { text = "RM10" });
-        var call = Assert.Single(_f.Zernio.Of("SendMessage"));
-        Assert.Equal(conv2, call["conversationId"]);
-
-        // message.failed for our send marks it failed
-        var ext = InDb(db => db.Messages.Where(m => m.Thread!.Key == key && m.Direction == "out").Select(m => m.ExternalId).Single());
-        await Hook("message.failed", new
-        {
-            id = Guid.NewGuid().ToString(), @event = "message.failed",
-            message = new { platformMessageId = ext }, error = new { code = "131026", message = "unreachable" },
-            account = new { id = x.ExternalId },
-        });
-        Assert.Equal("failed", InDb(db => db.Messages.Single(m => m.ExternalId == ext).Status));
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        }
+        Assert.Equal(before, InDb(db => db.Threads.Count()));
+        // what the registered webhook subscribes to is messaging only
+        Assert.DoesNotContain(ZernioWebhook.Events, e => e.StartsWith("comment.") || e.StartsWith("review.") || e.StartsWith("post."));
     }
 
     // ---- accounts + profiles -------------------------------------------------------
 
     [Fact]
-    public async Task Accounts_are_mirrored_as_channel_accounts_on_their_entitys_profile()
+    public async Task Accounts_are_mirrored_as_native_inboxes_on_their_entitys_profile()
     {
         var entity = InDb(db => db.Entities.First(e => e.Slug == "main").Id);
         var pid = "prof-main-" + U();
         _f.Zernio.Profiles.Add(new { _id = "prof-default", name = "Default", isDefault = true, externalId = (string?)null });
         _f.Zernio.Profiles.Add(new { _id = pid, name = "Main", isDefault = false, externalId = $"cb-entity-{entity}" });
         var zid = "zacc-" + U();
+        var tiktok = "zacc-tt-" + U();
         _f.Zernio.Accounts.Add(new
         {
-            _id = zid, platform = "tiktok", username = "kopi.tt", displayName = "Kopi", profilePicture = "https://cdn.example/t.jpg",
-            profileUrl = "https://tiktok.com/@kopi.tt", isActive = true, profileId = new { _id = pid, name = "Main" },
+            _id = zid, platform = "telegram", username = "kopi_bot", displayName = "Kopi", profilePicture = "https://cdn.example/t.jpg",
+            isActive = true, profileId = new { _id = pid, name = "Main" },
+        });
+        // a social network account in the same profile is not ChatBranch's business
+        _f.Zernio.Accounts.Add(new
+        {
+            _id = tiktok, platform = "tiktok", username = "kopi.tt", isActive = true, profileId = new { _id = pid, name = "Main" },
         });
         var c = await Admin();
         var res = await c.GetFromJsonAsync<JsonElement>("/api/social/accounts?entity=main&refresh=1");
         var row = Assert.Single(res.GetProperty("accounts").EnumerateArray(), r => r.GetProperty("id").GetString() == zid);
-        Assert.Equal("tiktok", row.GetProperty("platform").GetString());
-        Assert.True(row.GetProperty("can_comments").GetBoolean());
-        Assert.False(row.GetProperty("can_reviews").GetBoolean());
+        Assert.Equal("telegram", row.GetProperty("channel").GetString());
+        Assert.False(row.TryGetProperty("can_publish", out _));
+        Assert.DoesNotContain(res.GetProperty("accounts").EnumerateArray(), r => r.GetProperty("id").GetString() == tiktok);
+        Assert.False(InDb(db => db.ChannelAccounts.Any(a => a.ExternalId == tiktok)));
 
-        var mirrored = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid));
-        Assert.Equal(ChannelIds.Social, mirrored.Channel);
+        var mirrored = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid));
+        Assert.Equal(ChannelIds.Telegram, mirrored.Channel);
         Assert.Equal(Providers.Zernio, mirrored.Provider);
         Assert.Equal(entity, mirrored.EntityId);
-        Assert.Equal("@kopi.tt (TikTok)", mirrored.Name);
+        Assert.Equal("@kopi_bot (Telegram)", mirrored.Name);
 
         // account.disconnected marks the inbox down (its conversations stay)
         await Hook("account.disconnected", new
         {
             id = Guid.NewGuid().ToString(), @event = "account.disconnected",
-            account = new { accountId = zid, profileId = pid, platform = "tiktok", username = "kopi.tt", disconnectionType = "unintentional", reason = "token expired" },
+            account = new { accountId = zid, profileId = pid, platform = "telegram", username = "kopi_bot", disconnectionType = "unintentional", reason = "token expired" },
         });
-        Assert.Equal(Health.Disconnected, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid).HealthStatus));
+        Assert.Equal(Health.Disconnected, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == zid).HealthStatus));
 
         // disconnect from ChatBranch: Zernio is told, the inbox goes
         Assert.Equal(HttpStatusCode.OK, (await c.DeleteAsync($"/api/social/accounts/{zid}?confirm=true")).StatusCode);
@@ -709,34 +488,28 @@ public class ZernioTests : IClassFixture<ZernioFactory>
     [Fact]
     public async Task Connecting_for_an_entity_creates_its_profile_with_our_external_id()
     {
-        var name = "Zernio Branch " + U();
-        var entityId = InDb(db =>
-        {
-            var tenant = db.Tenants.First(t => t.Slug == "demo");
-            var e = new Entity { Name = name, Slug = name.ToLowerInvariant().Replace(' ', '-'), TenantId = tenant.Id };
-            db.Entities.Add(e);
-            db.SaveChanges();
-            return e.Id;
-        });
-        var slug = InDb(db => db.Entities.Single(e => e.Id == entityId).Slug);
+        var (entityId, slug) = NewEntity("Zernio Branch");
         var c = await Admin();
-        var res = await c.PostAsJsonAsync("/api/social/connect", new { platform = "x", entity = slug });
+        var res = await c.PostAsJsonAsync("/api/social/connect", new { platform = "ig", entity = slug });
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         var body = await res.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.StartsWith("https://auth.example/twitter", body.GetProperty("url").GetString());
+        Assert.StartsWith("https://auth.example/instagram", body.GetProperty("url").GetString());
+        Assert.Equal("instagram", body.GetProperty("channel").GetString());
 
         var made = Assert.Single(_f.Zernio.Of("CreateProfile"));
         Assert.Equal($"cb-entity-{entityId}", made["externalId"]);
         var connect = Assert.Single(_f.Zernio.Of("ConnectUrl"));
-        Assert.Equal("twitter", connect["platform"]);
+        Assert.Equal("instagram", connect["platform"]);
         Assert.EndsWith("/channels?zernio=connected", connect["redirect_url"]?.ToString());
         Assert.Equal(1, InDb(db => db.SocialProfiles.Count(p => p.EntityId == entityId)));
 
         // the second connect reuses it
-        await c.PostAsJsonAsync("/api/social/connect", new { platform = "instagram", entity = slug });
+        await c.PostAsJsonAsync("/api/social/connect", new { platform = "messenger", entity = slug });
         Assert.Single(_f.Zernio.Of("CreateProfile"));
-        // an unknown platform is refused before Zernio
-        Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync("/api/social/connect", new { platform = "myspace" })).StatusCode);
+        // social networks and unknown platforms are refused before Zernio
+        foreach (var refused in new[] { "myspace", "googlebusiness", "tiktok", "twitter", "linkedin" })
+            Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync("/api/social/connect", new { platform = refused })).StatusCode);
+        Assert.Equal(2, _f.Zernio.Of("ConnectUrl").Count);
     }
 
     // ---- binding an account to an outlet (PATCH /api/social/accounts/{id}) ---------------
@@ -766,7 +539,8 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         });
         var res = await c.GetAsync("/api/social/accounts?refresh=1");
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var row = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid));
+        var row = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Provider == Providers.Zernio && a.ExternalId == zid));
+        Assert.Equal(ZernioNative.ChannelFor(platform), row.Channel);
         Assert.Null(row.EntityId);
         return row;
     }
@@ -778,11 +552,11 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         return res.GetProperty("accounts").EnumerateArray().Select(r => r.GetProperty("id").GetString()!).ToList();
     }
 
-    private int SeedThread(string key, int accountId, int? entityId = null) => InDb(db =>
+    private int SeedThread(string channel, string key, int accountId, int? entityId = null) => InDb(db =>
     {
         var t = new Thread
         {
-            Channel = ChannelIds.Social, Key = key, Name = "someone", AccountId = accountId, EntityId = entityId,
+            Channel = channel, Key = key, Name = "someone", AccountId = accountId, EntityId = entityId,
             CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
         };
         db.Threads.Add(t);
@@ -790,24 +564,11 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         return t.Id;
     });
 
-    private int SeedPost(string status, int? entityId, params string[] accountIds) => InDb(db =>
-    {
-        var p = new SocialPost
-        {
-            EntityId = entityId, Content = "post " + U(), AccountIds = accountIds.ToList(),
-            Platforms = accountIds.Select(_ => "instagram").ToList(), Status = status,
-            ScheduledAt = DateTime.UtcNow.AddDays(1), CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
-        };
-        db.SocialPosts.Add(p);
-        db.SaveChanges();
-        return p.Id;
-    });
-
     private static Task<HttpResponseMessage> Assign(HttpClient c, string zid, object? entity) =>
         c.PatchAsJsonAsync($"/api/social/accounts/{zid}", new Dictionary<string, object?> { ["entity"] = entity });
 
     [Fact]
-    public async Task Assigning_an_account_to_an_outlet_moves_it_to_that_profile_with_its_threads_and_pending_posts()
+    public async Task Assigning_an_account_to_an_outlet_moves_it_to_that_profile_with_its_conversations()
     {
         var c = await Admin();
         var (e1, slug1) = NewEntity();
@@ -818,14 +579,9 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         Assert.Contains(zid, await Listed(c, slug1));
         Assert.Contains(zid, await Listed(c, slug2));
 
-        var comment = SeedThread($"comment:{zid}:c-{U()}", acct.Id);
-        var dm = SeedThread($"dm:{zid}:conv-{U()}", acct.Id);
-        var unrelated = SeedThread($"comment:zacc-other-{U()}:c-{U()}", acct.Id);
-        var other = Account("facebook"); // another organization-level account
-        var scheduled = SeedPost(SocialPosts.Scheduled, null, zid);
-        var draft = SeedPost(SocialPosts.Draft, null, zid);
-        var published = SeedPost(SocialPosts.Published, null, zid);
-        var mixed = SeedPost(SocialPosts.Scheduled, null, zid, other.ExternalId);
+        var dm = SeedThread(ChannelIds.Instagram, "igsid-" + U(), acct.Id);
+        var other = Account("facebook"); // another organization-level inbox
+        var unrelated = SeedThread(ChannelIds.Facebook, "psid-" + U(), other.Id);
         _f.Zernio.Calls.Clear();
 
         var res = await Assign(c, zid, slug1);
@@ -844,24 +600,19 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         Assert.Equal(zid, move["accountId"]);
         Assert.Equal(profileId, move["profileId"]);
 
-        var mirrored = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid));
+        var mirrored = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Id == acct.Id));
         Assert.Equal(e1, mirrored.EntityId);
-        Assert.Equal(profileId, SocialChannels.Cfg(mirrored, SocialChannels.ProfileIdKey));
+        Assert.Equal(profileId, ZernioKeys.Cfg(mirrored, ZernioKeys.ProfileIdKey));
 
-        // its conversations and not-yet-published posts follow; the rest stay
-        Assert.Equal(e1, InDb(db => db.Threads.Single(t => t.Id == comment).EntityId));
+        // its conversations follow; another inbox's stay
         Assert.Equal(e1, InDb(db => db.Threads.Single(t => t.Id == dm).EntityId));
         Assert.Null(InDb(db => db.Threads.Single(t => t.Id == unrelated).EntityId));
-        Assert.Equal(e1, InDb(db => db.SocialPosts.Single(p => p.Id == scheduled).EntityId));
-        Assert.Equal(e1, InDb(db => db.SocialPosts.Single(p => p.Id == draft).EntityId));
-        Assert.Null(InDb(db => db.SocialPosts.Single(p => p.Id == published).EntityId));
-        Assert.Null(InDb(db => db.SocialPosts.Single(p => p.Id == mixed).EntityId));
         Assert.True(InDb(db => db.AuditLogs.Any(l => l.Action == "account.entity" && l.Target.Contains(mirrored.Name))));
 
         // the outlet sees it, its sibling no longer does — and a sync keeps the binding
         Assert.Contains(zid, await Listed(c, slug1, refresh: true));
         Assert.DoesNotContain(zid, await Listed(c, slug2));
-        Assert.Equal(e1, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid).EntityId));
+        Assert.Equal(e1, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Id == acct.Id).EntityId));
 
         // the same outlet again: no new profile, no Zernio move
         Assert.Equal(HttpStatusCode.OK, (await Assign(c, zid, e1.ToString())).StatusCode);
@@ -873,12 +624,9 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         Assert.Equal(HttpStatusCode.OK, back.StatusCode);
         Assert.Equal(JsonValueKind.Null, (await back.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("entity_id").ValueKind);
         Assert.Equal("prof-default", _f.Zernio.Of("MoveAccount").Last()["profileId"]);
-        Assert.Null(InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid).EntityId));
-        Assert.Null(InDb(db => db.Threads.Single(t => t.Id == comment).EntityId));
-        Assert.Null(InDb(db => db.SocialPosts.Single(p => p.Id == scheduled).EntityId));
+        Assert.Null(InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Id == acct.Id).EntityId));
         Assert.Contains(zid, await Listed(c, slug1, refresh: true));
         Assert.Contains(zid, await Listed(c, slug2));
-        Assert.Null(InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == zid).EntityId));
     }
 
     [Fact]
@@ -890,22 +638,22 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         _f.Zernio.StaleMoves = true; // Zernio still lists the account under the default profile
         Assert.Equal(HttpStatusCode.OK, (await Assign(c, acct.ExternalId, slug1)).StatusCode);
         Assert.Contains(acct.ExternalId, await Listed(c, slug1, refresh: true));
-        var row = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Channel == ChannelIds.Social && a.ExternalId == acct.ExternalId));
+        var row = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Id == acct.Id));
         Assert.Equal(e1, row.EntityId);
-        Assert.NotEqual("prof-default", SocialChannels.Cfg(row, SocialChannels.ProfileIdKey));
+        Assert.NotEqual("prof-default", ZernioKeys.Cfg(row, ZernioKeys.ProfileIdKey));
     }
 
     [Fact]
-    public async Task Assigning_needs_social_manage_and_both_levels_in_scope()
+    public async Task Assigning_needs_channels_manage_and_both_levels_in_scope()
     {
         var admin = await Admin();
         var (e1, slug1) = NewEntity();
         var (e2, slug2) = NewEntity();
         var acct = await OrgAccount(admin);
         var mine = Account("facebook", e1);
-        var theirs = Account("tiktok", e2);
+        var theirs = Account("telegram", e2);
 
-        // no social.manage
+        // no channels.manage
         var agent = await SettingsTestKit.Client(_f, "agent", "agent123");
         Assert.Equal(HttpStatusCode.Forbidden, (await Assign(agent, acct.ExternalId, slug1)).StatusCode);
 
@@ -937,25 +685,17 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         Assert.Empty(_f.Zernio.Of("MoveAccount"));
         Assert.Equal(e1, InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.Id == mine.Id).EntityId));
 
-        // the generic inbox PATCH cannot rebind a social account behind Zernio's back
+        // the generic inbox PATCH cannot rebind a managed connection behind Zernio's back
         var generic = await admin.PatchAsJsonAsync($"/api/messaging/accounts/{mine.Id}", new { entity = slug2 });
         Assert.Equal(HttpStatusCode.Conflict, generic.StatusCode);
     }
 
-    // ---- Facebook Pages: one login, several Pages, each bound to its outlet --------------
-
-    private static JsonElement Row(JsonElement list, string zid) =>
-        list.GetProperty("accounts").EnumerateArray().Single(r => r.GetProperty("id").GetString() == zid);
-
-    private static List<string> PageIds(JsonElement row) =>
-        row.GetProperty("pages").EnumerateArray().Select(p => p.GetProperty("id").GetString()!).ToList();
+    // ---- a managed Messenger account's Facebook Pages ---------------------------------
 
     [Fact]
-    public async Task Facebook_pages_are_mirrored_bound_to_outlets_selected_and_targeted_per_page()
+    public async Task Facebook_pages_are_mirrored_and_one_is_selected_for_the_inbox()
     {
         var c = await Admin();
-        var (e1, slug1) = NewEntity();
-        var (_, slug2) = NewEntity();
         _f.Zernio.Profiles.Add(new { _id = "prof-default", name = "Default", isDefault = true, externalId = (string?)null });
         var fb = "zfb-" + U();
         _f.Zernio.Accounts.Add(new
@@ -967,210 +707,55 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         {
             new { id = "P1", name = "Kopi KL", username = "kopikl", category = "Cafe", fan_count = 10 },
             new { id = "P2", name = "Kopi Penang", username = "kopipg", category = "Cafe", fan_count = 20 },
-            new { id = "P3", name = "Kopi Group", username = "kopigroup", category = "Brand", fan_count = 30 },
         }, "P1");
 
-        // the sync mirrors the Pages (refresh=1 re-reads Meta through Zernio)
+        // the sync mirrors the Messenger inbox and its Pages (refresh=1 re-reads Meta through Zernio)
         var all = await c.GetFromJsonAsync<JsonElement>("/api/social/accounts?refresh=1");
-        var row = Row(all, fb);
-        Assert.Equal(new[] { "P1", "P2", "P3" }.ToHashSet(), PageIds(row).ToHashSet());
-        var p1 = row.GetProperty("pages").EnumerateArray().Single(p => p.GetProperty("id").GetString() == "P1");
-        Assert.True(p1.GetProperty("selected").GetBoolean());
-        Assert.Equal($"{fb}:P1", p1.GetProperty("target").GetString());
+        var row = all.GetProperty("accounts").EnumerateArray().Single(r => r.GetProperty("id").GetString() == fb);
+        Assert.Equal("facebook", row.GetProperty("channel").GetString());
+        var pages = row.GetProperty("pages").EnumerateArray().ToList();
+        Assert.Equal(new[] { "P1", "P2" }.ToHashSet(), pages.Select(p => p.GetProperty("id").GetString()).ToHashSet());
+        Assert.True(pages.Single(p => p.GetProperty("id").GetString() == "P1").GetProperty("selected").GetBoolean());
         Assert.Equal(true, _f.Zernio.Of("FacebookPages").Last()["refresh"]);
+        var inbox = InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == fb));
+        Assert.Equal(ChannelIds.Facebook, inbox.Channel);
+        Assert.Equal("Kopi KL", ZernioNative.Address(inbox));
 
-        // bind P1 → outlet 1, P2 → outlet 2; P3 stays with the account (organization)
-        var bind = await c.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P1", new { entity = slug1 });
-        Assert.Equal(HttpStatusCode.OK, bind.StatusCode);
-        var bound = (await bind.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("pages").EnumerateArray()
-            .Single(p => p.GetProperty("id").GetString() == "P1");
-        Assert.Equal(e1, bound.GetProperty("entity_id").GetInt32());
-        Assert.Equal(slug1, bound.GetProperty("entity_slug").GetString());
-        Assert.Equal(HttpStatusCode.OK,
-            (await c.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P2", new { entity = slug2 })).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound,
-            (await c.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P9", new { entity = slug2 })).StatusCode);
-
-        // an outlet sees its own Pages and the organization's, never a sibling's
-        Assert.Equal(new[] { "P1", "P3" }.ToHashSet(),
-            PageIds(Row(await c.GetFromJsonAsync<JsonElement>($"/api/social/accounts?entity={slug1}"), fb)).ToHashSet());
-        Assert.Equal(new[] { "P2", "P3" }.ToHashSet(),
-            PageIds(Row(await c.GetFromJsonAsync<JsonElement>($"/api/social/accounts?entity={slug2}"), fb)).ToHashSet());
-
-        // posts: an outlet posts to ITS Page — the account repeated with platformSpecificData.pageId
-        var post = await c.PostAsJsonAsync($"/api/social/posts?entity={slug1}",
-            new { content = "KL opening!", account_ids = new[] { $"{fb}:P1" }, publish_now = true });
-        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
-        var created = _f.Zernio.Of("CreatePost").Last();
-        var platforms = JsonSerializer.SerializeToElement(created["platforms"]);
-        var only = Assert.Single(platforms.EnumerateArray());
-        Assert.Equal(fb, only.GetProperty("accountId").GetString());
-        Assert.Equal("P1", only.GetProperty("platformSpecificData").GetProperty("pageId").GetString());
-        var result = (await post.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("post").GetProperty("results")[0];
-        Assert.Equal("P1", result.GetProperty("page_id").GetString());
-
-        // a sibling's Page, an unknown Page, or a Page of a non-facebook account: refused
-        Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync($"/api/social/posts?entity={slug1}",
-            new { content = "x", account_ids = new[] { $"{fb}:P2" }, publish_now = true })).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync("/api/social/posts",
-            new { content = "x", account_ids = new[] { $"{fb}:P404" }, publish_now = true })).StatusCode);
-        var ig = Account("instagram");
-        Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsJsonAsync("/api/social/posts",
-            new { content = "x", account_ids = new[] { $"{ig.ExternalId}:P1" }, publish_now = true })).StatusCode);
-
-        // the organization posts to the account's selected Page AND its own Page P3 in one post
-        var org = await c.PostAsJsonAsync("/api/social/posts",
-            new { content = "Group news", account_ids = new[] { fb, $"{fb}:P3" }, publish_now = true });
-        Assert.Equal(HttpStatusCode.OK, org.StatusCode);
-        var orgPlatforms = JsonSerializer.SerializeToElement(_f.Zernio.Of("CreatePost").Last()["platforms"]).EnumerateArray().ToList();
-        Assert.Equal(2, orgPlatforms.Count);
-        Assert.All(orgPlatforms, p => Assert.Equal(fb, p.GetProperty("accountId").GetString()));
-        Assert.False(orgPlatforms[0].TryGetProperty("platformSpecificData", out _));
-
-        // which Page receives comments / messages
+        // switch the Page whose Messenger conversations reach the inbox
         var sel = await c.PostAsync($"/api/social/accounts/{fb}/pages/P2/select", null);
         Assert.Equal(HttpStatusCode.OK, sel.StatusCode);
         Assert.Equal("P2", _f.Zernio.Of("SelectFacebookPage").Single()["pageId"]);
         var selPages = (await sel.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("pages").EnumerateArray().ToList();
         Assert.True(selPages.Single(p => p.GetProperty("id").GetString() == "P2").GetProperty("selected").GetBoolean());
         Assert.False(selPages.Single(p => p.GetProperty("id").GetString() == "P1").GetProperty("selected").GetBoolean());
+        Assert.Equal("Kopi Penang", ZernioNative.Address(InDb(db => db.ChannelAccounts.AsNoTracking().Single(a => a.ExternalId == fb))));
+        Assert.Equal(HttpStatusCode.NotFound, (await c.PostAsync($"/api/social/accounts/{fb}/pages/P9/select", null)).StatusCode);
 
-        // unbinding a Page brings its pending posts back with it
-        var pending = SeedPost(SocialPosts.Scheduled, e1, $"{fb}:P1");
-        Assert.Equal(HttpStatusCode.OK,
-            (await c.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P1", new { entity = (string?)null })).StatusCode);
-        Assert.Null(InDb(db => db.SocialPosts.Single(p => p.Id == pending).EntityId));
+        // binding a Page to an outlet was a posting feature: gone
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await c.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P1", new { entity = "main" })).StatusCode);
 
-        // permissions: no social.manage; a company admin of outlet 1 cannot touch outlet 2's Page
+        // permissions: no channels.manage
         var agent = await SettingsTestKit.Client(_f, "agent", "agent123");
-        Assert.Equal(HttpStatusCode.Forbidden,
-            (await agent.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P2", new { entity = slug1 })).StatusCode);
-        var user = "co-fb-" + U();
-        var uid = SettingsTestKit.CreateUser(_f, user, "pass12345", Roles.Admin);
-        InDb(db =>
-        {
-            db.Profiles.Include(p => p.Entities).Single(p => p.UserId == uid).Entities.Add(db.Entities.Single(e => e.Id == e1));
-            db.SaveChanges();
-            return 0;
-        });
-        var co = await SettingsTestKit.Client(_f, user, "pass12345");
-        Assert.Equal(HttpStatusCode.Forbidden,
-            (await co.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P2", new { entity = slug1 })).StatusCode);
-
-        // the account moves to outlet 1: outlet 2's Page binding no longer fits under it and is cleared,
-        // and a Page cannot be bound outside the account's outlet
-        Assert.Equal(HttpStatusCode.OK, (await Assign(c, fb, slug1)).StatusCode);
-        Assert.Null(InDb(db => db.SocialPages.Single(p => p.ZernioAccountId == fb && p.PageId == "P2").EntityId));
-        Assert.Equal(HttpStatusCode.BadRequest,
-            (await c.PatchAsJsonAsync($"/api/social/accounts/{fb}/pages/P2", new { entity = slug2 })).StatusCode);
-    }
-
-    // ---- posts -----------------------------------------------------------------------
-
-    [Fact]
-    public async Task Posts_publish_schedule_list_retry_and_delete_and_follow_status_webhooks()
-    {
-        var ig = Account("instagram");
-        var fb = Account("facebook");
-        var c = await Admin();
-
-        // publish now
-        var now = await c.PostAsJsonAsync("/api/social/posts", new { content = "Opening day!", account_ids = new[] { ig.ExternalId, fb.ExternalId }, publish_now = true });
-        Assert.Equal(HttpStatusCode.OK, now.StatusCode);
-        var nowPost = (await now.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("post");
-        Assert.Equal("published", nowPost.GetProperty("status").GetString());
-        Assert.Equal(2, nowPost.GetProperty("results").GetArrayLength());
-        var created = _f.Zernio.Of("CreatePost").Last();
-        Assert.Equal(true, created["publishNow"]);
-
-        // schedule (wall-clock time in a zone) → Zernio gets the UTC instant
-        var at = DateTime.UtcNow.AddDays(2);
-        var local = TimeZoneInfo.ConvertTimeFromUtc(at, TimeZoneInfo.FindSystemTimeZoneById("Asia/Kuala_Lumpur"));
-        var sched = await c.PostAsJsonAsync("/api/social/posts", new
-        {
-            content = "Weekend promo", account_ids = new[] { ig.ExternalId },
-            media = new[] { new { url = "https://media.zernio.com/temp/a.jpg", type = "image" } },
-            scheduled_at = local.ToString("yyyy-MM-ddTHH:mm:ss"), timezone = "Asia/Kuala_Lumpur",
-        });
-        var schedPost = (await sched.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("post");
-        Assert.Equal("scheduled", schedPost.GetProperty("status").GetString());
-        var schedBody = _f.Zernio.Of("CreatePost").Last();
-        Assert.Equal(at.ToString("yyyy-MM-ddTHH:mm:ss") + "Z", schedBody["scheduledFor"]);
-        var zid = schedPost.GetProperty("zernio_post_id").GetString()!;
-
-        // a draft stays local
-        var draft = await c.PostAsJsonAsync("/api/social/posts", new { content = "idea", draft = true });
-        Assert.Equal("draft", (await draft.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("post").GetProperty("status").GetString());
-        Assert.Equal(2, _f.Zernio.Of("CreatePost").Count);
-
-        // the status webhook: partial with a failure
-        await Hook("post.partial", new
-        {
-            id = Guid.NewGuid().ToString(), @event = "post.partial",
-            post = new
-            {
-                id = zid, status = "partial", scheduledFor = at,
-                platforms = new[] { new { platform = "instagram", accountId = ig.ExternalId, status = "failed", error = "Media too large", publishedUrl = (string?)null } },
-            },
-        });
-        var listed = await c.GetFromJsonAsync<JsonElement>("/api/social/posts");
-        var row = listed.GetProperty("posts").EnumerateArray().First(p => p.GetProperty("id").GetInt32() == schedPost.GetProperty("id").GetInt32());
-        Assert.Equal("partial", row.GetProperty("status").GetString());
-        Assert.Contains("Media too large", row.GetProperty("error").GetString());
-
-        // retry
-        var retry = await c.PostAsync($"/api/social/posts/{row.GetProperty("id").GetInt32()}/retry", null);
-        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
-        Assert.Equal("published", (await retry.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("post").GetProperty("status").GetString());
-
-        // delete a scheduled one → Zernio DELETE; a published one → unpublish per platform
-        var another = await c.PostAsJsonAsync("/api/social/posts", new { content = "later", account_ids = new[] { fb.ExternalId }, scheduled_at = DateTime.UtcNow.AddDays(3).ToString("o") });
-        var anotherId = (await another.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("post").GetProperty("id").GetInt32();
-        Assert.Equal(HttpStatusCode.OK, (await c.DeleteAsync($"/api/social/posts/{anotherId}?confirm=true")).StatusCode);
-        Assert.Single(_f.Zernio.Of("DeletePost"));
-        var nowId = nowPost.GetProperty("id").GetInt32();
-        await c.DeleteAsync($"/api/social/posts/{nowId}");
-        Assert.Equal(2, _f.Zernio.Of("UnpublishPost").Count);
-        Assert.Equal("deleted", InDb(db => db.SocialPosts.Single(p => p.Id == nowId).Status));
-
-        // accounts of another entity cannot be posted to from the organization level
-        var entity = InDb(db => db.Entities.First(e => e.Slug == "main").Id);
-        var other = Account("instagram", entity);
-        Assert.Equal(HttpStatusCode.BadRequest,
-            (await c.PostAsJsonAsync("/api/social/posts", new { content = "x", account_ids = new[] { other.ExternalId }, publish_now = true })).StatusCode);
-    }
-
-    [Fact]
-    public async Task Media_upload_goes_through_a_presigned_url()
-    {
-        var c = await Admin();
-        using var form = new MultipartFormDataContent();
-        var file = new ByteArrayContent(new byte[] { 0xFF, 0xD8, 0xFF, 0x00 });
-        file.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
-        form.Add(file, "file", "photo.jpg");
-        var res = await c.PostAsync("/api/social/media", form);
-        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var body = await res.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("image", body.GetProperty("type").GetString());
-        Assert.Equal("https://media.zernio.com/temp/photo.jpg", body.GetProperty("url").GetString());
-        Assert.Equal("image/jpeg", _f.Zernio.Of("Presign").Single()["contentType"]);
-        Assert.Single(_f.Zernio.Of("Upload"));
+        Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsync($"/api/social/accounts/{fb}/pages/P1/select", null)).StatusCode);
     }
 
     // ---- settings + permissions --------------------------------------------------------
 
     [Fact]
-    public async Task Social_capabilities_belong_to_admins_and_unconfigured_zernio_says_so()
+    public async Task Social_media_is_gone_and_unconfigured_zernio_says_so()
     {
         var admin = await Admin();
         var who = await admin.GetFromJsonAsync<JsonElement>("/api/auth/whoami");
         var caps = who.GetProperty("capabilities").EnumerateArray().Select(x => x.GetString()).ToList();
-        Assert.Contains("social.view", caps);
-        Assert.Contains("social.publish", caps);
-        Assert.Contains("social.manage", caps);
+        Assert.DoesNotContain(caps, x => x!.StartsWith("social."));
+        Assert.Contains("channels.manage", caps);
+
+        // the posting and comment routes no longer exist
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync("/api/social/posts")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsJsonAsync("/api/social/threads/comment:x:y/hide", new { })).StatusCode);
 
         var agent = await SettingsTestKit.Client(_f, "agent", "agent123");
-        Assert.Equal(HttpStatusCode.Forbidden, (await agent.GetAsync("/api/social/posts")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsJsonAsync("/api/social/connect", new { platform = "instagram" })).StatusCode);
         // the key's settings are superadmin's
         Assert.Equal(HttpStatusCode.Forbidden, (await admin.GetAsync("/api/zernio/status")).StatusCode);
@@ -1178,7 +763,7 @@ public class ZernioTests : IClassFixture<ZernioFactory>
         _f.Zernio.Configured = false;
         var res = await admin.GetAsync("/api/social/accounts");
         Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
-        Assert.Equal(ChatBranch.Api.Endpoints.SocialEndpoints.NotConfiguredCode,
+        Assert.Equal(ChatBranch.Api.Endpoints.ZernioEndpoints.NotConfiguredCode,
             (await res.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
     }
 

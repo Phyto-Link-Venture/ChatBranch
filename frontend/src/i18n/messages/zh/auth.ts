@@ -13,7 +13,7 @@ export const auth: Dict<typeof source> = {
     expired: '你的会话已过期——请重新登录。',
     signIn: '登录',
     provisioned: '账号由管理员开通——如无法登录，请联系管理员。',
-    tagline: '一个收件箱，统一处理 WhatsApp、邮件、社交媒体、网页聊天和语音。',
+    tagline: '一个收件箱，统一处理 WhatsApp、Messenger、Instagram、邮件、网页聊天和语音。',
     invalid: '用户名与密码不匹配。',
     locked_one: '失败次数过多，请 {count} 分钟后再试。',
     locked_other: '失败次数过多，请 {count} 分钟后再试。',

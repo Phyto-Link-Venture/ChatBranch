@@ -56,16 +56,6 @@ public static class Channels
     /// conversation.
     /// </summary>
     public const string Shopify = "shopify";
-
-    // ---- social media through Zernio (Data/Social) ---------------------------
-    /// <summary>
-    /// Public comments, Google Business reviews and the DMs of platforms ChatBranch
-    /// has no native channel for, carried by Zernio (one Zernio account = one
-    /// <see cref="ChannelAccount"/>, provider <see cref="Providers.Zernio"/>). The
-    /// thread key says what it is: <c>comment:&lt;account&gt;:&lt;root comment&gt;</c>,
-    /// <c>review:&lt;account&gt;:&lt;review&gt;</c> or <c>dm:&lt;account&gt;:&lt;conversation&gt;</c>.
-    /// </summary>
-    public const string Social = "social";
 }
 
 public static class Providers
@@ -76,7 +66,7 @@ public static class Providers
     public const string YCloud = "ycloud";
     /// <summary>Twilio's WhatsApp sender (Programmable Messaging + the Content API).</summary>
     public const string Twilio = "twilio";
-    /// <summary>Zernio — the social-media API behind the <see cref="Channels.Social"/> channel.</summary>
+    /// <summary>Zernio — a managed connection carrying native channels (WhatsApp, Messenger, Instagram, Telegram, SMS).</summary>
     public const string Zernio = "zernio";
     /// <summary>
     /// WAHA (github.com/devlikeapro/waha) — an operator-run, self-hosted WhatsApp HTTP API

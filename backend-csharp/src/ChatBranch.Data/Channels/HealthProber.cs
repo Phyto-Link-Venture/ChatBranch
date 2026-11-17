@@ -124,11 +124,15 @@ public sealed class ChannelHealthProber
     /// <summary>WhatsApp through a BSP (YCloud, Twilio) — the provider's own probe.</summary>
     private readonly IWhatsAppCloudClient? _whatsapp;
     private readonly ChatBranch.Data.Sidecars.IBaileysGateway? _baileys;
+    /// <summary>A native channel carried by Zernio (a managed connection) — Zernio's own probe.</summary>
+    private readonly ChatBranch.Data.Zernio.ZernioNativeTransport? _zernio;
 
     public ChannelHealthProber(AppDbContext db, ScopingService scoping, ITelegramClient telegram,
         IEmailTransport email, IGraphHealthProbe graph, ChannelTransports? more = null,
-        IWhatsAppCloudClient? whatsapp = null, ChatBranch.Data.Sidecars.IBaileysGateway? baileys = null)
+        IWhatsAppCloudClient? whatsapp = null, ChatBranch.Data.Sidecars.IBaileysGateway? baileys = null,
+        ChatBranch.Data.Zernio.ZernioNativeTransport? zernio = null)
     {
+        _zernio = zernio;
         _more = more;
         _whatsapp = whatsapp;
         _baileys = baileys;
@@ -140,8 +144,8 @@ public sealed class ChannelHealthProber
     }
 
     /// <summary>Does this account have something to probe?</summary>
-    public static bool Probeable(ChannelAccount a) => ChatBranch.Data.Social.ZernioNative.Is(a)
-        ? ChatBranch.Data.Social.ZernioNative.Configured(a)
+    public static bool Probeable(ChannelAccount a) => ChatBranch.Data.Zernio.ZernioNative.Is(a)
+        ? ChatBranch.Data.Zernio.ZernioNative.Configured(a)
         : a.Channel switch
     {
         ChannelIds.WhatsApp => WhatsAppProviders.Of(a) switch
@@ -172,8 +176,8 @@ public sealed class ChannelHealthProber
             if (a.Channel == ChannelIds.WhatsApp && a.Provider == Providers.Baileys)
                 return _baileys is { IsConfigured: true } gw ? BaileysVerdict(a, await gw.StatusAsync(a.ExternalId, ct)) : null;
             // a native channel through Zernio: does Zernio still hold the account, active
-            if (ChatBranch.Data.Social.ZernioNative.Is(a))
-                return _more?.For(ChannelIds.Social) is { } social ? (await social.ProbeAsync(a, ct)).Verdict : null;
+            if (ChatBranch.Data.Zernio.ZernioNative.Is(a))
+                return _zernio is { } z ? (await z.ProbeAsync(a, ct)).Verdict : null;
             switch (a.Channel)
             {
                 case ChannelIds.Telegram:

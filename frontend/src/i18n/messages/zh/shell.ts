@@ -14,7 +14,6 @@ export const shell: Dict<typeof source> = {
     aiPlayground: 'AI 试验场',
     aiTasks: '后台 AI 任务',
     automations: '自动化规则',
-    social: '社交媒体帖子',
     voice: '语音与通话',
     templates: '模板',
     knowledge: '知识库',

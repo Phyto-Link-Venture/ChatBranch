@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ChannelIds = ChatBranch.Domain.Channels;
 
-namespace ChatBranch.Data.Social;
+namespace ChatBranch.Data.Zernio;
 
 /// <summary>
 /// Zernio as a CONNECTION METHOD on ChatBranch's native channels.
@@ -19,16 +19,12 @@ namespace ChatBranch.Data.Social;
 /// like any other connection of that channel; threads keep the NATIVE key (WhatsApp /
 /// SMS: the phone's digits, Messenger / Instagram: the PSID / IGSID, Telegram: the chat
 /// id) and a reply addresses Zernio's conversation id from <see cref="ZernioConversation"/>.
-///
-/// One Zernio account → up to TWO rows sharing the Zernio id: the <c>social</c> row
-/// (comments, reviews, posts — facebook, instagram, telegram) and the native row (DMs).
-/// WhatsApp and SMS have no social features, so they only get the native row.
+/// One Zernio account = ONE inbox. Zernio's social-media features (posts, comments,
+/// reviews, other networks) are not used — out of ChatBranch's scope.
 /// </summary>
 public static class ZernioNative
 {
     public const string AccountIdKey = "zernio_account_id";
-    /// <summary>The social row's ChannelAccount id when the account has one (facebook, instagram, telegram).</summary>
-    public const string SocialAccountKey = "zernio_social_account_id";
     /// <summary>What the customer sees: the WhatsApp / SMS number, the @username, the Page name.</summary>
     public const string AddressKey = "zernio_address";
     /// <summary>The user-facing name of the method (normal users never see the word "Zernio").</summary>
@@ -36,7 +32,7 @@ public static class ZernioNative
     /// <summary>Set when someone renamed the inbox here: a sync then keeps that name.</summary>
     public const string CustomNameKey = "zernio_custom_name";
 
-    /// <summary>Rename a managed-connection row (social or native) so later syncs keep the name.</summary>
+    /// <summary>Rename a managed-connection inbox so later syncs keep the name.</summary>
     public static bool Rename(ChannelAccount a, string? name)
     {
         var n = (name ?? "").Trim();
@@ -67,18 +63,14 @@ public static class ZernioNative
 
     public static readonly string[] Platforms = { "whatsapp", "facebook", "instagram", "telegram", "sms" };
 
-    /// <summary>Platforms whose Zernio account ALSO keeps a social row (comments / posts).</summary>
-    public static bool HasSocialRow(string platform) => platform is not ("whatsapp" or "sms");
-
-    /// <summary>A native-channel inbox carried by Zernio (never the social row).</summary>
-    public static bool Is(ChannelAccount? a) =>
-        a != null && a.Provider == Providers.Zernio && a.Channel != ChannelIds.Social;
+    /// <summary>A native-channel inbox carried by Zernio.</summary>
+    public static bool Is(ChannelAccount? a) => a != null && a.Provider == Providers.Zernio;
 
     /// <summary>Configured = it names a Zernio account Zernio has not removed (the key itself is checked by the client).</summary>
     public static bool Configured(ChannelAccount a) =>
-        Is(a) && a.ExternalId.Length > 0 && SocialChannels.Cfg(a, SocialChannels.StatusKey) != "removed";
+        Is(a) && a.ExternalId.Length > 0 && ZernioKeys.Cfg(a, ZernioKeys.StatusKey) != "removed";
 
-    public static string Address(ChannelAccount a) => SocialChannels.Cfg(a, AddressKey);
+    public static string Address(ChannelAccount a) => ZernioKeys.Cfg(a, AddressKey);
 
     /// <summary>The method label a Connected card shows ("via Zernio").</summary>
     public static string Label(string channel) => channel switch
@@ -99,13 +91,12 @@ public static class ZernioNative
         ["method_label"] = MethodLabel,
         ["provider_label"] = Label(a.Channel),
         ["zernio_account_id"] = a.ExternalId,
-        ["zernio_platform"] = SocialChannels.Platform(a),
-        ["zernio_status"] = SocialChannels.Cfg(a, SocialChannels.StatusKey),
-        ["social_account_id"] = int.TryParse(SocialChannels.Cfg(a, SocialAccountKey), out var s) ? s : null,
+        ["zernio_platform"] = ZernioKeys.Platform(a),
+        ["zernio_status"] = ZernioKeys.Cfg(a, ZernioKeys.StatusKey),
         ["address"] = Address(a),
-        ["username"] = SocialChannels.Cfg(a, SocialChannels.UsernameKey),
-        ["display_name"] = SocialChannels.Cfg(a, SocialChannels.DisplayNameKey),
-        ["avatar"] = SocialChannels.Cfg(a, SocialChannels.AvatarKey),
+        ["username"] = ZernioKeys.Cfg(a, ZernioKeys.UsernameKey),
+        ["display_name"] = ZernioKeys.Cfg(a, ZernioKeys.DisplayNameKey),
+        ["avatar"] = ZernioKeys.Cfg(a, ZernioKeys.AvatarKey),
         ["credentials_held_by"] = "zernio",
         ["health_status"] = a.HealthStatus,
         ["health_detail"] = a.HealthDetail,
@@ -145,7 +136,7 @@ public static class ZernioNative
                 }
                 // a user with a WhatsApp username and no phone: the BSUID keys the chat
                 var bsuid = FirstNonEmpty(ZernioJson.Str(sender, "businessScopedUserId"), ZernioJson.Str(sender, "id"), participant);
-                return bsuid.Length > 0 ? SocialChannels.KeyPart(bsuid) : "";
+                return bsuid.Length > 0 ? ZernioKeys.KeyPart(bsuid) : "";
             }
             case ChannelIds.Sms:
             {
@@ -202,7 +193,7 @@ public sealed record ZernioSend(bool Ok, string ExternalId, string Detail, int S
     {
         if (r.Ok) return new ZernioSend(true, externalId, "", r.Status);
         int? meta = ZernioJson.Int(r.Json, "platformError", "code") is var c and > 0 ? c : null;
-        var t = SocialTransport.Fail(r);
+        var t = ZernioNativeTransport.Fail(r);
         return new ZernioSend(false, "", t.Detail, r.Status, meta, t.Failure);
     }
 
@@ -421,9 +412,40 @@ public sealed class ZernioNativeTransport : IChannelTransport
             attachmentType: AttachmentType(media.MediaType), attachmentName: media.FileName, ct: ct)).ToTransport();
     }
 
-    /// <summary>Health = does Zernio still hold this account, active (the social transport's probe).</summary>
-    public Task<TransportProbe> ProbeAsync(ChannelAccount a, CancellationToken ct = default) =>
-        new SocialTransport(_zernio, _scopes).ProbeAsync(a, ct);
+    /// <summary>Health = does Zernio still hold this account, active.</summary>
+    public async Task<TransportProbe> ProbeAsync(ChannelAccount a, CancellationToken ct = default)
+    {
+        if (!_zernio.IsConfigured)
+            return new TransportProbe(new ProbeVerdict(null, _zernio.NotConfiguredReason, Transient: true));
+        var r = await _zernio.ListAccountsAsync(null, ct);
+        if (!r.Ok)
+            return new TransportProbe(new ProbeVerdict(r.Status == 401 ? Health.Disconnected : null,
+                r.Error, Transient: r.Status != 401));
+        var mine = ZernioJson.Arr(r.Json, "accounts").FirstOrDefault(x => ZernioJson.Str(x, "_id") == a.ExternalId);
+        if (mine.ValueKind != JsonValueKind.Object)
+            return new TransportProbe(new ProbeVerdict(Health.Disconnected,
+                "the managed connection no longer holds this account — connect it again"));
+        var active = ZernioJson.Bool(mine, "isActive") && !ZernioJson.Bool(mine, "needsReconnection");
+        return new TransportProbe(active
+                ? new ProbeVerdict(Health.Healthy, "")
+                : new ProbeVerdict(Health.Disconnected, "the platform connection needs to be renewed (reconnect it)"),
+            "");
+    }
+
+    /// <summary>What Zernio's refusal means for the account's health.</summary>
+    public static TransportResult Fail(ZernioReply r)
+    {
+        var failure = r.Status switch
+        {
+            401 => TransportFailure.Auth,
+            402 => TransportFailure.Billing,
+            409 when r.Error.Contains("disconnect", StringComparison.OrdinalIgnoreCase) => TransportFailure.Auth,
+            429 => TransportFailure.RateLimit,
+            0 or >= 500 => TransportFailure.Transient,
+            _ => TransportFailure.Recipient, // 400 / 403 / 404 / 422: this person or conversation
+        };
+        return TransportResult.Fail(failure, r.Error.Length > 0 ? r.Error : $"the managed connection answered HTTP {r.Status}", r.Status);
+    }
 
     public async Task<(byte[]? Content, string Detail)> DownloadAsync(ChannelAccount a, InboundMediaRef media,
         CancellationToken ct = default)
@@ -506,8 +528,8 @@ public sealed class ZernioWhatsAppClient : IWhatsAppCloudClient
         Task.FromResult(new GraphRead(true, JsonSerializer.SerializeToElement(new
         {
             display_phone_number = ZernioNative.Address(account),
-            verified_name = SocialChannels.Cfg(account, SocialChannels.DisplayNameKey),
+            verified_name = ZernioKeys.Cfg(account, ZernioKeys.DisplayNameKey),
             quality_rating = "",
-            status = SocialChannels.Cfg(account, SocialChannels.StatusKey),
+            status = ZernioKeys.Cfg(account, ZernioKeys.StatusKey),
         }), ""));
 }

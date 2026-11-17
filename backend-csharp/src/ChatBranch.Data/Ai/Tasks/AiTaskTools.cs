@@ -29,34 +29,15 @@ public static class AiTaskTools
     public const string CalendarEvent = "calendar_create_event";
     public const string Webhook = "webhook_post";
 
-    // ---- Social media (a managed connection — Zernio; users never see that name) ----
-    /// <summary>The "provider" of the social tools: connected = the managed-connection key is configured.</summary>
-    public const string SocialProvider = "zernio";
-    public const string SocialApp = "Social media";
-    public const string SocialAccounts = "social_list_accounts";
-    public const string SocialDraft = "social_draft_post";
-    public const string SocialSchedule = "social_schedule_post";
-    public const string SocialHide = "social_hide_comment";
-    public const string SocialReply = "social_reply_comment";
-    /// <summary>Per-task opt-ins (task.config): publishing / scheduling publicly, replying publicly.</summary>
-    public const string AllowPublish = "allow_publish";
-    public const string AllowReply = "allow_reply";
-
     /// <summary>A tool's per-task setting the editor renders (key, type, default, label).</summary>
     public sealed record Setting(string Key, string Type, object? Default, string Label);
 
     /// <summary>The settings each tool takes (beyond the Google ones the editor already knows).</summary>
-    public static IReadOnlyList<Setting> SettingsOf(string id) => id switch
-    {
-        SocialSchedule => new[] { new Setting(AllowPublish, "bool", false, "Allow this task to publish or schedule posts publicly") },
-        SocialReply => new[] { new Setting(AllowReply, "bool", false, "Allow this task to reply publicly under comments") },
-        _ => Array.Empty<Setting>(),
-    };
+    public static IReadOnlyList<Setting> SettingsOf(string id) => Array.Empty<Setting>();
 
     /// <summary>The connected app a tool belongs to (the editor's group heading), "" for none.</summary>
     public static string AppOf(Def d) => d.Provider switch
     {
-        SocialProvider => SocialApp,
         "google_sheets" => "Google Sheets",
         "google_drive" => "Google Drive",
         "google_calendar" => "Google Calendar",
@@ -97,26 +78,6 @@ public static class AiTaskTools
         new Def(CalendarEvent, GroupApps, "google_calendar", true, "Google Calendar: create an event",
             "Create an event on the business's Google Calendar (e.g. a payment due date). It does NOT invite the customer.",
             """{"type":"object","properties":{"title":{"type":"string"},"start":{"type":"string","description":"ISO 8601 date-time, e.g. 2026-11-02T09:00:00+08:00"},"minutes":{"type":"integer","description":"Length in minutes (default 30)"},"description":{"type":"string"}},"required":["title","start"]}"""),
-        new Def(SocialAccounts, GroupApps, SocialProvider, false, "Social media: list accounts",
-            "List the social media accounts this outlet can post to (id, platform, username, Facebook Pages as " +
-            "\"<account id>:<page id>\" targets). Read-only.",
-            """{"type":"object","properties":{}}"""),
-        new Def(SocialDraft, GroupApps, SocialProvider, true, "Social media: save a draft post",
-            "Save a DRAFT social post in ChatBranch for a person to review and publish — nothing is published. " +
-            "Give the text and the target account ids (social_list_accounts).",
-            """{"type":"object","properties":{"content":{"type":"string","description":"The post text"},"account_ids":{"type":"array","items":{"type":"string"},"description":"Target account ids or <account id>:<page id>"}},"required":["content"]}"""),
-        new Def(SocialSchedule, GroupApps, SocialProvider, true, "Social media: schedule or publish a post",
-            "Schedule (scheduled_at) or publish now a social post on the target accounts. PUBLIC — only when this " +
-            "task was allowed to publish; otherwise save a draft instead.",
-            """{"type":"object","properties":{"content":{"type":"string"},"account_ids":{"type":"array","items":{"type":"string"}},"scheduled_at":{"type":"string","description":"ISO 8601 time; omit to publish now"},"timezone":{"type":"string","description":"IANA time zone for a time without offset"}},"required":["content","account_ids"]}"""),
-        new Def(SocialHide, GroupApps, SocialProvider, true, "Social media: hide the comment",
-            "Hide (or unhide) the public comment THIS conversation is about (social comment conversations only; " +
-            "Facebook, Instagram, Threads, X, TikTok). Use it for spam or abuse.",
-            """{"type":"object","properties":{"hidden":{"type":"boolean","description":"true = hide (default), false = unhide"}}}"""),
-        new Def(SocialReply, GroupApps, SocialProvider, true, "Social media: reply under the comment",
-            "Post a short PUBLIC reply under the comment THIS conversation is about (social comment conversations " +
-            "only, and only when this task was allowed to reply). Never share anything personal.",
-            """{"type":"object","properties":{"text":{"type":"string","description":"The public reply (one to three short sentences)"}},"required":["text"]}"""),
         new Def(Webhook, GroupWebhook, "", true, "Send to another app (signed webhook)",
             "POST what you extracted, as JSON, to the business's own system (a signed webhook). Use it once per message.",
             """{"type":"object","properties":{"data":{"type":"object","description":"The JSON object to send"}},"required":["data"]}"""),
@@ -127,6 +88,12 @@ public static class AiTaskTools
     public static JsonElement SchemaOf(Def d) => JsonDocument.Parse(d.Schema).RootElement.Clone();
 
     /// <summary>Is this a tool id the catalog knows (a built-in or an external MCP tool)?</summary>
+    /// <summary>Tools that existed once and are gone (the social-media tools): dropped from a task on save.</summary>
+    public static readonly HashSet<string> Retired = new()
+    {
+        "social_list_accounts", "social_draft_post", "social_schedule_post", "social_hide_comment", "social_reply_comment",
+    };
+
     public static bool KnownId(string id) =>
         Builtin(id) != null || (id.StartsWith(McpPrefix) && id.Length > McpPrefix.Length && id.Length <= 70);
 

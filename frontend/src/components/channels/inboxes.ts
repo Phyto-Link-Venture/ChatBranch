@@ -4,7 +4,7 @@
  * from the EXISTING account endpoints and folded into one card shape.
  *
  *   WhatsApp (Cloud + QR)   GET/POST /api/whatsapp/accounts, POST …/{id}
- *   Email / social          GET/POST /api/messaging/accounts, PATCH …/{id}
+ *   Email / Messenger / IG  GET/POST /api/messaging/accounts, PATCH …/{id}
  *   (also LINE, Viber, SMS via Twilio, WeChat, TikTok, Douyin and Zalo — each
  *   with its own signed webhook at /api/messaging/webhook/{channel}/{id})
  *   Website widget          GET/POST /api/widgets, PATCH …/{id}
@@ -95,33 +95,18 @@ export const WA_PROVIDER: Record<WaKind, WaProvider> = {
 /** Filter buckets an inbox kind falls in (every WhatsApp kind shares one). */
 export type KindFilter = 'whatsapp' | 'email' | 'telegram' | 'messenger' | 'instagram' | 'website' | 'voice' | MoreKind
 
-/** Social networks connected through Zernio (lib/social.ts platform ids). */
-export type SocialFilter =
-  | 'facebook'
-  | 'youtube'
-  | 'linkedin'
-  | 'twitter'
-  | 'threads'
-  | 'pinterest'
-  | 'googlebusiness'
-  | 'bluesky'
-  | 'reddit'
-  | 'discord'
-  | 'snapchat'
-
 /** Marketplace shops (the seller service). */
 export type ShopFilter = 'shopee' | 'lazada' | 'tiktok_shop' | 'shopify'
 
-/** Filter buckets on the Connected section: inboxes, Zernio social accounts and shops. */
-export type ChannelFilter = 'all' | KindFilter | SocialFilter | ShopFilter
+/** Filter buckets on the Connected section: inboxes (managed connections included) and shops. */
+export type ChannelFilter = 'all' | KindFilter | ShopFilter
 
 /** How the "Add a channel" blocks are grouped. */
-export type KindGroup = 'messaging' | 'social' | 'sms_voice' | 'china'
+export type KindGroup = 'messaging' | 'sms_voice' | 'china'
 
 /** `label` / `hint` are translation keys. */
 export const KIND_GROUPS: { id: KindGroup; label: MessageKey; hint: MessageKey }[] = [
   { id: 'messaging', label: 'channels.groups.messaging', hint: 'channels.groups.messagingHint' },
-  { id: 'social', label: 'channels.groups.social', hint: 'channels.groups.socialHint' },
   { id: 'sms_voice', label: 'channels.groups.smsVoice', hint: 'channels.groups.smsVoiceHint' },
   { id: 'china', label: 'channels.groups.china', hint: 'channels.groups.chinaHint' },
 ]
@@ -167,11 +152,11 @@ export const KINDS: KindMeta[] = [
   { kind: 'line', logo: 'line', ...texts('line'), filter: 'line', group: 'messaging' },
   { kind: 'viber', logo: 'viber', ...texts('viber'), filter: 'viber', group: 'messaging' },
   { kind: 'zalo', logo: 'zalo', ...texts('zalo'), filter: 'zalo', group: 'messaging' },
-  { kind: 'messenger', logo: 'messenger', ...texts('messenger'), filter: 'messenger', group: 'social' },
-  { kind: 'instagram', logo: 'instagram', ...texts('instagram'), filter: 'instagram', group: 'social' },
+  { kind: 'messenger', logo: 'messenger', ...texts('messenger'), filter: 'messenger', group: 'messaging' },
+  { kind: 'instagram', logo: 'instagram', ...texts('instagram'), filter: 'instagram', group: 'messaging' },
   {
     kind: 'tiktok', logo: 'tiktok', ...texts('tiktok'),
-    filter: 'tiktok', badge: 'Beta', group: 'social', approval: true,
+    filter: 'tiktok', badge: 'Beta', group: 'messaging', approval: true,
   },
   { kind: 'website', logo: 'website', ...texts('website'), filter: 'website', group: 'messaging' },
   { kind: 'sms', logo: 'sms', ...texts('sms'), filter: 'sms', group: 'sms_voice' },
@@ -209,17 +194,6 @@ export const FILTERS: FilterDef[] = [
   { id: 'tiktok', brand: 'TikTok', logo: 'tiktok' },
   { id: 'wechat', brand: 'WeChat', logo: 'wechat' },
   { id: 'douyin', brand: 'Douyin', logo: 'douyin' },
-  { id: 'facebook', brand: 'Facebook', logo: 'facebook' },
-  { id: 'youtube', brand: 'YouTube', logo: 'youtube' },
-  { id: 'linkedin', brand: 'LinkedIn', logo: 'linkedin' },
-  { id: 'twitter', brand: 'X', logo: 'x' },
-  { id: 'threads', brand: 'Threads', logo: 'threads' },
-  { id: 'pinterest', brand: 'Pinterest', logo: 'pinterest' },
-  { id: 'googlebusiness', brand: 'Google Business', logo: 'googlebusiness' },
-  { id: 'bluesky', brand: 'Bluesky', logo: 'bluesky' },
-  { id: 'reddit', brand: 'Reddit', logo: 'reddit' },
-  { id: 'discord', brand: 'Discord', logo: 'discord' },
-  { id: 'snapchat', brand: 'Snapchat', logo: 'snapchat' },
   { id: 'shopee', brand: 'Shopee', logo: 'shopee' },
   { id: 'lazada', brand: 'Lazada', logo: 'lazada' },
   { id: 'tiktok_shop', brand: 'TikTok Shop', logo: 'tiktok_shop' },
@@ -227,8 +201,11 @@ export const FILTERS: FilterDef[] = [
 ]
 
 const FILTER_IDS = new Set<string>(FILTERS.map((f) => f.id))
-/** A filter bucket for any channel / platform id; unknown ones fall under "all" only. */
-export const asFilter = (id: string): ChannelFilter | null => (FILTER_IDS.has(id) && id !== 'all' ? (id as ChannelFilter) : null)
+/** A filter bucket for any channel / platform id (our `facebook` channel is Messenger); unknown ones fall under "all" only. */
+export const asFilter = (raw: string): ChannelFilter | null => {
+  const id = raw === 'facebook' ? 'messenger' : raw
+  return FILTER_IDS.has(id) && id !== 'all' ? (id as ChannelFilter) : null
+}
 
 export const filterLabel = (f: FilterDef, t: TFunction): string => (f.label ? t(f.label) : f.brand ?? f.id)
 

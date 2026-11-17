@@ -92,8 +92,6 @@ export const aiTasks: Dict<typeof source> = {
     },
     notConnected: 'Tidak bersambung',
     connectHint: 'Sambungkannya di halaman Aplikasi dahulu.',
-    socialMedia: 'Media sosial',
-    connectSocialHint: 'Sambungkan akaun media sosial di halaman Saluran dahulu.',
     readOnlyTool: 'baca sahaja',
     noMcp: 'Tiada pelayan MCP luaran yang sedia. Tambah dan uji satu di Pembangun → Pelayan MCP untuk menawarkan alatnya di sini.',
     settings: {

@@ -225,7 +225,7 @@ public static class MessagingEndpoints
             ["messages"] = Bubbles(db, t, messages),
             ["created"] = Iso(t.CreatedAt),
             ["updated"] = Iso(t.UpdatedAt),
-        }.WithSocial(db, t);
+        };
 
     /// <summary>{id, name} of the conversation's company (null = unattributed).</summary>
     internal static Dictionary<string, object?>? ThreadCompanyPayload(AppDbContext db, Thread t)
@@ -513,8 +513,6 @@ public static class MessagingEndpoints
                     Last = g.OrderBy(m => m.CreatedAt).ThenBy(m => m.Id).Last(),
                 });
 
-            var socialMap = SocialEndpoints.SocialMap(db,
-                rows.Where(x => x.Channel == Channels.Social).Select(x => x.Id));
             var threads = rows.Select(t =>
             {
                 byThread.TryGetValue(t.Id, out var agg);
@@ -540,7 +538,6 @@ public static class MessagingEndpoints
                     ["last_ts"] = agg == null ? Iso(t.UpdatedAt) : Iso(agg.Last.CreatedAt),
                     ["message_count"] = agg?.Count ?? 0,
                 };
-                if (socialMap.TryGetValue(t.Id, out var social)) row["social"] = social;
                 return row;
             })
             .OrderByDescending(t => (string)(t["last_ts"] ?? ""), StringComparer.Ordinal)

@@ -92,26 +92,16 @@ public static class ToolRouter
         ["setting"] = new[] { "settings" }, ["theme"] = new[] { "settings" }, ["language"] = new[] { "settings" },
         ["field"] = new[] { "settings" }, ["view"] = new[] { "views" }, ["tab"] = new[] { "views" },
         ["history"] = new[] { "assistant" },
-        // social media (social_* tools): posts, scheduling, comments, reviews, the platforms
-        ["post"] = new[] { "social" }, ["schedule"] = new[] { "social" }, ["schedul"] = new[] { "social" },
-        ["publish"] = new[] { "social" }, ["caption"] = new[] { "social" }, ["social"] = new[] { "social" },
-        ["instagram"] = new[] { "social", "channels" }, ["facebook"] = new[] { "social", "channels" },
-        ["page"] = new[] { "social" }, ["tiktok"] = new[] { "social" }, ["linkedin"] = new[] { "social" },
-        ["youtube"] = new[] { "social" }, ["thread"] = new[] { "social", "conversations" },
-        ["pinterest"] = new[] { "social" }, ["twitter"] = new[] { "social" }, ["comment"] = new[] { "social" },
-        ["review"] = new[] { "social", "ai" }, ["zernio"] = new[] { "social" }, ["telegram"] = new[] { "channels", "social" },
-        // Bahasa Melayu
-        ["siaran"] = new[] { "social" }, ["hantaran"] = new[] { "social" }, ["jadual"] = new[] { "social" },
-        ["terbit"] = new[] { "social" }, ["terbitkan"] = new[] { "social" }, ["kapsyen"] = new[] { "social" },
-        ["komen"] = new[] { "social" }, ["ulasan"] = new[] { "social" }, ["sosial"] = new[] { "social" },
+        // managed messaging connections (the social_* tools, named for history): platforms ChatBranch connects
+        ["instagram"] = new[] { "channels" }, ["facebook"] = new[] { "channels" }, ["messenger"] = new[] { "channels" },
+        ["page"] = new[] { "channels" }, ["zernio"] = new[] { "channels" }, ["telegram"] = new[] { "channels" },
+        ["thread"] = new[] { "conversations" }, ["review"] = new[] { "ai" },
     };
 
     /// <summary>Chinese has no spaces: these substrings anywhere in the text name a domain.</summary>
     private static readonly (string Text, string Domain)[] CjkCues =
     {
-        ("帖子", "social"), ("发帖", "social"), ("发布", "social"), ("排程", "social"), ("定时", "social"),
-        ("社交", "social"), ("社媒", "social"), ("评论", "social"), ("评价", "social"), ("脸书", "social"),
-        ("文案", "social"), ("小红书", "social"),
+        ("脸书", "channels"),
     };
 
     private static readonly Regex Word = new(@"[\p{L}\p{N}]+", RegexOptions.Compiled);

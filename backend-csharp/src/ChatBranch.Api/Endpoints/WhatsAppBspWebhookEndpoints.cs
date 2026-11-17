@@ -49,8 +49,8 @@ public static class WhatsAppBspWebhookEndpoints
             sp.GetRequiredService<YCloudWhatsAppClient>(),
             sp.GetRequiredService<TwilioWhatsAppClient>(),
             sp.GetRequiredService<WahaWhatsAppClient>(),
-            // WhatsApp via a managed connection (Zernio) — registered by AddSocialChannel
-            sp.GetService<ChatBranch.Data.Social.ZernioWhatsAppClient>()));
+            // WhatsApp via a managed connection (Zernio) — registered by AddZernio
+            sp.GetService<ChatBranch.Data.Zernio.ZernioWhatsAppClient>()));
         return services;
     }
 

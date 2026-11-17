@@ -77,7 +77,7 @@ interface BuiltinTool {
   description: string
   provider: string
   connected: boolean
-  /** Opt-in switches a tool declares itself (e.g. social `allow_publish`), stored as "true" in config. */
+  /** Opt-in switches a tool declares itself, stored as "true" in config. */
   settings?: { key: string; type: string; default?: boolean; label: string }[]
 }
 
@@ -158,9 +158,6 @@ const GROUP_LABEL: Record<string, MessageKey> = {
   apps: 'aiTasks.editor.groups.apps',
   webhook: 'aiTasks.editor.groups.webhook',
 }
-/** Social tools come from the managed-connections provider; its name never reaches the screen. */
-const isSocialTool = (b: { provider: string; id: string }) => /zernio|social/i.test(b.provider) || /^social[._]/.test(b.id)
-const PROVIDER_NAME = /\s*\(?\b(via\s+)?zernio\b\)?/gi
 const TOOL_KEYS = [
   'add_private_note',
   'add_conversation_label',
@@ -706,9 +703,7 @@ function TaskEditor({
                           <span className="flex flex-wrap items-center gap-1.5 text-[12px] font-semibold text-text-high">
                             {isToolKey(b.id)
                               ? t(`aiTasks.tools.${b.id}.label` as MessageKey)
-                              : isSocialTool(b)
-                                ? `${t('aiTasks.editor.socialMedia')}: ${b.label.replace(PROVIDER_NAME, '').trim() || b.id}`
-                                : b.label}
+                              : b.label}
                             {!b.connected && (
                               <span className="rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-bold text-amber-300">
                                 {t('aiTasks.editor.notConnected')}
@@ -718,17 +713,12 @@ function TaskEditor({
                           <span className="block text-[10.5px] leading-snug text-text-muted">
                             {isToolKey(b.id)
                               ? t(`aiTasks.tools.${b.id}.hint` as MessageKey)
-                              : isSocialTool(b)
-                                ? b.description.replace(PROVIDER_NAME, '')
-                                : b.description}
+                              : b.description}
                             {!b.connected && (
                               <>
                                 {' '}
-                                <Link
-                                  href={isSocialTool(b) ? '/channels' : '/integrations'}
-                                  className="font-semibold text-brand-300 hover:underline"
-                                >
-                                  {t(isSocialTool(b) ? 'aiTasks.editor.connectSocialHint' : 'aiTasks.editor.connectHint')}
+                                <Link href="/integrations" className="font-semibold text-brand-300 hover:underline">
+                                  {t('aiTasks.editor.connectHint')}
                                 </Link>
                               </>
                             )}

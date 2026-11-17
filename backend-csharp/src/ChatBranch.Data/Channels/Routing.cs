@@ -136,7 +136,7 @@ public class Routing
     public static bool IsConfigured(ChannelAccount a)
     {
         // a native channel connected through Zernio: Zernio holds the grant
-        if (ChatBranch.Data.Social.ZernioNative.Is(a)) return ChatBranch.Data.Social.ZernioNative.Configured(a);
+        if (ChatBranch.Data.Zernio.ZernioNative.Is(a)) return ChatBranch.Data.Zernio.ZernioNative.Configured(a);
         if (a.Channel == ChatBranch.Domain.Channels.WhatsApp)
             return WhatsAppProviders.Configured(a);
         if (a.Channel == ChatBranch.Domain.Channels.Email)

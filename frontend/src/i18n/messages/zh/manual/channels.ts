@@ -342,7 +342,7 @@ export const channels: Dict<typeof source> = {
       },
       s4: {
         title: '打开方块',
-        body: '在 ChatBranch 中打开 渠道 → “渠道”。在“添加渠道” → “社交媒体”下点击“Messenger”或“Instagram”。',
+        body: '在 ChatBranch 中打开 渠道 → “渠道”。在“添加渠道” → “即时通讯应用”下点击“Messenger”或“Instagram”。',
       },
       s5: {
         title: '粘贴信息',
@@ -383,7 +383,7 @@ export const channels: Dict<typeof source> = {
     steps: {
       s1: {
         title: '找到渠道方块',
-        body: '在侧边栏打开 渠道 → “渠道”，滚动到“添加渠道”。LINE、Viber 和 Zalo 在“即时通讯应用”下，TikTok 在“社交媒体”下，SMS 在“短信、邮件与语音”下，WeChat 和 Douyin 在“中国”下。标有“需平台审批”的方块需要先通过平台审批。',
+        body: '在侧边栏打开 渠道 → “渠道”，滚动到“添加渠道”。LINE、Viber、Zalo 和 TikTok 在“即时通讯应用”下，SMS 在“短信、邮件与语音”下，WeChat 和 Douyin 在“中国”下。标有“需平台审批”的方块需要先通过平台审批。',
       },
       s2: {
         title: '打开操作说明',

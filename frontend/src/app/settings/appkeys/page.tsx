@@ -7,7 +7,7 @@ import { ZernioCard } from '@/components/settings/ZernioCard'
  * token and the integration Provider keys (Google OAuth client, Shopify /
  * Stripe webhook secrets) and the managed-connections provider (Zernio: the
  * API key, webhook and entity profiles behind the Channels page's "Managed
- * connection" method and the social networks). The provider keys used to live
+ * connection" method). The provider keys used to live
  * at the bottom of the Integrations (now Apps) page — a one-time system setup
  * mixed in with the per-user Connect cards. `#managed-connections` deep-links
  * the Zernio card (the only place the provider's name is shown).

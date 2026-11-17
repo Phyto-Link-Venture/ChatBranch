@@ -123,13 +123,6 @@ export const TOURS: TourDef[] = [
     steps: steps('', 'journeys-new', 'journeys-list', 'journeys-view', 'journeys-canvas', 'journeys-live', 'journeys-runs'),
   },
   {
-    id: 'social',
-    href: '/social',
-    group: 'work',
-    match: exact('/social'),
-    steps: steps('page-header', 'social-accounts', 'social-ai', 'social-media', 'social-when', 'social-posts', 'social-view'),
-  },
-  {
     id: 'automations',
     href: '/automations',
     group: 'work',

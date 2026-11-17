@@ -1,6 +1,6 @@
 'use client'
 
-/** Small pieces the Connected list's cards share (inbox, Zernio social account, shop). */
+/** Small pieces the Connected list's cards share (inbox, managed connection, shop). */
 
 import { BadgeCheck, Store } from 'lucide-react'
 import { HEALTH_META, type HealthStatus } from '@/lib/channelHealth'

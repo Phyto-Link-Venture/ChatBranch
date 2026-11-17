@@ -5,7 +5,7 @@ using System.Text.Json;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Audit;
-using ChatBranch.Data.Social;
+using ChatBranch.Data.Zernio;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -44,7 +44,7 @@ namespace ChatBranch.Api.Endpoints;
 /// The "bring my own Meta credentials" form stays as the advanced fallback
 /// (<c>POST /api/social/connect/whatsapp</c>), offered as <c>alternatives</c> here.
 /// </summary>
-public static partial class SocialEndpoints
+public static partial class ZernioEndpoints
 {
     /// <summary>Embedded Signup on the Cloud API only: the number leaves the WhatsApp Business app.</summary>
     public const string WaCloudOnly = "api";
@@ -149,7 +149,7 @@ public static partial class SocialEndpoints
                 detail = "The connection could not be started here (its one-time state could not be stored).",
             }, statusCode: 500);
 
-        AuditTrail.Write(db, "social.connect", "whatsapp",
+        AuditTrail.Write(db, "zernio.connect", "whatsapp",
             $"managed connection started (embedded signup, {(onboarding == WaCoexistence ? "coexistence" : "cloud API only")}, " +
             $"{(signup == WaHostedPicker ? "hosted" : "Meta")} number picker)", entityId: entityId);
 
@@ -246,7 +246,7 @@ public static partial class SocialEndpoints
         // control. It always bounces to the dashboard, never renders anything itself.
         app.MapGet(WhatsAppCallbackPath, async (string? cb, string? state, string? accountId, string? error,
             string? error_message, string? step, HttpContext ctx, AppDbContext db, ScopingService sc,
-            IZernioClient zernio, SocialAccounts accounts) =>
+            IZernioClient zernio, ZernioAccounts accounts) =>
         {
             var landing = Dashboard(ctx, sc) + "/channels";
             // platform=whatsapp on both outcomes: the dashboard's banner is this flow's, not
@@ -315,7 +315,7 @@ public static partial class SocialEndpoints
             {
                 pending["account_id"] = zid;
                 WaSavePending(sc, cb!, pending);
-                AuditTrail.Write(db, "social.connect", "whatsapp",
+                AuditTrail.Write(db, "zernio.connect", "whatsapp",
                     "managed connection completed (embedded signup, " +
                     $"{(WaStr(pending, "onboarding") == WaCoexistence ? "coexistence" : "cloud API only")}; account {zid}" +
                     (row == null ? "; inbox pending" : "") + ")",
@@ -331,7 +331,7 @@ public static partial class SocialEndpoints
         // so the cost is on screen before anyone buys. No profile yet = no numbers: a bare list of
         // the whole Zernio team would show other companies' numbers.
         app.MapGet("/api/social/phone-numbers", async (string? entity, string? country, AppDbContext db,
-            ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, SocialAccounts accounts) =>
+            ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, ZernioAccounts accounts) =>
         {
             if (!zernio.IsConfigured) return NotConfigured(zernio);
             var (entityId, err) = await ActScope(db, sc, me, entity);
@@ -377,12 +377,12 @@ public static partial class SocialEndpoints
                     "Releasing a number stops future months, returns it to the carrier pool and cannot be undone.",
                 },
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("social.manage", "channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
         // Buy a number for an outlet. SPENDS MONEY, every month: confirm must be true (the price is
         // answered when it is not), purchase_intent_id makes a retry safe, and the buy is audited.
         app.MapPost("/api/social/phone-numbers/purchase", async (Dictionary<string, JsonElement>? body,
-            AppDbContext db, ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, SocialAccounts accounts) =>
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, ZernioAccounts accounts) =>
         {
             if (!zernio.IsConfigured) return NotConfigured(zernio);
             var country = (Str(body, "country") ?? "").Trim().ToUpperInvariant();
@@ -439,7 +439,7 @@ public static partial class SocialEndpoints
                 }, statusCode: r.Status is 400 or 402 or 409 or 422 ? r.Status : 502);
             var number = WaNumberRow(WaPhoneBody(r));
             var cents = number.monthly_cents > 0 ? number.monthly_cents : monthlyCents;
-            AuditTrail.Write(db, "social.phone_number.purchase",
+            AuditTrail.Write(db, "zernio.phone_number.purchase",
                 number.phone_number.Length > 0 ? number.phone_number : country,
                 $"bought a {country} number (US${Money(cents)}/month, WhatsApp {(connectWhatsapp ? "on" : "off")}, " +
                 $"SMS {(wantsSms ? "on" : "off")}; intent {intent})", entityId: entityId);
@@ -460,11 +460,11 @@ public static partial class SocialEndpoints
                       "{platform:\"whatsapp\", onboarding:\"api\"} and pick it in Meta's picker (it shows as Verified)."
                     : null,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("social.manage", "channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
         // Release a number. IRREVERSIBLE: confirm=true AND the number typed out are both required.
         app.MapDelete("/api/social/phone-numbers/{id}", async (string id, string? confirm, string? phone_number,
-            AppDbContext db, ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, SocialAccounts accounts) =>
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, ZernioAccounts accounts) =>
         {
             if (!zernio.IsConfigured) return NotConfigured(zernio);
             var one = await zernio.GetPhoneNumberAsync(id);
@@ -497,7 +497,7 @@ public static partial class SocialEndpoints
             var digits = new string(number.phone_number.Where(char.IsAsciiDigit).ToArray());
             var inUse = digits.Length > 0
                 ? (await db.ChannelAccounts.AsNoTracking().Where(a => a.Provider == Providers.Zernio).ToListAsync())
-                    .Where(a => new string(SocialChannels.Cfg(a, ZernioNative.AddressKey).Where(char.IsAsciiDigit).ToArray()) == digits)
+                    .Where(a => new string(ZernioKeys.Cfg(a, ZernioNative.AddressKey).Where(char.IsAsciiDigit).ToArray()) == digits)
                     .Select(a => a.Name).ToList()
                 : new List<string>();
             var yes = (confirm ?? "").Trim().ToLowerInvariant() is "1" or "true" or "yes";
@@ -518,13 +518,13 @@ public static partial class SocialEndpoints
             var r = await zernio.ReleasePhoneNumberAsync(id);
             if (!r.Ok && r.Status != 404)
                 return Results.Json(new { detail = r.Error, code = "zernio_error" }, statusCode: 502);
-            AuditTrail.Write(db, "social.phone_number.release",
+            AuditTrail.Write(db, "zernio.phone_number.release",
                 number.phone_number.Length > 0 ? number.phone_number : id,
                 "released to the carrier pool (irreversible)"
                 + (inUse.Count > 0 ? $"; was in use by {string.Join(", ", inUse)}" : ""),
                 entityId: level);
             return Results.Ok(new { ok = true, released = true, number, in_use_by = inUse });
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("social.manage", "channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
     }
 
     // ---- readers ---------------------------------------------------------------

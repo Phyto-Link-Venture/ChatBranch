@@ -17,7 +17,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, Check, Loader2, Phone } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
-import { errMessage, isNotSetUp, socialApi } from '@/lib/social'
+import { errMessage, isNotSetUp, zernioApi } from '@/lib/zernio'
 import { inputCls } from '@/components/settings/WhatsAppSettings'
 import { useT } from '@/i18n'
 
@@ -81,7 +81,7 @@ export function WhatsAppNumbersPanel({ entity, onBought }: { entity: string | nu
     setError(null)
     try {
       const q = entity ? `?entity=${encodeURIComponent(entity)}` : ''
-      setData(await socialApi<NumbersPayload>(`social/phone-numbers${q}`))
+      setData(await zernioApi<NumbersPayload>(`social/phone-numbers${q}`))
     } catch (e) {
       setError(isNotSetUp(e) ? t('channels.zernio.notSetUpBody') : t('channels.waNumbers.loadFailed', { reason: errMessage(e) }))
     } finally {
@@ -103,7 +103,7 @@ export function WhatsAppNumbersPanel({ entity, onBought }: { entity: string | nu
     setError(null)
     setNotice(null)
     try {
-      const r = await socialApi<{ number?: OwnedNumber; pending_kyc?: boolean }>('social/phone-numbers/purchase', {
+      const r = await zernioApi<{ number?: OwnedNumber; pending_kyc?: boolean }>('social/phone-numbers/purchase', {
         method: 'POST',
         body: JSON.stringify({
           country: chosen.code,
@@ -136,7 +136,7 @@ export function WhatsAppNumbersPanel({ entity, onBought }: { entity: string | nu
     setError(null)
     setNotice(null)
     try {
-      await socialApi(
+      await zernioApi(
         `social/phone-numbers/${encodeURIComponent(releasing.id)}?confirm=true&phone_number=${encodeURIComponent(typed)}`,
         { method: 'DELETE' },
       )

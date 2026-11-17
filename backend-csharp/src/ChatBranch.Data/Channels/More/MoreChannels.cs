@@ -44,9 +44,6 @@ public static class MoreChannels
         // in the seller-service sidecar, not on the account. Everything below
         // that differs for them defers to CommerceChannels.
         ChannelIds.Shopee, ChannelIds.Lazada, ChannelIds.TikTokShop, ChannelIds.Shopify,
-        // Social media through Zernio (Data/Social): comments, reviews and DMs ride the
-        // same send path, routing and health; the grant lives in Zernio, not here.
-        ChannelIds.Social,
     };
 
     public static bool Handles(string? channel) => channel != null && Array.IndexOf(All, channel) >= 0;
@@ -69,15 +66,8 @@ public static class MoreChannels
     /// </summary>
     public static bool IsCommerce(string? channel) => CommerceChannels.Handles(channel);
 
-    /// <summary>
-    /// The social channel (<see cref="ChatBranch.Data.Social.SocialChannels"/>): Zernio holds the
-    /// platform grants, so like a marketplace shop it has no typed credentials and no
-    /// per-account webhook (Zernio signs one webhook for the whole deployment).
-    /// </summary>
-    public static bool IsSocial(string? channel) => channel == ChannelIds.Social;
-
-    /// <summary>Accounts whose credentials live outside ChatBranch (a sidecar or Zernio).</summary>
-    public static bool IsExternallyConnected(string? channel) => IsCommerce(channel) || IsSocial(channel);
+    /// <summary>Channels whose credentials live outside ChatBranch (the seller-service sidecar).</summary>
+    public static bool IsExternallyConnected(string? channel) => IsCommerce(channel);
 
     /// <summary>Phone-keyed channels link a contact by phone like WhatsApp does.</summary>
     public static bool PhoneKeyed(string? channel) => channel == ChannelIds.Sms;
@@ -91,7 +81,6 @@ public static class MoreChannels
         ChannelIds.TikTok => "TikTok",
         ChannelIds.Douyin => "Douyin",
         ChannelIds.Zalo => "Zalo",
-        ChannelIds.Social => "Social",
         _ => CommerceChannels.Handles(channel) ? CommerceChannels.Label(channel) : channel,
     };
 
@@ -103,8 +92,7 @@ public static class MoreChannels
         // a marketplace shop holds no credential here — it names a shop the
         // sidecar can act for (CommerceChannels.Configured)
         if (CommerceChannels.Handles(a.Channel)) return CommerceChannels.Configured(a);
-        if (IsSocial(a.Channel)) return ChatBranch.Data.Social.SocialChannels.Configured(a);
-        if (ChatBranch.Data.Social.ZernioNative.Is(a)) return ChatBranch.Data.Social.ZernioNative.Configured(a);
+        if (ChatBranch.Data.Zernio.ZernioNative.Is(a)) return ChatBranch.Data.Zernio.ZernioNative.Configured(a);
         var token = !string.IsNullOrWhiteSpace(a.AccessToken);
         return a.Channel switch
         {

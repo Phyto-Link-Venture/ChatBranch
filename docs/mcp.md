@@ -555,7 +555,7 @@ conversation route.
 | `views_delete` | Delete a saved view | write · **destructive** | signed in |
 | `views_reorder` | Reorder saved views | write | signed in |
 
-#### channels (26)
+#### channels (35)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -585,6 +585,15 @@ conversation route.
 | `commerce_get_status` | Marketplace bridge status | read | `channels.view` |
 | `commerce_sync_shops` | Sync marketplace shops | write | `channels.manage` |
 | `commerce_poll_chats` | Fetch marketplace chats now | write | `channels.manage` |
+| `social_list_accounts` | List managed messaging accounts | read | `channels.view` |
+| `social_connect_url` | Start connecting an account | write · open-world | `channels.manage` |
+| `social_list_phone_numbers` | List managed phone numbers and prices | read | `channels.manage` |
+| `social_telegram_status` | Check a Telegram connection code | read | `channels.manage` |
+| `social_connect_telegram_chat` | Connect a Telegram group or channel by id | write · open-world | `channels.manage` |
+| `social_connect_sms` | Turn on SMS for a number | write · open-world | `channels.manage` |
+| `social_assign_account` | Assign a managed messaging account to an outlet | write · open-world | `channels.manage` |
+| `social_select_page` | Choose the Facebook Page for the inbox | write · open-world | `channels.manage` |
+| `social_disconnect_account` | Disconnect a managed messaging account | write · **destructive** · open-world | `channels.manage` |
 
 #### integrations (11)
 
@@ -630,30 +639,6 @@ conversation route.
 | `voice_get_pronunciation` | Read the pronunciation list | read | signed in |
 | `voice_set_pronunciation` | Set the pronunciation list | write | `pronunciation.manage` |
 
-#### social (19)
-
-| Tool | What it does | Kind | Needs |
-|---|---|---|---|
-| `social_list_accounts` | List social accounts | read | `social.view` or `channels.view` |
-| `social_connect_url` | Start connecting an account | write · open-world | `social.manage` or `channels.manage` |
-| `social_list_phone_numbers` | List managed phone numbers and prices | read | `social.manage` or `channels.manage` |
-| `social_telegram_status` | Check a Telegram connection code | read | `social.manage` or `channels.manage` |
-| `social_connect_telegram_chat` | Connect a Telegram group or channel by id | write · open-world | `social.manage` or `channels.manage` |
-| `social_connect_sms` | Turn on SMS for a number | write · open-world | `social.manage` or `channels.manage` |
-| `social_assign_account` | Assign a social account to an outlet | write · open-world | `social.manage` |
-| `social_assign_page` | Assign a Facebook Page to an outlet | write | `social.manage` |
-| `social_select_page` | Choose the Facebook Page for the inbox | write · open-world | `social.manage` |
-| `social_disconnect_account` | Disconnect a social account | write · **destructive** · open-world | `social.manage` |
-| `social_hide_comment` | Hide or unhide a social comment | write · open-world | `chats.send` |
-| `social_private_reply` | Reply privately to a commenter | write · open-world | `chats.send` |
-| `social_list_posts` | List social posts | read | `social.view` |
-| `social_get_post` | Get a social post | read | `social.view` |
-| `social_create_post` | Create, schedule or publish a social post | write · open-world | `social.publish` |
-| `social_update_post` | Edit a social post | write · open-world | `social.publish` |
-| `social_delete_post` | Delete a social post | write · **destructive** · open-world | `social.publish` |
-| `social_retry_post` | Retry a failed social post | write · open-world | `social.publish` |
-| `social_draft_post` | Draft a social post with AI | read | `social.publish` |
-
 #### search (1)
 
 | Tool | What it does | Kind | Needs |
@@ -690,7 +675,6 @@ conversation route.
 | `POST /api/zernio/test` | tests the deployment's Zernio API key (Settings → Integrations) — a credential check a person runs after saving the key |
 | `POST /api/zernio/webhook/register` | credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets (it generates and stores the Zernio webhook signing secret) |
 | `POST /api/social/connect/whatsapp` | credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets (a business's own Meta System User token for a managed WhatsApp connection — typed by a person, never by an assistant) |
-| `POST /api/social/media` | binary upload (multipart) of a post's photo or video — social_create_post takes public https media URLs instead |
 | `POST /api/social/phone-numbers/purchase` | spends the owner's money: buying a number starts a recurring monthly charge on their bill. A person decides that in the dashboard with the price in front of them (social_list_phone_numbers quotes it) |
 | `DELETE /api/social/phone-numbers/{id}` | irreversible: releasing a number returns it to the carrier pool and it cannot be taken back (any inbox on it stops working). A person confirms it in the dashboard by typing the number out |
 | `POST /api/media/library` | binary upload (multipart): a person drops a file in from the dashboard or their phone. An AI caller asks for an upload link with media_create_upload and PUTs to it, then sends by file_id |

@@ -29,7 +29,7 @@ public class AppDbContext : DbContext
     public const string WhatsAppNumberIndex = "uniq_channelaccount_wa_pnid";
     /// <summary>One mirrored WhatsApp inbox per ZERNIO account: unique external_id (the Zernio account id).</summary>
     public const string ZernioWhatsAppIndex = "uniq_channelaccount_zernio_wa";
-    /// <summary>One mirrored row per (channel, Zernio account) for every other Zernio channel (social, Telegram, SMS…).</summary>
+    /// <summary>One mirrored row per (channel, Zernio account) for every other Zernio channel (Telegram, SMS, Messenger, Instagram).</summary>
     public const string ZernioAccountIndex = "uniq_channelaccount_zernio_account";
 
     // ingest
@@ -132,12 +132,10 @@ public class AppDbContext : DbContext
     // background AI tasks: silent AI workers that read inbound messages and act through tools
     public DbSet<AiTask> AiTasks => Set<AiTask>();
     public DbSet<AiTaskRun> AiTaskRuns => Set<AiTaskRun>();
-    // social media through Zernio (Data/Social)
+    // managed connections through Zernio (Data/Zernio)
     public DbSet<SocialProfile> SocialProfiles => Set<SocialProfile>();
     public DbSet<SocialPage> SocialPages => Set<SocialPage>();
     public DbSet<ZernioConversation> ZernioConversations => Set<ZernioConversation>();
-    public DbSet<SocialThread> SocialThreads => Set<SocialThread>();
-    public DbSet<SocialPost> SocialPosts => Set<SocialPost>();
     public DbSet<ZernioEvent> ZernioEvents => Set<ZernioEvent>();
 
     /// <summary>Every AuditLog row is stamped with its request/source provenance
@@ -438,11 +436,11 @@ public class AppDbContext : DbContext
         b.Entity<ChannelAccount>().HasIndex(a => a.ExternalId).IsUnique()
             .HasFilter("\"channel\" = 'whatsapp' AND \"provider\" IN ('cloud', '') AND \"external_id\" <> ''")
             .HasDatabaseName(WhatsAppNumberIndex);
-        // ONE mirror per Zernio account (Social/SocialAccounts.Upsert): the WhatsApp onboarding
+        // ONE mirror per Zernio account (Zernio/ZernioAccounts.Upsert): the WhatsApp onboarding
         // callback and the account.connected webhook can both mirror the same account at once,
         // and both used to insert. Named indexes — a second unnamed HasIndex(ExternalId) would
         // return the builder above and overwrite its filter. WhatsApp gets its own index (the
-        // number is what routes customer traffic); every other Zernio channel — the social row,
+        // number is what routes customer traffic); every other Zernio channel —
         // Telegram, SMS, Messenger, Instagram — shares one on (channel, external_id), so a
         // duplicate in one never costs the other its protection.
         b.Entity<ChannelAccount>().HasIndex(a => a.ExternalId, ZernioWhatsAppIndex).IsUnique()
@@ -540,7 +538,7 @@ public class AppDbContext : DbContext
         b.Entity<LibraryEntity>().HasIndex(l => new { l.Kind, l.EntityId })
             .HasDatabaseName("ix_libraryentity_entity");
 
-        // ---- social media through Zernio (Data/Social) ---------------------------
+        // ---- managed connections through Zernio (Data/Zernio) --------------------
         b.Entity<SocialProfile>().ToTable("crm_socialprofile");
         b.Entity<SocialProfile>().HasIndex(p => p.ProfileId).IsUnique().HasDatabaseName("uniq_socialprofile_profile");
         b.Entity<SocialProfile>().HasIndex(p => p.EntityId).HasDatabaseName("ix_socialprofile_entity");
@@ -548,17 +546,6 @@ public class AppDbContext : DbContext
         b.Entity<SocialPage>().HasIndex(p => new { p.ZernioAccountId, p.PageId }).IsUnique()
             .HasDatabaseName("uniq_socialpage_account_page");
         b.Entity<SocialPage>().HasIndex(p => p.AccountId).HasDatabaseName("ix_socialpage_account");
-        b.Entity<SocialThread>().ToTable("crm_socialthread");
-        b.Entity<SocialThread>().HasIndex(t => t.ThreadId).IsUnique().HasDatabaseName("uniq_socialthread_thread");
-        b.Entity<SocialThread>().HasIndex(t => new { t.ZernioAccountId, t.RootCommentId })
-            .HasDatabaseName("ix_socialthread_root");
-        b.Entity<SocialPost>().ToTable("crm_socialpost");
-        b.Entity<SocialPost>().HasIndex(p => p.ZernioPostId).HasDatabaseName("ix_socialpost_zernio");
-        b.Entity<SocialPost>().HasIndex(p => new { p.EntityId, p.Status }).HasDatabaseName("ix_socialpost_entity_status");
-        Json<SocialPost, List<Dictionary<string, object?>>>(b, x => x.Media);
-        Json<SocialPost, List<string>>(b, x => x.AccountIds);
-        Json<SocialPost, List<string>>(b, x => x.Platforms);
-        Json<SocialPost, List<Dictionary<string, object?>>>(b, x => x.Results);
         b.Entity<ZernioEvent>().ToTable("crm_zernioevent");
         b.Entity<ZernioEvent>().HasIndex(e => e.EventId).IsUnique().HasDatabaseName("uniq_zernioevent_event");
         b.Entity<ZernioConversation>().ToTable("crm_zernioconversation");

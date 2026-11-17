@@ -8,7 +8,6 @@ import { API, apiResource } from '@/lib/apiBase'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import type { UiHandover } from '@/lib/aiControls'
 import type { MessageKey, TFunction, useFormat } from '@/i18n'
-import { platformId, type SocialMeta } from '@/lib/social'
 
 /** The formatter bag `useFormat()` returns (helpers below take it as an argument). */
 export type Fmt = ReturnType<typeof useFormat>
@@ -34,8 +33,6 @@ export type Channel =
   | 'lazada'
   | 'tiktok_shop'
   | 'shopify'
-  // comments, reviews and DMs from social networks, carried by Zernio (`social` on the thread)
-  | 'social'
 export type ThreadStatus = 'open' | 'pending' | 'snoozed' | 'resolved'
 
 export const CHANNELS: Channel[] = [
@@ -56,7 +53,6 @@ export const CHANNELS: Channel[] = [
   'lazada',
   'tiktok_shop',
   'shopify',
-  'social',
 ]
 
 /** Channels with a platform reply window enforced server-side (WeChat 48 h, Zalo 7 d, TikTok / Douyin 48 h). */
@@ -86,19 +82,17 @@ export const CHANNEL_META: Record<Channel, { lbl: string; beta?: boolean }> = {
   lazada: { lbl: 'Lazada', beta: true },
   tiktok_shop: { lbl: 'TikTok Shop', beta: true },
   shopify: { lbl: 'Shopify', beta: true },
-  social: { lbl: 'Social', beta: true },
 }
 
 /** Our `facebook` channel is Messenger — show Messenger's mark, not Facebook's. */
 export const logoKey = (c: string) => (c === 'facebook' ? 'messenger' : c)
 
-/** The mark for a conversation: a social thread shows its network (Instagram, Google Business…). */
-export const threadLogo = (t: { channel: string; social?: SocialMeta | null }) =>
-  t.channel === 'social' && t.social?.platform ? platformId(t.social.platform) : logoKey(t.channel)
+/** The mark for a conversation (its channel's). */
+export const threadLogo = (t: { channel: string }) => logoKey(t.channel)
 
 /** A channel's display name: brand names as they are, Email / Website translated. */
 export const channelName = (t: TFunction, c: string): string =>
-  c === 'email' || c === 'website' || c === 'social' ? t(`chats.channels.${c}`) : (CHANNEL_META[c as Channel]?.lbl ?? c)
+  c === 'email' || c === 'website' ? t(`chats.channels.${c}`) : (CHANNEL_META[c as Channel]?.lbl ?? c)
 
 /** A conversation status in the current language (unknown values capitalised as they come). */
 export const statusLabel = (t: TFunction, s: string): string =>
@@ -283,8 +277,6 @@ export interface UiThreadSummary {
   /** The customer's newest message (null = they never wrote) — the
    *  "Newest from customer" order and its time stamp. */
   last_inbound_ts?: string | null
-  /** Social threads (channel "social", via Zernio): kind, network, post / rating, author. */
-  social?: SocialMeta | null
   /** Synthetic row for a contact with NO conversation yet — opening one
    *  creates the thread on demand. */
   pending?: boolean
@@ -338,8 +330,6 @@ export interface InboxRow {
   last_ts: string
   /** the customer's newest inbound message, null when they never wrote */
   last_inbound_ts?: string | null
-  /** social threads only (omitted elsewhere) */
-  social?: SocialMeta | null
 }
 
 export const rowToSummary = (t: InboxRow): UiThreadSummary => ({
@@ -380,7 +370,6 @@ export const rowToSummary = (t: InboxRow): UiThreadSummary => ({
   last_status: t.last_private ? '' : t.last_status,
   last_ts: t.last_ts,
   last_inbound_ts: t.last_inbound_ts ?? null,
-  social: t.social ?? null,
 })
 
 export interface UiAgent {

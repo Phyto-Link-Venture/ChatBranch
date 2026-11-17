@@ -3,20 +3,19 @@
 /**
  * /channels — the Inboxes page, the ONE place every
  * connection is managed. Every number, mailbox, bot, page, website widget, the
- * SIP trunk, every Zernio-connected social account and every marketplace shop:
+ * SIP trunk, every managed connection and every marketplace shop:
  *
  *  - Connected: one list across every channel — channel logo, method badge
- *    ("Cloud API", "YCloud", "QR", "via Zernio"…), outlet, health and
- *    capabilities. Inboxes keep Settings / Test / Pair / Delete; Zernio social
- *    accounts keep their outlet picker and Facebook Page rows
- *    (components/channels/SocialAccountCard); shops come from the seller service.
+ *    ("Cloud API", "YCloud", "QR", "Managed connection"…), outlet, health and
+ *    capabilities. Inboxes keep Settings / Test / Pair / Delete; managed
+ *    connections keep their outlet picker and Messenger's Facebook Page rows
+ *    (components/channels/ManagedAccountCard); shops come from the seller service.
  *  - Add a channel: one tile per CHANNEL; picking one opens the "Add inbox"
  *    stepper (components/channels/InboxSetupDrawer: channel → method → setup).
  *  - Advanced (collapsed): the shared Meta webhook and default mail settings.
  *
  * Everything reads and writes the existing account endpoints (see
- * components/channels/inboxes.ts). Inboxes need `channels.manage` to change,
- * Zernio accounts `social.manage`.
+ * components/channels/inboxes.ts). Changing anything needs `channels.manage`.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -29,7 +28,7 @@ import { RoleChip } from '@/components/ui/Badges'
 import { hasCap } from '@/lib/auth'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { fetchChannelHealth, HEALTH_META, type ChannelHealthPayload, type HealthStatus } from '@/lib/channelHealth'
-import { platformId } from '@/lib/social'
+import { platformId } from '@/lib/zernio'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 import {
   ApprovalChip,
@@ -40,7 +39,7 @@ import {
 } from '@/components/channels/InboxSetupDrawer'
 import { ChannelsAdvanced } from '@/components/channels/ChannelsAdvanced'
 import { WhatsAppConnectResult } from '@/components/channels/WhatsAppConnectResult'
-import { SocialAccountCard, SocialDisconnectModal, useSocialAccounts } from '@/components/channels/SocialAccountCard'
+import { ManagedAccountCard, ManagedDisconnectModal, useManagedAccounts } from '@/components/channels/ManagedAccountCard'
 import { ChannelTileGrid } from '@/components/channels/ChannelPicker'
 import { CapChip, HealthDot, MethodBadge, OutletChip, cardBtn } from '@/components/channels/parts'
 import { loadCommerceStatus, type CommerceStatus } from '@/components/channels/MarketplacePanel'
@@ -268,11 +267,11 @@ const DELETE_NOTE: Partial<Record<InboxKind, MessageKey>> = {
 type Row =
   | { type: 'inbox'; key: string; filter: ChannelFilter | null; inbox: Inbox }
   | {
-      type: 'social'
+      type: 'managed'
       key: string
       filter: ChannelFilter | null
-      account: NonNullable<ReturnType<typeof useSocialAccounts>['accounts']>[number]
-      /** The account's DM inbox, shown inside its card. */
+      account: NonNullable<ReturnType<typeof useManagedAccounts>['accounts']>[number]
+      /** The account's inbox, shown inside its card. */
       inbox?: Inbox
     }
   | { type: 'shop'; key: string; filter: ChannelFilter | null; shop: Shop }
@@ -297,17 +296,14 @@ export function ChannelsSettings() {
   // capabilities read after mount (localStorage — see CLAUDE.md hydration rule)
   const [canManage, setCanManage] = useState(false)
   const [canKeys, setCanKeys] = useState(false)
-  const [canSocial, setCanSocial] = useState(false)
   useEffect(() => {
     setCanManage(hasCap('channels.manage'))
     // the SIP trunk and the default mail settings are provider credentials (app_keys.manage)
     setCanKeys(hasCap('app_keys.manage'))
-    // Zernio connections (social networks and "via Zernio" methods)
-    setCanSocial(hasCap('social.manage'))
   }, [])
 
-  const social = useSocialAccounts()
-  const reloadSocial = social.load
+  const managed = useManagedAccounts()
+  const reloadManaged = managed.load
 
   const entityQ = useEntityQuery()
   const reload = useCallback(async () => {
@@ -328,8 +324,8 @@ export function ChannelsSettings() {
     const q = new URLSearchParams(window.location.search)
     const z = q.get('zernio')
     if (!z) return
-    if (z === 'connected') setPageMsg(tRef.current('social.accounts.connectedNotice'))
-    else setPageError(tRef.current('social.accounts.connectFailed', { reason: q.get('error') || z }))
+    if (z === 'connected') setPageMsg(tRef.current('managed.accounts.connectedNotice'))
+    else setPageError(tRef.current('managed.accounts.connectFailed', { reason: q.get('error') || z }))
     q.delete('zernio')
     q.delete('error')
     const rest = q.toString()
@@ -339,19 +335,17 @@ export function ChannelsSettings() {
   const inboxes = useMemo(() => snap?.inboxes ?? [], [snap])
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = inboxes.map((inbox) => ({ type: 'inbox', key: inbox.key, filter: kindMeta(inbox.kind).filter, inbox }))
-    for (const a of social.accounts ?? []) {
-      const pid = platformId(a.platform)
-      // the same managed account's DM inbox (Instagram / Messenger) joins its card: one card per account
+    for (const a of managed.accounts ?? []) {
+      // the managed account's inbox joins its card: one card per account
       const at = out.findIndex(
         (r) => r.type === 'inbox' && !!r.inbox.viaZernio && (r.inbox.msg?.zernio_account_id ?? r.inbox.wa?.zernio_account_id) === a.id,
       )
       const linked = at >= 0 ? (out.splice(at, 1)[0] as Extract<Row, { type: 'inbox' }>).inbox : undefined
-      // our Facebook filter is Messenger's for DMs; a Facebook account is its Page's posts / comments
-      out.push({ type: 'social', key: `social:${a.id}`, filter: asFilter(pid), account: a, inbox: linked })
+      out.push({ type: 'managed', key: `managed:${a.id}`, filter: asFilter(a.channel || platformId(a.platform)), account: a, inbox: linked })
     }
     for (const shop of shops) out.push({ type: 'shop', key: `shop:${shop.id}`, filter: asFilter(shop.channel), shop })
     return out
-  }, [inboxes, social.accounts, shops])
+  }, [inboxes, managed.accounts, shops])
 
   const counts = useMemo(() => {
     const c: Partial<Record<ChannelFilter, number>> = { all: rows.length }
@@ -362,8 +356,8 @@ export function ChannelsSettings() {
   const voiceInbox = inboxes.find((i) => i.kind === 'voice') ?? null
   const teamName = (id: number | null) => (id == null ? undefined : snap?.teams.find((tm) => tm.id === id)?.name)
   const activeFilter = FILTERS.find((x) => x.id === filter)
-  const canAdd = canManage || canSocial
-  const loaded = !!snap && social.accounts !== null
+  const canAdd = canManage
+  const loaded = !!snap && managed.accounts !== null
 
   const open = (kind: InboxKind | null, inbox: Inbox | null, step: Step, channel: string | null = null) =>
     setDrawer({ kind, inbox, step, channel, id: Date.now() })
@@ -377,7 +371,6 @@ export function ChannelsSettings() {
   /** Why this person can't add this channel (null = they can). */
   const channelBlocked = (c: ChannelDef): string | null => {
     const reasons = c.methods.map((m) => {
-      if (m.zernio) return canSocial ? null : t('channels.drawer.needsSocial')
       if (m.kind === 'voice' && !canKeys && !voiceInbox) return t('channels.page.superOnly')
       return canManage ? null : t('channels.page.addNeedsPermission')
     })
@@ -472,9 +465,9 @@ export function ChannelsSettings() {
             {t('channels.page.loadFailed', { sources: f.list(snap.failed.map((k) => t(k))) })}
           </div>
         )}
-        {social.error && (
+        {managed.error && (
           <div className="rounded-lg border border-amber/40 bg-amber/10 px-3 py-2 text-[12.5px]" style={{ color: 'var(--amber-ink)' }}>
-            {t('channels.page.socialFailed', { reason: social.error })}
+            {t('channels.page.managedFailed', { reason: managed.error })}
           </div>
         )}
 
@@ -544,11 +537,11 @@ export function ChannelsSettings() {
                       setToDelete(r.inbox)
                     }}
                   />
-                ) : r.type === 'social' ? (
-                  <SocialAccountCard
+                ) : r.type === 'managed' ? (
+                  <ManagedAccountCard
                     key={r.key}
                     a={r.account}
-                    s={social}
+                    s={managed}
                     inbox={r.inbox && linkedInbox(r.inbox)}
                   />
                 ) : (
@@ -605,12 +598,12 @@ export function ChannelsSettings() {
           onClose={() => setDrawer(null)}
           onChanged={() => {
             reload().catch(() => {})
-            void reloadSocial()
+            void reloadManaged()
           }}
         />
       )}
 
-      <SocialDisconnectModal s={social} onDone={(name) => setPageMsg(t('social.accounts.disconnected', { name }))} />
+      <ManagedDisconnectModal s={managed} onDone={(name) => setPageMsg(t('managed.accounts.disconnected', { name }))} />
 
       <Modal
         open={!!toDelete}

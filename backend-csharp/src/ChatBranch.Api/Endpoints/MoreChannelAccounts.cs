@@ -107,9 +107,6 @@ public static class MoreChannelAccounts
     /// <summary>A marketplace shop: listed and editable as an inbox, never credential-edited.</summary>
     public static bool Commerce(string? channel) => MoreChannels.IsCommerce(channel);
 
-    /// <summary>A Zernio social account: listed and editable as an inbox, never credential-edited.</summary>
-    public static bool Social(string? channel) => MoreChannels.IsSocial(channel);
-
     public static bool CanSetWebhook(string channel) => channel is ChannelIds.Line or ChannelIds.Viber;
 
     private static string Mask(string? secret)

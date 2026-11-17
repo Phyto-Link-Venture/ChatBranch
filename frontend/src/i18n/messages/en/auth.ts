@@ -12,7 +12,7 @@ export const auth = {
     expired: 'Your session expired — please sign in again.',
     signIn: 'Sign in',
     provisioned: "Accounts are provisioned by your administrator — ask them if you can't sign in.",
-    tagline: 'One inbox for WhatsApp, email, social, web chat and voice.',
+    tagline: 'One inbox for WhatsApp, Messenger, Instagram, email, web chat and voice.',
     invalid: 'That username and password don’t match.',
     locked_one: 'Too many failed attempts. Try again in {count} minute.',
     locked_other: 'Too many failed attempts. Try again in {count} minutes.',

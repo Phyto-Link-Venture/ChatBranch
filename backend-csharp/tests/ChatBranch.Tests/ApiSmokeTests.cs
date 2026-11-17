@@ -150,7 +150,7 @@ public class ApiFactory : WebApplicationFactory<Program>
             services.AddSingleton<ChatBranch.Data.Sidecars.ICommerceGateway,
                 ChatBranch.Data.Sidecars.NullCommerceGateway>();
             // Zernio is never reached from the suite either (ZernioTests swap in a fake)
-            services.AddSingleton<ChatBranch.Data.Social.IZernioClient, ChatBranch.Data.Social.NullZernioClient>();
+            services.AddSingleton<ChatBranch.Data.Zernio.IZernioClient, ChatBranch.Data.Zernio.NullZernioClient>();
             // nor Stripe: AI-credit top-ups open no real Checkout Session (StripeTopupTests swap in a fake)
             services.AddSingleton<ChatBranch.Data.Integrations.IStripeGateway, ChatBranch.Data.Integrations.NullStripeGateway>();
         });

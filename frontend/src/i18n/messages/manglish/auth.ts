@@ -9,7 +9,7 @@ export const auth: Overlay<Messages['auth']> = {
     subtitle: 'Sign in and carry on with your conversations where you left off.',
     expired: 'Your session expired liao — sign in again please.',
     provisioned: 'Accounts are given out by your administrator — cannot sign in? Ask them lah.',
-    tagline: 'One inbox for WhatsApp, email, social, web chat and voice — no more jumping between apps.',
+    tagline: 'One inbox for WhatsApp, Messenger, Instagram, email, web chat and voice — no more jumping between apps.',
     invalid: 'Username and password don’t match leh.',
     locked_one: 'Too many wrong tries already. Wait {count} minute, then try again.',
     locked_other: 'Too many wrong tries already. Wait {count} minutes, then try again.',

@@ -369,8 +369,8 @@ public static class Seed
             + "\"emoji\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, "
             + "CONSTRAINT \"uniq_messagereaction_actor\" UNIQUE (\"message_id\", \"actor\")");
         AddIndexIfMissing(db, "ix_messagereaction_thread", "crm_messagereaction", "\"thread_id\"");
-        // social media through Zernio (Data/Social): entity → profile, thread context,
-        // composed posts, and the webhook dedupe ledger
+        // managed connections through Zernio (Data/Zernio): entity → profile, Facebook
+        // Pages of a Messenger account, the conversation map and the webhook dedupe ledger
         AddTableIfMissing(db, "crm_socialprofile",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_socialprofile\" PRIMARY KEY AUTOINCREMENT, "
             + "\"entity_id\" INTEGER NULL, \"profile_id\" TEXT NOT NULL, \"external_id\" TEXT NOT NULL, "
@@ -395,27 +395,6 @@ public static class Seed
         AddUniqueIndexIfMissing(db, "uniq_zernioconversation_account_key", "crm_zernioconversation",
             "\"account_id\", \"key\"", "\"key\" <> ''");
         AddIndexIfMissing(db, "ix_zernioconversation_conv", "crm_zernioconversation", "\"conversation_id\"");
-        AddTableIfMissing(db, "crm_socialthread",
-            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_socialthread\" PRIMARY KEY AUTOINCREMENT, "
-            + "\"thread_id\" INTEGER NOT NULL, \"kind\" TEXT NOT NULL, \"platform\" TEXT NOT NULL, "
-            + "\"zernio_account_id\" TEXT NOT NULL, \"account_username\" TEXT NOT NULL, "
-            + "\"post_id\" TEXT NOT NULL, \"zernio_post_id\" TEXT NOT NULL, \"post_text\" TEXT NOT NULL, "
-            + "\"post_permalink\" TEXT NOT NULL, \"post_media_url\" TEXT NOT NULL, "
-            + "\"root_comment_id\" TEXT NOT NULL, \"review_id\" TEXT NOT NULL, \"conversation_id\" TEXT NOT NULL, "
-            + "\"rating\" INTEGER NOT NULL, \"hidden\" INTEGER NOT NULL, \"private_replied\" INTEGER NOT NULL, "
-            + "\"author_id\" TEXT NOT NULL, \"author_name\" TEXT NOT NULL, \"author_handle\" TEXT NOT NULL, "
-            + "\"author_avatar\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
-        AddUniqueIndexIfMissing(db, "uniq_socialthread_thread", "crm_socialthread", "\"thread_id\"", "\"thread_id\" > 0");
-        AddIndexIfMissing(db, "ix_socialthread_root", "crm_socialthread", "\"zernio_account_id\", \"root_comment_id\"");
-        AddTableIfMissing(db, "crm_socialpost",
-            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_socialpost\" PRIMARY KEY AUTOINCREMENT, "
-            + "\"entity_id\" INTEGER NULL, \"zernio_post_id\" TEXT NOT NULL, \"content\" TEXT NOT NULL, "
-            + "\"media\" TEXT NOT NULL, \"account_ids\" TEXT NOT NULL, \"platforms\" TEXT NOT NULL, "
-            + "\"scheduled_at\" TEXT NULL, \"timezone\" TEXT NOT NULL, \"status\" TEXT NOT NULL, "
-            + "\"error\" TEXT NOT NULL, \"results\" TEXT NOT NULL, \"created_by\" TEXT NOT NULL, "
-            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
-        AddIndexIfMissing(db, "ix_socialpost_zernio", "crm_socialpost", "\"zernio_post_id\"");
-        AddIndexIfMissing(db, "ix_socialpost_entity_status", "crm_socialpost", "\"entity_id\", \"status\"");
         AddTableIfMissing(db, "crm_zernioevent",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_zernioevent\" PRIMARY KEY AUTOINCREMENT, "
             + "\"event_id\" TEXT NOT NULL, \"event\" TEXT NOT NULL, \"received_at\" TEXT NOT NULL");
@@ -604,7 +583,7 @@ public static class Seed
         AddUniqueIndexIfMissing(db, "uniq_stripeevent_event", "crm_stripeevent", "\"event_id\"", "\"event_id\" <> ''");
         // ---- one mirror per Zernio account ---------------------------------------
         // The WhatsApp onboarding callback and the account.connected webhook can both mirror
-        // the same Zernio account at once (Social/SocialAccounts.Upsert treats the loser's
+        // the same Zernio account at once (Zernio/ZernioAccounts.Upsert treats the loser's
         // unique violation as "already mirrored"). WhatsApp has its own index; every other
         // Zernio channel shares one on (channel, external_id) so a clash in one never costs the
         // other its protection. DEFENSIVE exactly like the Cloud-number index above: a live

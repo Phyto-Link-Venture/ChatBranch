@@ -41,7 +41,7 @@ public static class WhatsAppSettingsEndpoints
         "chat_provider_pref", "quiet_start", "quiet_end",
         // the phone app's push credential: a Firebase service-account JSON
         PushSettings.FcmServiceAccountKey,
-        // the deployment's ONE Zernio API key (social media — Data/Social)
+        // the deployment's ONE Zernio API key (managed connections — Data/Zernio)
         "zernio_api_key",
     };
 
@@ -597,7 +597,7 @@ public static class WhatsAppSettingsEndpoints
             if (provider == Providers.Zernio)
                 return Results.Json(new
                 {
-                    detail = "A managed WhatsApp connection is made with POST /api/social/connect {platform: \"whatsapp\", purpose: \"inbox\"}.",
+                    detail = "A managed WhatsApp connection is made with POST /api/social/connect {platform: \"whatsapp\"}.",
                 }, statusCode: 400);
             if (!WhatsAppProviders.Known(provider)) provider = Providers.Cloud;
             var name = (AsString(body, "name") ?? "").Trim();
@@ -703,11 +703,11 @@ public static class WhatsAppSettingsEndpoints
             if (RoleError(body) is IResult roleErr) return roleErr;
             if (ShellScope.CompanyLevelError(db, sc, me, row.EntityId) is { } outside) return outside;
             // a managed connection: its credentials (and its outlet — its profile) are not edited here
-            if (ChatBranch.Data.Social.ZernioNative.Is(row)
+            if (ChatBranch.Data.Zernio.ZernioNative.Is(row)
                 && new[] { "phone_number_id", "waba_id", "access_token", "app_secret", "api_version", "provider", "entity",
                            "phone_number" }.Any(k => TryString(body, k, out var v) && !v.Contains("••")
                                                      && v.Trim() != (k == "provider" ? Providers.Zernio : "")))
-                return Results.Json(new { detail = ChatBranch.Data.Social.ZernioNative.NotEditable }, statusCode: 400);
+                return Results.Json(new { detail = ChatBranch.Data.Zernio.ZernioNative.NotEditable }, statusCode: 400);
 
             var oldRole = AccountRole(row);
             var credsChanged = false;
@@ -724,7 +724,7 @@ public static class WhatsAppSettingsEndpoints
 
             Patch("name", () => row.Name, v =>
             {
-                if (ChatBranch.Data.Social.ZernioNative.Is(row)) ChatBranch.Data.Social.ZernioNative.Rename(row, v);
+                if (ChatBranch.Data.Zernio.ZernioNative.Is(row)) ChatBranch.Data.Zernio.ZernioNative.Rename(row, v);
                 else row.Name = v;
             });
             Patch("phone_number_id", () => row.ExternalId, v => row.ExternalId = v);
@@ -851,7 +851,7 @@ public static class WhatsAppSettingsEndpoints
                                                  statusCode: 400);
             if (ShellScope.CompanyLevelError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me, row.EntityId) is { } outside)
                 return outside;
-            if (ChatBranch.Data.Social.ZernioNative.Is(row))
+            if (ChatBranch.Data.Zernio.ZernioNative.Is(row))
                 return Results.Json(new
                 {
                     detail = "This number is a managed connection: disconnect it with DELETE /api/social/accounts/{id}.",
@@ -2057,12 +2057,12 @@ public static class WhatsAppSettingsEndpoints
         method = WhatsAppProviders.Of(a) switch
         {
             Providers.Baileys => "qr",
-            Providers.Zernio => ChatBranch.Data.Social.ZernioNative.Method,
+            Providers.Zernio => ChatBranch.Data.Zernio.ZernioNative.Method,
             var p => p,
         },
-        method_label = WhatsAppProviders.Of(a) == Providers.Zernio ? ChatBranch.Data.Social.ZernioNative.MethodLabel : null,
+        method_label = WhatsAppProviders.Of(a) == Providers.Zernio ? ChatBranch.Data.Zernio.ZernioNative.MethodLabel : null,
         // a managed connection (Zernio): its number, status and the twin ids — null otherwise
-        managed = ChatBranch.Data.Social.ZernioNative.Is(a) ? ChatBranch.Data.Social.ZernioNative.Payload(a) : null,
+        managed = ChatBranch.Data.Zernio.ZernioNative.Is(a) ? ChatBranch.Data.Zernio.ZernioNative.Payload(a) : null,
     };
 
     /// <summary>The provider-specific, non-secret settings of a YCloud / Twilio account (secrets masked).</summary>

@@ -30,11 +30,11 @@ public sealed class MoreChannelSender
     private readonly ChannelTransports _transports;
     private readonly TimeProvider _clock;
     /// <summary>SMS through a managed connection (Zernio): the transport for a Zernio-carried account.</summary>
-    private readonly ChatBranch.Data.Social.ZernioNativeTransport? _zernio;
+    private readonly ChatBranch.Data.Zernio.ZernioNativeTransport? _zernio;
 
     public MoreChannelSender(AppDbContext db, ScopingService scoping, ThreadStore threads,
         ChannelTransports transports, TimeProvider? clock = null,
-        ChatBranch.Data.Social.ZernioNativeTransport? zernio = null)
+        ChatBranch.Data.Zernio.ZernioNativeTransport? zernio = null)
     {
         _zernio = zernio;
         _db = db;
@@ -84,7 +84,7 @@ public sealed class MoreChannelSender
         var transport = _transports.For(thread.Channel);
         var account = transport == null ? null : Route(thread, accountId, apply: true);
         // a Zernio-carried account (managed connection) sends through Zernio, whatever the channel's own transport
-        if (account != null && ChatBranch.Data.Social.ZernioNative.Is(account))
+        if (account != null && ChatBranch.Data.Zernio.ZernioNative.Is(account))
             transport = _zernio != null && _zernio.Live(account) ? _zernio : null;
         if (account != null && transport == null) account = null;
         if (account == null)

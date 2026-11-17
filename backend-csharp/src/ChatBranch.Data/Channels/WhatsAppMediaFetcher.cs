@@ -87,7 +87,7 @@ public sealed class MediaFetcher
     public void FetchZernio(int messageId, string url, string type) =>
         Enqueue(async (sp, ct) =>
         {
-            var zernio = sp.GetRequiredService<ChatBranch.Data.Social.IZernioClient>();
+            var zernio = sp.GetRequiredService<ChatBranch.Data.Zernio.IZernioClient>();
             var (bytes, mime, _) = await zernio.DownloadAsync(url, MediaStore.MaxBytes, ct);
             if (bytes == null) return;
             await AttachAsync(sp, messageId, bytes, mime, "", type is "image" or "video" or "audio" or "document" ? type : null, ct);

@@ -4,7 +4,7 @@
  * Step 3 of "Add inbox" for WhatsApp → managed connection: self-serve onboarding.
  *
  * The client signs in to Meta in their own browser and picks the number; nothing is pasted here.
- *   POST /api/social/connect {platform:"whatsapp", purpose:"inbox", entity, onboarding, signup}
+ *   POST /api/social/connect {platform:"whatsapp", entity, onboarding, signup}
  *     → {url} — Meta's Embedded Signup (or Zernio's hosted page, which preselects the number),
  *       and a one-time state; the browser comes back to /channels through the API callback.
  *
@@ -28,7 +28,7 @@ import { Button } from '@/components/ui/Button'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { useAccess } from '@/lib/useAccess'
 import { useEntity } from '@/lib/EntityContext'
-import { errMessage, isNotSetUp, socialApi, SocialApiError } from '@/lib/social'
+import { errMessage, isNotSetUp, zernioApi, ZernioApiError } from '@/lib/zernio'
 import { inputCls } from '@/components/settings/WhatsAppSettings'
 import { useT, type MessageKey } from '@/i18n'
 import { WhatsAppNumbersPanel } from './WhatsAppNumbersPanel'
@@ -68,7 +68,7 @@ export function WhatsAppSignupPanel({
 }) {
   const t = useT()
   const { can } = useAccess()
-  const canManage = can('social.manage') || can('channels.manage')
+  const canManage = can('channels.manage')
   const { levelEntity, selectedEntities, bound } = useEntity()
 
   const [entity, setEntity] = useState<string | null>(levelEntity?.slug ?? selectedEntities[0]?.slug ?? null)
@@ -96,7 +96,7 @@ export function WhatsAppSignupPanel({
       setNotSetUp(true)
       return
     }
-    if (e instanceof SocialApiError && e.status === 403) setError(t('social.accounts.needsPermission'))
+    if (e instanceof ZernioApiError && e.status === 403) setError(t('managed.accounts.needsPermission'))
     else setError(errMessage(e))
   }
 
@@ -109,11 +109,10 @@ export function WhatsAppSignupPanel({
     setBusy(true)
     setError(null)
     try {
-      const r = await socialApi<StartResponse>('social/connect', {
+      const r = await zernioApi<StartResponse>('social/connect', {
         method: 'POST',
         body: JSON.stringify({
           platform: 'whatsapp',
-          purpose: 'inbox',
           entity: entity ?? undefined,
           onboarding: mode,
           // the hosted page connects exactly the number the person picked (Cloud-API-only mode);
@@ -143,11 +142,10 @@ export function WhatsAppSignupPanel({
     setCredBusy(true)
     setError(null)
     try {
-      await socialApi('social/connect/whatsapp', {
+      await zernioApi('social/connect/whatsapp', {
         method: 'POST',
         body: JSON.stringify({
           platform: 'whatsapp',
-          purpose: 'inbox',
           entity: entity ?? undefined,
           credentials: Object.fromEntries(CRED_FIELDS.map((f) => [f.key, (creds[f.key] ?? '').trim()])),
         }),
@@ -166,12 +164,12 @@ export function WhatsAppSignupPanel({
     return (
       <div className="flex flex-col items-start gap-2 rounded-xl border border-dashed border-line-strong px-4 py-5">
         <span className="flex items-center gap-2 text-[15px] font-bold text-text-heading">
-          <MessageCircle size={15} aria-hidden /> {t('social.zernio.notSetUpTitle')}
+          <MessageCircle size={15} aria-hidden /> {t('managed.zernio.notSetUpTitle')}
         </span>
         <p className="text-[12.5px] leading-relaxed text-text-muted">{t('channels.zernio.notSetUpBody')}</p>
         {can('app_keys.manage') && (
           <Link href="/settings/appkeys#managed-connections" className="text-[12.5px] font-semibold text-brand-300 hover:underline">
-            {t('social.zernio.openIntegrations')}
+            {t('managed.zernio.openIntegrations')}
           </Link>
         )}
       </div>
@@ -209,7 +207,7 @@ export function WhatsAppSignupPanel({
       </div>
 
       {!canManage ? (
-        <p className="text-[12.5px] text-text-muted">{t('social.accounts.needsPermission')}</p>
+        <p className="text-[12.5px] text-text-muted">{t('managed.accounts.needsPermission')}</p>
       ) : (
         <>
           <label className="block">
@@ -221,7 +219,7 @@ export function WhatsAppSignupPanel({
                 setEntity(slug)
               }}
               allowGlobal={!bound}
-              globalLabel={t('social.accounts.orgLevel')}
+              globalLabel={t('managed.accounts.orgLevel')}
               ariaLabel={t('channels.waSignup.outlet')}
               disabled={busy || redirecting}
             />

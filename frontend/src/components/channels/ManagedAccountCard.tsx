@@ -1,70 +1,47 @@
 'use client'
 
 /**
- * Zernio-connected social accounts as cards in /channels' ONE Connected list
- * (they used to have their own "Social accounts (via Zernio)" section).
+ * Managed connections (WhatsApp, Messenger, Instagram DM, Telegram, SMS connected
+ * through Zernio) as cards in /channels' ONE Connected list: one card per account,
+ * with its inbox's Settings / Test inside.
  *
  * GET /api/social/accounts?entity= lists them; DELETE /api/social/accounts/{id}
  * disconnects. Connecting happens in the "Add inbox" stepper
- * (components/channels/ZernioConnectPanel). Needs `social.manage` to change.
+ * (components/channels/ZernioConnectPanel). Needs `channels.manage` to change.
  *
  * Outlets: each card binds its account to an outlet (PATCH /api/social/accounts/{id}
- * {entity}, null = organization level, which every outlet inherits); a Facebook
- * account lists its Pages, each with its own outlet (PATCH …/pages/{pageId}
- * {entity}, null = follow the account) and the Page that receives comments and
- * messages (POST …/pages/{pageId}/select). Without `social.manage` the outlet
- * shows as a chip.
+ * {entity}, null = organization level, which every outlet inherits); a Messenger
+ * account lists its Facebook Pages and which one's conversations reach the inbox
+ * (POST …/pages/{pageId}/select). Without `channels.manage` the outlet shows as a chip.
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { Check, ExternalLink, Inbox, Loader2, Plug, Settings2, Unplug } from 'lucide-react'
+import { Check, Inbox, Loader2, Plug, Settings2, Unplug } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/Button'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { Modal } from '@/components/ui/Modal'
 import { useAccess } from '@/lib/useAccess'
-import { useEntity, useEntityQuery, type Entity } from '@/lib/EntityContext'
+import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import {
   accountHandle,
   errMessage,
   isNotSetUp,
   platformId,
   platformLabel,
-  socialApi,
+  zernioApi,
   withQuery,
-  type SocialAccount,
-  type SocialPage,
-} from '@/lib/social'
-import { useT, type MessageKey } from '@/i18n'
-import { CapChip, HealthDot, MethodBadge, OutletChip, cardBtn } from './parts'
+  type ManagedAccount,
+  type ManagedPage,
+} from '@/lib/zernio'
+import { useT } from '@/i18n'
+import { HealthDot, MethodBadge, OutletChip, cardBtn } from './parts'
 import type { HealthStatus } from '@/lib/channelHealth'
 import { ZERNIO_BADGE } from './catalog'
 
-/** The capability chips an account shows, in order. */
-const CAPS: { key: keyof SocialAccount; lbl: MessageKey }[] = [
-  { key: 'can_publish', lbl: 'social.accounts.capPublish' },
-  { key: 'can_comments', lbl: 'social.accounts.capComments' },
-  { key: 'can_reviews', lbl: 'social.accounts.capReviews' },
-  { key: 'can_dm', lbl: 'social.accounts.capDm' },
-]
-
 /** Saving state of one outlet control (an account's, or one of its Pages'). */
 type SaveState = { state: 'saving' | 'saved' | 'error'; error?: string }
-
-/** The entity with this slug and every entity under it. */
-function subtree(entities: Entity[], slug: string): Entity[] {
-  const keep = new Set([slug])
-  for (let grew = true; grew; ) {
-    grew = false
-    for (const e of entities)
-      if (e.parent && keep.has(e.parent) && !keep.has(e.slug)) {
-        keep.add(e.slug)
-        grew = true
-      }
-  }
-  return entities.filter((e) => keep.has(e.slug))
-}
 
 function SaveNote({ s }: { s?: SaveState }) {
   const t = useT()
@@ -72,42 +49,42 @@ function SaveNote({ s }: { s?: SaveState }) {
   if (s.state === 'saving')
     return (
       <span role="status" className="inline-flex items-center gap-1 text-[11px] text-text-muted">
-        <Loader2 size={11} className="animate-spin" aria-hidden /> {t('social.accounts.saving')}
+        <Loader2 size={11} className="animate-spin" aria-hidden /> {t('managed.accounts.saving')}
       </span>
     )
   if (s.state === 'saved')
     return (
       <span role="status" className="inline-flex items-center gap-1 text-[11px] font-semibold" style={{ color: 'var(--green-ink)' }}>
-        <Check size={11} aria-hidden /> {t('social.accounts.saved')}
+        <Check size={11} aria-hidden /> {t('managed.accounts.saved')}
       </span>
     )
   return (
     <span role="alert" className="text-[11px] font-semibold" style={{ color: 'var(--red-ink)' }}>
-      {s.error || t('social.accounts.saveFailed')}
+      {s.error || t('managed.accounts.saveFailed')}
     </span>
   )
 }
 
-/** The Zernio accounts for the entity switcher's view, with their outlet edits and disconnect. */
-export function useSocialAccounts() {
+/** The managed accounts for the entity switcher's view, with their outlet edits and disconnect. */
+export function useManagedAccounts() {
   const t = useT()
   const { ready, can } = useAccess()
-  const canManage = can('social.manage')
-  const canView = can('social.view') || can('channels.view')
+  const canManage = can('channels.manage')
+  const canView = can('channels.view')
   const { entities } = useEntity()
   const entityQ = useEntityQuery()
 
-  const [accounts, setAccounts] = useState<SocialAccount[] | null>(null)
+  const [accounts, setAccounts] = useState<ManagedAccount[] | null>(null)
   const [notSetUp, setNotSetUp] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saves, setSaves] = useState<Record<string, SaveState>>({})
-  const [toRemove, setToRemove] = useState<SocialAccount | null>(null)
+  const [toRemove, setToRemove] = useState<ManagedAccount | null>(null)
   const [removeError, setRemoveError] = useState<string | null>(null)
   const [removing, setRemoving] = useState(false)
 
   const load = useCallback(async () => {
     try {
-      const d = await socialApi<SocialAccount[] | { accounts?: SocialAccount[] }>(withQuery('social/accounts', entityQ))
+      const d = await zernioApi<ManagedAccount[] | { accounts?: ManagedAccount[] }>(withQuery('social/accounts', entityQ))
       setAccounts(Array.isArray(d) ? d : (d.accounts ?? []))
       setNotSetUp(false)
       setError(null)
@@ -129,7 +106,7 @@ export function useSocialAccounts() {
   const save = async (key: string, path: string, init: RequestInit) => {
     setSaves((m) => ({ ...m, [key]: { state: 'saving' } }))
     try {
-      await socialApi(path, init)
+      await zernioApi(path, init)
       setSaves((m) => ({ ...m, [key]: { state: 'saved' } }))
       await load()
       window.setTimeout(
@@ -147,24 +124,18 @@ export function useSocialAccounts() {
     }
   }
 
-  const assignAccount = (a: SocialAccount, slug: string | null) =>
+  const assignAccount = (a: ManagedAccount, slug: string | null) =>
     save(`acct-${a.id}`, `social/accounts/${encodeURIComponent(a.id)}`, {
       method: 'PATCH',
       body: JSON.stringify({ entity: slug }),
     })
 
-  const assignPage = (a: SocialAccount, p: SocialPage, slug: string | null) =>
-    save(`page-${a.id}-${p.id}`, `social/accounts/${encodeURIComponent(a.id)}/pages/${encodeURIComponent(p.id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ entity: slug }),
-    })
-
-  const selectPage = (a: SocialAccount, p: SocialPage) =>
+  const selectPage = (a: ManagedAccount, p: ManagedPage) =>
     save(`page-${a.id}-${p.id}`, `social/accounts/${encodeURIComponent(a.id)}/pages/${encodeURIComponent(p.id)}/select`, {
       method: 'POST',
     })
 
-  const orgName = t('social.accounts.orgLevel')
+  const orgName = t('managed.accounts.orgLevel')
   const outletName = (x: { entity_id?: number | null; entity_name?: string | null }) =>
     x.entity_id == null ? orgName : (x.entity_name ?? entities.find((e) => e.id === x.entity_id)?.name ?? `#${x.entity_id}`)
 
@@ -174,7 +145,7 @@ export function useSocialAccounts() {
     setRemoving(true)
     setRemoveError(null)
     try {
-      await socialApi(`social/accounts/${encodeURIComponent(toRemove.id)}?confirm=true`, {
+      await zernioApi(`social/accounts/${encodeURIComponent(toRemove.id)}?confirm=true`, {
         method: 'DELETE',
         body: JSON.stringify({ confirm: true }),
       })
@@ -198,12 +169,11 @@ export function useSocialAccounts() {
     canManage,
     saves,
     assignAccount,
-    assignPage,
     selectPage,
     orgName,
     outletName,
     toRemove,
-    askRemove: (a: SocialAccount | null) => {
+    askRemove: (a: ManagedAccount | null) => {
       setRemoveError(null)
       setToRemove(a)
     },
@@ -213,14 +183,12 @@ export function useSocialAccounts() {
   }
 }
 
-export type SocialAccountsState = ReturnType<typeof useSocialAccounts>
+export type ManagedAccountsState = ReturnType<typeof useManagedAccounts>
 
 /**
- * The native DM inbox behind the same managed account (Instagram / Messenger DMs:
- * a second ChannelAccount sharing zernio_account_id). It is shown INSIDE the
- * account's card — one card per account — with the inbox's own Settings / Test.
- * Its outlet follows the account's (the backend moves both together), and
- * Disconnect removes both.
+ * The inbox of the same managed account (the ChannelAccount carrying
+ * zernio_account_id), shown INSIDE the account's card with its own Settings / Test.
+ * Its outlet is the account's, and Disconnect removes it.
  */
 export interface LinkedInbox {
   health: { status: HealthStatus; detail: string } | null
@@ -233,12 +201,12 @@ export interface LinkedInbox {
   onTest: () => void
 }
 
-/** One Zernio account in the Connected list: method badge, outlet picker, Facebook Pages, capabilities. */
-export function SocialAccountCard({ a, s, inbox }: { a: SocialAccount; s: SocialAccountsState; inbox?: LinkedInbox }) {
+/** One managed account in the Connected list: method badge, outlet picker, Messenger's Facebook Pages, its inbox. */
+export function ManagedAccountCard({ a, s, inbox }: { a: ManagedAccount; s: ManagedAccountsState; inbox?: LinkedInbox }) {
   const t = useT()
   const { entities, bound } = useEntity()
   const { canManage, saves } = s
-  const pid = platformId(a.platform)
+  const pid = a.channel === 'facebook' ? 'messenger' : platformId(a.channel || a.platform)
   const canEditOutlet = canManage && (!bound || a.entity_id != null)
   return (
     <article className="flex min-w-0 flex-col gap-3 rounded-xl border border-line bg-card p-4">
@@ -270,7 +238,7 @@ export function SocialAccountCard({ a, s, inbox }: { a: SocialAccount; s: Social
 
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-text-muted">
         {a.active === false ? (
-          <HealthDot status="disconnected" detail={t('social.accounts.inactive')} />
+          <HealthDot status="disconnected" detail={t('managed.accounts.inactive')} />
         ) : a.active === true ? (
           <HealthDot status="healthy" />
         ) : (
@@ -280,7 +248,7 @@ export function SocialAccountCard({ a, s, inbox }: { a: SocialAccount; s: Social
 
       {/* outlet: which outlet the account belongs to (organization = every outlet) */}
       <div data-tour="channels-card-outlet" className="flex flex-col gap-1">
-        <span className="text-[10.5px] font-bold uppercase tracking-wide text-text-faint">{t('social.accounts.outlet')}</span>
+        <span className="text-[10.5px] font-bold uppercase tracking-wide text-text-faint">{t('managed.accounts.outlet')}</span>
         {canEditOutlet ? (
           <div className="flex flex-wrap items-center gap-2">
             <EntityPicker
@@ -290,7 +258,7 @@ export function SocialAccountCard({ a, s, inbox }: { a: SocialAccount; s: Social
               globalLabel={s.orgName}
               size="sm"
               className="min-w-0 flex-1"
-              ariaLabel={t('social.accounts.outletFor', { name: accountHandle(a) })}
+              ariaLabel={t('managed.accounts.outletFor', { name: accountHandle(a) })}
               disabled={saves[`acct-${a.id}`]?.state === 'saving'}
             />
             <SaveNote s={saves[`acct-${a.id}`]} />
@@ -300,18 +268,15 @@ export function SocialAccountCard({ a, s, inbox }: { a: SocialAccount; s: Social
         )}
       </div>
 
-      {/* a Facebook login's Pages: each one posts for its own outlet */}
-      {pid === 'facebook' && a.pages && a.pages.length > 0 && (
+      {/* a Messenger account's Facebook Pages: which one's conversations reach the inbox */}
+      {a.pages && a.pages.length > 0 && (
         <div className="flex flex-col gap-1.5">
           <span className="text-[10.5px] font-bold uppercase tracking-wide text-text-faint">
-            {t('social.accounts.pagesTitle', { count: a.pages.length })}
+            {t('managed.accounts.pagesTitle', { count: a.pages.length })}
           </span>
           <ul className="flex flex-col gap-1.5">
             {a.pages.map((p) => {
               const key = `page-${a.id}-${p.id}`
-              const accountSlug = a.entity_slug ?? null
-              const choices = accountSlug ? subtree(entities, accountSlug) : entities
-              const followLabel = t('social.accounts.pageFollows', { name: s.outletName(a) })
               return (
                 <li key={p.id} className="flex flex-col gap-1 rounded-lg border border-line px-2.5 py-2">
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -321,9 +286,9 @@ export function SocialAccountCard({ a, s, inbox }: { a: SocialAccount; s: Social
                       <span
                         className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-green/15 px-2 py-px text-[10px] font-bold"
                         style={{ color: 'var(--green-ink)' }}
-                        title={t('social.accounts.pageInboxHint')}
+                        title={t('managed.accounts.pageInboxHint')}
                       >
-                        <Inbox size={10} aria-hidden /> {t('social.accounts.pageInbox')}
+                        <Inbox size={10} aria-hidden /> {t('managed.accounts.pageInbox')}
                       </span>
                     ) : (
                       canEditOutlet && (
@@ -331,31 +296,15 @@ export function SocialAccountCard({ a, s, inbox }: { a: SocialAccount; s: Social
                           type="button"
                           onClick={() => void s.selectPage(a, p)}
                           disabled={saves[key]?.state === 'saving'}
-                          title={t('social.accounts.pageInboxHint')}
+                          title={t('managed.accounts.pageInboxHint')}
                           className="ml-auto shrink-0 cursor-pointer text-[11px] font-semibold text-brand-300 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {t('social.accounts.pageUseForInbox')}
+                          {t('managed.accounts.pageUseForInbox')}
                         </button>
                       )
                     )}
                   </div>
-                  {canManage && (!bound || p.effective_entity_id != null) ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <EntityPicker
-                        value={p.entity_id != null ? (p.entity_slug ?? null) : null}
-                        onChange={(slug) => void s.assignPage(a, p, slug === accountSlug ? null : slug)}
-                        entities={choices}
-                        globalLabel={followLabel}
-                        size="sm"
-                        className="min-w-0 flex-1"
-                        ariaLabel={t('social.accounts.outletFor', { name: p.name || p.id })}
-                        disabled={saves[key]?.state === 'saving'}
-                      />
-                      <SaveNote s={saves[key]} />
-                    </div>
-                  ) : (
-                    <OutletChip name={s.outletName({ entity_id: p.effective_entity_id, entity_name: p.entity_name })} />
-                  )}
+                  <SaveNote s={saves[key]} />
                 </li>
               )
             })}
@@ -367,8 +316,8 @@ export function SocialAccountCard({ a, s, inbox }: { a: SocialAccount; s: Social
         <div className="flex flex-col gap-1.5 rounded-lg border border-line px-2.5 py-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <Inbox size={12} className="text-text-muted" aria-hidden />
-            <span className="text-[12.5px] font-semibold text-text-high" title={t('social.accounts.dmInboxHint')}>
-              {t('social.accounts.dmInbox')}
+            <span className="text-[12.5px] font-semibold text-text-high" title={t('managed.accounts.inboxHint')}>
+              {t('managed.accounts.inbox')}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-text-muted">
@@ -398,25 +347,7 @@ export function SocialAccountCard({ a, s, inbox }: { a: SocialAccount; s: Social
         </div>
       )}
 
-      {CAPS.some((c) => a[c.key] || (inbox && c.key === 'can_dm')) && (
-        <div className="flex flex-wrap gap-1" aria-label={t('channels.card.capabilities')}>
-          {CAPS.filter((c) => a[c.key] || (inbox && c.key === 'can_dm')).map((c) => (
-            <CapChip key={c.key} label={t(c.lbl)} />
-          ))}
-        </div>
-      )}
-
       <div className="mt-auto flex flex-wrap items-center gap-2 pt-0.5">
-        {a.profile_url && (
-          <a
-            href={a.profile_url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-[12px] font-semibold text-text-mid hover:text-text-high"
-          >
-            <ExternalLink size={12} aria-hidden /> {t('social.accounts.viewProfile')}
-          </a>
-        )}
         {canManage && (
           <Button variant="ghost" size="sm" className="ml-auto" onClick={() => s.askRemove(a)}>
             <Unplug size={12} aria-hidden /> {t('common.actions.disconnect')}
@@ -428,14 +359,14 @@ export function SocialAccountCard({ a, s, inbox }: { a: SocialAccount; s: Social
 }
 
 /** "Disconnect @handle?" — errors render inside the modal. */
-export function SocialDisconnectModal({ s, onDone }: { s: SocialAccountsState; onDone: (name: string) => void }) {
+export function ManagedDisconnectModal({ s, onDone }: { s: ManagedAccountsState; onDone: (name: string) => void }) {
   const t = useT()
   const { toRemove, removing, removeError } = s
   return (
     <Modal
       open={!!toRemove}
       onClose={() => !removing && s.askRemove(null)}
-      title={toRemove ? t('social.accounts.disconnectTitle', { name: accountHandle(toRemove) }) : ''}
+      title={toRemove ? t('managed.accounts.disconnectTitle', { name: accountHandle(toRemove) }) : ''}
       size="sm"
       footer={
         <>
@@ -465,7 +396,7 @@ export function SocialDisconnectModal({ s, onDone }: { s: SocialAccountsState; o
           {removeError}
         </div>
       )}
-      <p className="text-[13px] leading-relaxed text-text-mid">{t('social.accounts.disconnectBody')}</p>
+      <p className="text-[13px] leading-relaxed text-text-mid">{t('managed.accounts.disconnectBody')}</p>
     </Modal>
   )
 }

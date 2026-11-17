@@ -340,7 +340,7 @@ export const channels = {
       },
       s4: {
         title: 'Open the block',
-        body: 'In ChatBranch, open Channels → “Channels”. Under “Add a channel” → “Social”, click “Messenger” or “Instagram”.',
+        body: 'In ChatBranch, open Channels → “Channels”. Under “Add a channel” → “Messaging apps”, click “Messenger” or “Instagram”.',
       },
       s5: {
         title: 'Paste the details',
@@ -381,7 +381,7 @@ export const channels = {
     steps: {
       s1: {
         title: 'Find the channel block',
-        body: 'In the sidebar, open Channels → “Channels” and scroll to “Add a channel”. LINE, Viber and Zalo are under “Messaging apps”, TikTok under “Social”, SMS under “SMS, email & voice”, WeChat and Douyin under “China”. Blocks marked “Requires approval” need the platform’s approval first.',
+        body: 'In the sidebar, open Channels → “Channels” and scroll to “Add a channel”. LINE, Viber, Zalo and TikTok are under “Messaging apps”, SMS under “SMS, email & voice”, WeChat and Douyin under “China”. Blocks marked “Requires approval” need the platform’s approval first.',
       },
       s2: {
         title: 'Open the walk-through',

@@ -7,7 +7,7 @@ import { SITE_ORIGIN, jsonLd } from '@/lib/publicSite'
 export const metadata: Metadata = {
   title: 'ChatBranch User Manual — Step-by-Step Guide to Every Feature',
   description:
-    'The complete ChatBranch user manual: connect WhatsApp, email and social channels, set up the AI persona, knowledge base and house rules, bookings, journeys, automations, teams and troubleshooting.',
+    'The complete ChatBranch user manual: connect WhatsApp, Messenger, Instagram, email and other messaging channels, set up the AI persona, knowledge base and house rules, bookings, journeys, automations, teams and troubleshooting.',
   alternates: { canonical: '/help/manual' },
   openGraph: {
     title: 'ChatBranch User Manual',

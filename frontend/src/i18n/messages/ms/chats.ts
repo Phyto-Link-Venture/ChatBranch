@@ -11,7 +11,6 @@ export const chats: Dict<typeof source> = {
   channels: {
     email: 'E-mel',
     website: 'Laman web',
-    social: 'Media sosial',
   },
   roles: {
     superadmin: 'Pentadbir super',

@@ -25,7 +25,7 @@ namespace ChatBranch.Data.Ai;
 ///   <item>the account ROLE: conversation numbers on, reminder (business)
 ///         numbers off unless the <c>reminder_ai_default</c> rule is "on".</item>
 /// </list>
-/// Every other thread (account-less/sandbox WhatsApp, Telegram, email, social,
+/// Every other thread (account-less/sandbox WhatsApp, Telegram, email,
 /// the website widget) uses the thread's own <c>AiEnabled</c> flag — the
 /// inbox's default is stamped onto it when the conversation is created.
 ///

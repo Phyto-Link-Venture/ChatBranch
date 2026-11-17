@@ -1,9 +1,9 @@
 'use client'
 
 /**
- * Step 3 of the "Add inbox" stepper for a "via Zernio" method.
+ * Step 3 of the "Add inbox" stepper for a managed-connection (Zernio) method.
  *
- *   POST /api/social/connect {platform, entity, purpose: "inbox" | "social"}
+ *   POST /api/social/connect {platform, entity}
  *
  * The answer decides what happens next — coded defensively, the backend may be
  * older or newer than this screen:
@@ -29,7 +29,7 @@ import { Button } from '@/components/ui/Button'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { useAccess } from '@/lib/useAccess'
 import { useEntity } from '@/lib/EntityContext'
-import { errMessage, isNotSetUp, socialApi, SocialApiError } from '@/lib/social'
+import { errMessage, isNotSetUp, zernioApi, ZernioApiError } from '@/lib/zernio'
 import { CopyRow, inputCls } from '@/components/settings/WhatsAppSettings'
 import { useT } from '@/i18n'
 import type { MethodDef } from './catalog'
@@ -122,7 +122,7 @@ interface ZernioPanelProps {
  * generic flow below.
  */
 export function ZernioConnectPanel(props: ZernioPanelProps) {
-  if (props.method.zernio?.platform === 'whatsapp' && (props.method.zernio.purpose ?? 'inbox') === 'inbox')
+  if (props.method.zernio?.platform === 'whatsapp')
     return <WhatsAppSignupPanel onChanged={props.onChanged} onAnother={props.onAnother} onClose={props.onClose} />
   return <ZernioHostedPanel {...props} />
 }
@@ -130,10 +130,9 @@ export function ZernioConnectPanel(props: ZernioPanelProps) {
 function ZernioHostedPanel({ channelName, method, onChanged, onAnother, onClose }: ZernioPanelProps) {
   const t = useT()
   const { can } = useAccess()
-  const canManage = can('social.manage')
+  const canManage = can('channels.manage')
   const { levelEntity, selectedEntities, bound } = useEntity()
   const platform = method.zernio?.platform ?? ''
-  const purpose = method.zernio?.purpose ?? 'inbox'
 
   const [entity, setEntity] = useState<string | null>(levelEntity?.slug ?? selectedEntities[0]?.slug ?? null)
   // follow the switcher until the person picks something here
@@ -149,15 +148,15 @@ function ZernioHostedPanel({ channelName, method, onChanged, onAnother, onClose 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const base = { platform, entity: entity ?? undefined, purpose }
+  const base = { platform, entity: entity ?? undefined }
 
   const fail = (e: unknown) => {
     if (isNotSetUp(e)) {
       setPhase('notSetUp')
       return
     }
-    if (e instanceof SocialApiError && e.status === 403) setError(t('social.accounts.needsPermission'))
-    else if (e instanceof SocialApiError && e.status === 400 && /platform must be one of/i.test(e.message))
+    if (e instanceof ZernioApiError && e.status === 403) setError(t('managed.accounts.needsPermission'))
+    else if (e instanceof ZernioApiError && e.status === 400 && /platform must be one of/i.test(e.message))
       setError(t('channels.zernio.unsupported', { channel: channelName }))
     else setError(errMessage(e))
   }
@@ -195,7 +194,7 @@ function ZernioHostedPanel({ channelName, method, onChanged, onAnother, onClose 
     setBusy(true)
     setError(null)
     try {
-      handle(await socialApi<ConnectResponse>('social/connect', { method: 'POST', body: JSON.stringify(base) }))
+      handle(await zernioApi<ConnectResponse>('social/connect', { method: 'POST', body: JSON.stringify(base) }))
     } catch (e) {
       fail(e)
     } finally {
@@ -223,7 +222,7 @@ function ZernioHostedPanel({ channelName, method, onChanged, onAnother, onClose 
     const session = resp.session_id ?? resp.session ?? resp.state
     try {
       const path = apiPath(resp.submit_url ?? resp.complete_url ?? resp.next) ?? 'social/connect'
-      const r = await socialApi<ConnectResponse>(path, {
+      const r = await zernioApi<ConnectResponse>(path, {
         method: 'POST',
         body: JSON.stringify({ ...base, ...(session ? { session_id: session } : {}), ...(resp.step ? { step: resp.step } : {}), credentials }),
       })
@@ -248,7 +247,7 @@ function ZernioHostedPanel({ channelName, method, onChanged, onAnother, onClose 
       if (stop) return
       tries += 1
       try {
-        const r = await socialApi<ConnectResponse>(path)
+        const r = await zernioApi<ConnectResponse>(path)
         if (isDone(r)) {
           stop = true
           window.clearInterval(id)
@@ -292,12 +291,12 @@ function ZernioHostedPanel({ channelName, method, onChanged, onAnother, onClose 
     return (
       <div className="flex flex-col items-start gap-2 rounded-xl border border-dashed border-line-strong px-4 py-5">
         <span className="flex items-center gap-2 text-[15px] font-bold text-text-heading">
-          <Share2 size={15} aria-hidden /> {t('social.zernio.notSetUpTitle')}
+          <Share2 size={15} aria-hidden /> {t('managed.zernio.notSetUpTitle')}
         </span>
         <p className="text-[12.5px] leading-relaxed text-text-muted">{t('channels.zernio.notSetUpBody')}</p>
         {can('app_keys.manage') && (
           <Link href="/settings/appkeys#managed-connections" className="text-[12.5px] font-semibold text-brand-300 hover:underline">
-            {t('social.zernio.openIntegrations')}
+            {t('managed.zernio.openIntegrations')}
           </Link>
         )}
       </div>
@@ -420,11 +419,11 @@ function ZernioHostedPanel({ channelName, method, onChanged, onAnother, onClose 
       <div className="flex gap-2.5 rounded-lg border border-line bg-well px-3 py-2.5 text-[12.5px] leading-relaxed text-text-mid">
         <Share2 size={16} className="mt-0.5 shrink-0 text-text-muted" aria-hidden />
         <span>
-          {t(purpose === 'social' ? 'channels.zernio.introSocial' : 'channels.zernio.introInbox', { channel: channelName })}
+          {t('channels.zernio.introInbox', { channel: channelName })}
         </span>
       </div>
       {!canManage ? (
-        <p className="text-[12.5px] text-text-muted">{t('social.accounts.needsPermission')}</p>
+        <p className="text-[12.5px] text-text-muted">{t('managed.accounts.needsPermission')}</p>
       ) : (
         <>
           <label className="block">
@@ -436,7 +435,7 @@ function ZernioHostedPanel({ channelName, method, onChanged, onAnother, onClose 
                 setEntity(slug)
               }}
               allowGlobal={!bound}
-              globalLabel={t('social.accounts.orgLevel')}
+              globalLabel={t('managed.accounts.orgLevel')}
               ariaLabel={t('channels.zernio.outlet')}
               disabled={busy || phase === 'redirect'}
             />

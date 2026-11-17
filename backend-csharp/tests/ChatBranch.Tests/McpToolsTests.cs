@@ -440,19 +440,15 @@ public class AssistantToolRouterTests : IClassFixture<AssistantFactory>
     }
 
     [Fact]
-    public void Social_requests_pull_in_the_social_tools_in_english_malay_and_chinese()
+    public void Managed_connection_requests_route_to_the_channel_tools_and_no_posting_tools_exist()
     {
         var all = ToolRegistry.All;
-        Assert.Contains("social_create_post", ToolRouter.Select(all, "schedule an Instagram post for Friday with a caption").Select(t => t.Name));
-        Assert.Contains("social_list_posts", ToolRouter.Find(all, "which posts are scheduled on our Facebook Page?").Select(t => t.Name));
-        Assert.Contains("social_hide_comment", ToolRouter.Find(all, "hide that spam comment on TikTok").Select(t => t.Name));
-        Assert.Contains("social_list_accounts", ToolRouter.Find(all, "which social accounts are connected? LinkedIn, YouTube").Select(t => t.Name));
-        Assert.Contains("social_create_post", ToolRouter.Select(all, "tolong jadual siaran baru dengan kapsyen").Select(t => t.Name));
-        Assert.Contains("social_create_post", ToolRouter.Select(all, "帮我发帖到脸书").Select(t => t.Name));
-        // the AI-draft request still finds the AI tools first
-        Assert.Contains("ai_approve_draft", ToolRouter.Select(all, "approve the AI draft waiting for review").Select(t => t.Name));
-        // writes stay confirm-first: publishing and deleting are outward-facing / destructive
-        Assert.True(ToolRegistry.All.Single(t => t.Name == "social_delete_post").Destructive);
+        Assert.Contains("social_list_accounts", ToolRouter.Find(all, "which Instagram and Messenger inboxes are connected?").Select(t => t.Name));
+        Assert.Contains("social_select_page", ToolRouter.Find(all, "use the other Facebook page for messenger").Select(t => t.Name));
+        // social-media posting, comments and reviews are out of ChatBranch's scope
+        foreach (var gone in new[] { "social_create_post", "social_list_posts", "social_hide_comment", "social_private_reply", "social_assign_page" })
+            Assert.DoesNotContain(all, t => t.Name == gone);
+        Assert.True(ToolRegistry.All.Single(t => t.Name == "social_disconnect_account").Destructive);
     }
 
     [Fact]

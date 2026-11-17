@@ -204,11 +204,9 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/inboxes/999999/identify", new[] { "channels.view" }),
         // the marketplace bridge (Shopee / Lazada / TikTok Shop / Shopify shops)
         ("/api/commerce/status", new[] { "channels.view" }),
-        // social media through Zernio (409 zernio_not_configured in the suite is still "through")
+        // managed connections through Zernio (409 zernio_not_configured in the suite is still "through")
         ("/api/zernio/status", new[] { "app_keys.manage" }),
-        ("/api/social/accounts", new[] { "social.view", "channels.view" }),
-        ("/api/social/posts", new[] { "social.view" }),
-        ("/api/social/posts/999999", new[] { "social.view" }),
+        ("/api/social/accounts", new[] { "channels.view" }),
         ("/api/whatsapp/assignments", new[] { "account_assignment.manage" }),
         ("/api/whatsapp/routing-rules", new[] { "account_assignment.manage" }),
         ("/api/whatsapp/recovery", new[] { "account_assignment.manage", "analytics.view" }),
