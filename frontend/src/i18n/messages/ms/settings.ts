@@ -47,6 +47,10 @@ export const settings: Dict<typeof source> = {
         lbl: 'Medan tersuai',
         blurb: 'Medan tambahan pada pelanggan, boleh digunakan di mana-mana sebagai pemboleh ubah templat.',
       },
+      updates: {
+        lbl: 'Kemas kini',
+        blurb: 'Pilih bila syarikat anda menerima versi dan ciri baharu.',
+      },
       billing: {
         lbl: 'Harga & kredit AI',
         blurb: 'Harga, pelan, kredit dan had perbelanjaan anda bagi setiap syarikat. Pelanggan tidak pernah melihat halaman ini.',

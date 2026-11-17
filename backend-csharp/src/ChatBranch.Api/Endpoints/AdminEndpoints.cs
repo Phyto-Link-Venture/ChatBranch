@@ -85,6 +85,9 @@ public static class AdminEndpoints
         ("testlab.run", "Review", "Run the Test lab"),
         // Settings → Security: the organization's two-step sign-in policy (require_2fa)
         ("security.manage", "Settings", "Manage sign-in security"),
+        // Versions (Domain/Releases.cs): a company's own update choice, and the developers' view of everyone's
+        ("updates.manage", "Settings", "Choose when your company gets new versions"),
+        ("updates.overview", "Admin", "See every company's version"),
     };
 
     private static readonly string[] CapabilityIds =
@@ -108,7 +111,7 @@ public static class AdminEndpoints
     private static readonly HashSet<string> AdminExclude = new()
     {
         "rbac.manage", "app_keys.manage", "settings.ai_keys.manage", "billing.manage", "settings.ai_hard_rules.manage",
-        "settings.raw.manage", "testlab.run", "security.manage",
+        "settings.raw.manage", "testlab.run", "security.manage", "updates.overview",
     };
 
     /// agent's read-mostly work surface.

@@ -49,6 +49,8 @@ public class AppDbContext : DbContext
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     // crm — audit
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    /// <summary>Each company's update choice (Domain/Releases.cs).</summary>
+    public DbSet<UpdatePolicy> UpdatePolicies => Set<UpdatePolicy>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<PushDevice> PushDevices => Set<PushDevice>();
     public DbSet<OAuthClient> OAuthClients => Set<OAuthClient>();
@@ -195,6 +197,8 @@ public class AppDbContext : DbContext
         b.Entity<Role>().ToTable("crm_role");
         b.Entity<RolePermission>().ToTable("crm_rolepermission");
         b.Entity<AuditLog>().ToTable("crm_auditlog");
+        b.Entity<UpdatePolicy>().ToTable("crm_updatepolicy");
+        b.Entity<UpdatePolicy>().HasIndex(p => p.EntityId).IsUnique().HasDatabaseName("uniq_updatepolicy_entity");
         b.Entity<Notification>().ToTable("crm_notification");
         b.Entity<PushDevice>().ToTable("crm_pushdevice");
         // connecting an AI app by signing in, instead of pasting a key (OAuth 2.1)

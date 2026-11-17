@@ -21,7 +21,7 @@ public static partial class ToolCatalog
     public static IReadOnlyList<IChatBranchTool> Create() =>
         Contacts().Concat(Conversations()).Concat(Ai()).Concat(Library()).Concat(Automation())
             .Concat(Organization()).Concat(ChannelTools()).Concat(ManagedConnections()).Concat(Platform())
-            .Concat(CreditTopup()).ToList();
+            .Concat(CreditTopup()).Concat(Updates()).ToList();
 
     private static string[] C(params string[] caps) => caps;
 

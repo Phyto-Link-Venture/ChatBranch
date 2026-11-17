@@ -113,6 +113,8 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'settings.raw.manage', area: 'Settings', label: 'Write any raw setting (API)', lbl: 'admin.caps.settingsRawManage' },
   { capability: 'testlab.run', area: 'Review', label: 'Run the Test lab', lbl: 'admin.caps.testlabRun' },
   { capability: 'security.manage', area: 'Settings', label: 'Manage sign-in security', lbl: 'admin.caps.securityManage' },
+  { capability: 'updates.manage', area: 'Settings', label: 'Choose when your company gets new versions', lbl: 'admin.caps.updatesManage' },
+  { capability: 'updates.overview', area: 'Admin', label: 'See every company’s version', lbl: 'admin.caps.updatesOverview' },
 ]
 
 const CAP_KEY = new Map<string, MessageKey>(CAPABILITY_CATALOG.map((c) => [c.capability, c.lbl]))
@@ -194,6 +196,7 @@ const ADMIN_EXCLUDE = new Set([
   'settings.raw.manage',
   'testlab.run',
   'security.manage',
+  'updates.overview',
 ])
 
 export const DEFAULT_ROLE_CAPS: Record<Role, string[]> = {

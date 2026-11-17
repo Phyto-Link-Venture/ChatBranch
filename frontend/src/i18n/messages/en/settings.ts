@@ -45,6 +45,10 @@ export const settings = {
         lbl: 'Custom fields',
         blurb: 'Extra fields on customers, usable everywhere as template variables.',
       },
+      updates: {
+        lbl: 'Updates',
+        blurb: 'Choose when your company gets new versions and features.',
+      },
       billing: {
         lbl: 'AI pricing & credit',
         blurb: 'Your prices, plans, credit and spending caps for each company. Clients never see this page.',

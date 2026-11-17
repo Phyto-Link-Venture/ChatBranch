@@ -274,6 +274,7 @@ app.MapAnalyticsEndpoints();
 app.MapAiBillingEndpoints();
 app.MapAiCreditEndpoints();
 app.MapAiCreditTopupEndpoints();
+app.MapUpdatesEndpoints();
 app.MapAiCreditMeteringEndpoints();
 app.MapAiPriceBookEndpoints();
 app.MapIntegrationsEndpoints();

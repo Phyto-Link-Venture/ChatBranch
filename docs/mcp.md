@@ -519,7 +519,7 @@ conversation route.
 | `bindings_get` | Read one binding | read | `users.view` or `contacts.view` or `tags.view` or `billing.manage` |
 | `bindings_apply` | Change a binding | write | `users.manage` or `contacts.manage` or `tags.manage` or `channels.manage` or `billing.manage` |
 
-#### settings (7)
+#### settings (10)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -530,6 +530,9 @@ conversation route.
 | `settings_get_custom_fields` | Read custom field definitions | read | `contacts.view` or `flows.manage` or `templates.manage` or `script_templates.manage` or `settings.custom_fields.manage` |
 | `settings_save_custom_field` | Add or change a custom field | write | `settings.custom_fields.manage` |
 | `settings_delete_custom_field` | Delete a custom field | write · **destructive** | `settings.custom_fields.manage` |
+| `updates_get_status` | Versions and update choice | read | signed in |
+| `updates_set_policy` | Change a company's update choice | write | `updates.manage` |
+| `updates_get_overview` | Every company's version | read | `updates.overview` |
 
 #### notifications (9)
 

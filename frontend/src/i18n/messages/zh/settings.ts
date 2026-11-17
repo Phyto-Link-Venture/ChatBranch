@@ -47,6 +47,10 @@ export const settings: Dict<typeof source> = {
         lbl: '自定义字段',
         blurb: '客户的额外字段，可在各处作为模板变量使用。',
       },
+      updates: {
+        lbl: '更新',
+        blurb: '选择公司何时获取新版本和新功能。',
+      },
       billing: {
         lbl: 'AI 定价与额度',
         blurb: '您为每家公司设定的价格、方案、额度和支出上限。客户永远看不到此页面。',

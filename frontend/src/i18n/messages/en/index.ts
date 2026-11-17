@@ -29,6 +29,7 @@ import { guide } from './guide'
 import { manual } from './manual'
 import { account } from './account'
 import { managed } from './managed'
+import { updates } from './updates'
 
 export const en = {
   common,
@@ -61,6 +62,7 @@ export const en = {
   manual,
   account,
   managed,
+  updates,
 }
 
 export type Messages = typeof en

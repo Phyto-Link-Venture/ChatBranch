@@ -30,6 +30,7 @@ import { guide } from './guide'
 import { manual } from './manual'
 import { account } from './account'
 import { managed } from './managed'
+import { updates } from './updates'
 
 export const ms: Dict<Messages> = {
   common,
@@ -62,4 +63,5 @@ export const ms: Dict<Messages> = {
   manual,
   account,
   managed,
+  updates,
 }

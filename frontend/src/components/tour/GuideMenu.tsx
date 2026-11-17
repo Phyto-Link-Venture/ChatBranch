@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { BookOpenText, CircleHelp, Compass, ListChecks, PlayCircle } from 'lucide-react'
+import { BookOpenText, CircleHelp, Compass, ListChecks, PlayCircle, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Toggle } from '@/components/ui/Toggle'
@@ -10,6 +10,7 @@ import { setToursAuto, toursAuto, tourKey } from '@/lib/tours'
 import { guideKey, guidesFor } from '@/lib/guides'
 import { useT } from '@/i18n'
 import { useTour } from './TourProvider'
+import { useUpdates } from '@/lib/updates'
 
 /**
  * The top bar's Guide button: replay this page's guide, open the step-by-step
@@ -24,6 +25,7 @@ export function GuideMenu() {
   const [open, setOpen] = useState(false)
   const [auto, setAuto] = useState(true)
   const ref = useRef<HTMLDivElement>(null)
+  const { status: updates } = useUpdates()
 
   useEffect(() => {
     const user = getAuth()?.username
@@ -111,6 +113,15 @@ export function GuideMenu() {
           <Link href="/help/manual" className={item} onClick={() => setOpen(false)}>
             <BookOpenText size={15} className="shrink-0 text-text-muted" aria-hidden />
             {t('guide.ui.manual')}
+          </Link>
+          <Link href="/whats-new" className={item} onClick={() => setOpen(false)}>
+            <Sparkles size={15} className="shrink-0 text-text-muted" aria-hidden />
+            <span className="min-w-0">
+              <span className="block">{t('updates.menu')}</span>
+              {updates && (
+                <span className="block text-[11.5px] text-text-muted">{t('updates.menuVersion', { version: updates.mine })}</span>
+              )}
+            </span>
           </Link>
           <div className="mt-1 flex items-center justify-between gap-3 border-t border-line px-2.5 pb-1 pt-2.5">
             <span className="text-[12px] text-text-mid">{t('guide.ui.autoStart')}</span>

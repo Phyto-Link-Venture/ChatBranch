@@ -581,6 +581,12 @@ public static class Seed
             + "\"status\" TEXT NOT NULL, \"payment_id\" INTEGER NULL, \"amount_minor\" INTEGER NOT NULL, "
             + "\"detail\" TEXT NOT NULL, \"received_at\" TEXT NOT NULL, \"processed_at\" TEXT NULL");
         AddUniqueIndexIfMissing(db, "uniq_stripeevent_event", "crm_stripeevent", "\"event_id\"", "\"event_id\" <> ''");
+        // each company's update choice (Domain/Releases.cs)
+        AddTableIfMissing(db, "crm_updatepolicy",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_updatepolicy\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"entity_id\" INTEGER NOT NULL, \"pinned_major\" INTEGER NOT NULL, \"minor_mode\" TEXT NOT NULL, "
+            + "\"held_version\" TEXT NOT NULL, \"updated_by\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_updatepolicy_entity", "crm_updatepolicy", "\"entity_id\"", "\"entity_id\" > 0");
         // ---- one mirror per Zernio account ---------------------------------------
         // The WhatsApp onboarding callback and the account.connected webhook can both mirror
         // the same Zernio account at once (Zernio/ZernioAccounts.Upsert treats the loser's

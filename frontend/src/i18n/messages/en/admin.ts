@@ -51,6 +51,8 @@ export const admin = {
     billingManage: 'Set AI billing markup & see costs',
     billingQuotasManage: 'Set AI usage quotas',
     billingTopup: 'Buy AI credit (top up)',
+    updatesManage: 'Choose when your company gets new versions',
+    updatesOverview: 'See every company’s version',
     pronunciationManage: 'Manage pronunciation',
     settingsAppearanceOrg: 'Set the organization default appearance, language and time zone',
     settingsCustomFieldsManage: 'Manage custom fields',
