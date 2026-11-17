@@ -220,6 +220,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/settings/ai-providers", new[] { "settings.ai_keys.manage" }),
         ("/api/settings?keys=quiet_start", new[] { "settings.raw.view" }),
         ("/api/settings/security", new[] { "security.manage" }),
+        ("/api/updates/overview", new[] { "updates.overview" }),
         ("/api/settings/system-email", new[] { "app_keys.manage" }),
         // Test lab (testlab.run — superadmin only by default)
         ("/api/testlab/scenarios", new[] { "testlab.run" }),
@@ -311,7 +312,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
     private static readonly HashSet<string> AdminExcluded = new()
     {
         "rbac.manage", "app_keys.manage", "settings.ai_keys.manage", "billing.manage",
-        "settings.ai_hard_rules.manage", "settings.raw.manage", "testlab.run", "security.manage",
+        "settings.ai_hard_rules.manage", "settings.raw.manage", "testlab.run", "security.manage", "updates.overview",
     };
 
     [Fact]
@@ -375,6 +376,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ["/api/oauth/connections"] = "the caller's own connected AI apps (Settings → My connections); another login's are never listed",
         ["/api/push/config"] = "whether this server can alert a device, and the VAPID public key the browser subscribes with (a public key, by design)",
         ["/api/push/devices"] = "the caller's own devices (Settings → My notifications); another login's are never listed",
+        ["/api/updates"] = "What's new: the released versions and the caller's own company version; managed companies are filtered inside by updates.manage",
     };
 
     /// <summary>Gated, but inside the handler (no filter metadata) — each must also be in
