@@ -5,6 +5,7 @@ import { AlertCircle, ArrowLeft, Check, CheckCheck, Loader2, Search } from 'luci
 import { useT } from '@/i18n'
 import { capabilityArea } from '@/lib/auth'
 import { AreaCard } from './AreaCard'
+import { RoleChannelAccess } from './RoleChannelAccess'
 import { ManageAreaModal } from './ManageAreaModal'
 import { groupByArea, isLocked, type CatalogEntry } from './types'
 
@@ -135,6 +136,9 @@ export function RoleCardGrid({
           )}
         </div>
       </div>
+
+      {/* Channels + connection methods the role may connect and use (superadmin: always all) */}
+      {role !== 'superadmin' && <RoleChannelAccess role={role} roleLabel={roleLabel} />}
 
       {/* Toolbar: search + check all */}
       <div className="flex flex-wrap items-center gap-2">

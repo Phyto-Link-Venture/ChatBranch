@@ -26,6 +26,8 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { RoleChip } from '@/components/ui/Badges'
 import { hasCap } from '@/lib/auth'
+import { useAccess } from '@/lib/useAccess'
+import { catalogMethodAllowed } from '@/lib/channelAccess'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { fetchChannelHealth, HEALTH_META, type ChannelHealthPayload, type HealthStatus } from '@/lib/channelHealth'
 import { platformId } from '@/lib/zernio'
@@ -296,6 +298,8 @@ export function ChannelsSettings() {
   // capabilities read after mount (localStorage — see CLAUDE.md hydration rule)
   const [canManage, setCanManage] = useState(false)
   const [canKeys, setCanKeys] = useState(false)
+  // the role's channel policy (null = every channel); refreshed from whoami by useAccess
+  const { channelAccess } = useAccess()
   useEffect(() => {
     setCanManage(hasCap('channels.manage'))
     // the SIP trunk and the default mail settings are provider credentials (app_keys.manage)
@@ -372,7 +376,9 @@ export function ChannelsSettings() {
   const channelBlocked = (c: ChannelDef): string | null => {
     const reasons = c.methods.map((m) => {
       if (m.kind === 'voice' && !canKeys && !voiceInbox) return t('channels.page.superOnly')
-      return canManage ? null : t('channels.page.addNeedsPermission')
+      if (!canManage) return t('channels.page.addNeedsPermission')
+      // the role's channel policy (Permissions → role → Channel access)
+      return catalogMethodAllowed(channelAccess, c.id, m.id) ? null : t('channels.page.roleNotAllowed')
     })
     return reasons.every((r) => r) ? reasons[0] : null
   }

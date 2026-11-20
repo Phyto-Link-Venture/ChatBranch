@@ -115,6 +115,17 @@ export const admin: Dict<typeof source> = {
       addHint: 'Slug yang selamat untuk URL dijana daripada nama. Peranan tersuai dianggap setaraf ejen untuk tugasan.',
       renameHint: 'Hanya nama paparan yang berubah.',
     },
+    channels: {
+      title: 'Akses saluran',
+      hint: 'Saluran mana — dan kaedah sambungan mana bagi setiap satu — yang boleh disambung dan digunakan oleh pemegang peranan {role}. Mereka hanya melihat perbualan pada saluran ini.',
+      every: 'Semua saluran',
+      only: 'Saluran ini sahaja',
+      none: 'Tandakan sekurang-kurangnya satu saluran, atau pilih “Semua saluran”.',
+      officialOnly: 'Rasmi sahaja',
+      unofficial: 'Tidak rasmi',
+      save: 'Simpan akses saluran',
+      saved: 'Akses saluran disimpan.',
+    },
     grid: {
       roles: 'Peranan',
       hint: 'Berikan peranan ini akses mengikut bahagian sumber',

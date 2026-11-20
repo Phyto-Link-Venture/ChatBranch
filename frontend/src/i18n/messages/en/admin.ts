@@ -113,6 +113,17 @@ export const admin = {
       addHint: 'A url-safe slug is generated from the name. Custom roles are treated as agent-level for assignment.',
       renameHint: 'Only the display name changes.',
     },
+    channels: {
+      title: 'Channel access',
+      hint: 'Which channels — and which connection methods of each — people with the {role} role may connect and use. They only see conversations on these channels.',
+      every: 'Every channel',
+      only: 'Only these channels',
+      none: 'Tick at least one channel, or choose “Every channel”.',
+      officialOnly: 'Official only',
+      unofficial: 'Unofficial',
+      save: 'Save channel access',
+      saved: 'Channel access saved.',
+    },
     grid: {
       roles: 'Roles',
       hint: 'Grant this role access per resource area',

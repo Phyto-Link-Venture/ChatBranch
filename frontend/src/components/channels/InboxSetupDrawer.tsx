@@ -80,6 +80,7 @@ import {
 } from './inboxes'
 import { CRED_FIELDS, DEFAULT_NAME, GUIDES, ONE_OF, WEBHOOK_HELP, type FieldSpec } from './setupSpec'
 import { channelDef, channelOfKind, type ChannelDef, type MethodDef } from './catalog'
+import { catalogMethodAllowed } from '@/lib/channelAccess'
 import { ChannelTileGrid, MethodCards, channelName } from './ChannelPicker'
 import { ZernioConnectPanel } from './ZernioConnectPanel'
 import { MarketplacePanel } from './MarketplacePanel'
@@ -263,7 +264,7 @@ export function InboxSetupDrawer({
   /** A method whose setup is not an inbox kind's: via Zernio, or a marketplace's seller service. */
   const [alt, setAlt] = useState<MethodDef | null>(null)
   const channel = channelDef(channelId)
-  const { can } = useAccess()
+  const { can, channelAccess } = useAccess()
   /** The persisted inbox (opened for edit, or created in this drawer). */
   const [saved, setSaved] = useState<Inbox | null>(target.inbox)
   const editing = saved !== null
@@ -716,12 +717,15 @@ export function InboxSetupDrawer({
   }, [])
 
   /** Why a method can't be used by this person (null = it can). */
-  const methodBlocked = (mth: MethodDef): string | null => {
+  const methodBlocked = (mth: MethodDef, ch: ChannelDef | undefined = channel): string | null => {
     if (mth.kind === 'voice' && !canKeys && !voiceConfigured) return t('channels.page.superOnly')
-    return can('channels.manage') ? null : t('channels.page.addNeedsPermission')
+    if (!can('channels.manage')) return t('channels.page.addNeedsPermission')
+    // the role's channel policy (Permissions → role → Channel access)
+    if (ch && !catalogMethodAllowed(channelAccess, ch.id, mth.id)) return t('channels.page.roleNotAllowed')
+    return null
   }
   const channelBlocked = (ch: ChannelDef): string | null => {
-    const reasons = ch.methods.map(methodBlocked)
+    const reasons = ch.methods.map((x) => methodBlocked(x, ch))
     return reasons.every((r) => r) ? reasons[0] : null
   }
 
@@ -932,7 +936,7 @@ export function InboxSetupDrawer({
   // ── step bodies ────────────────────────────────────────────────────────
   const chooseStep =
     phase === 'method' && channel ? (
-      <MethodCards channel={channel} onPick={pickMethod} disabled={methodBlocked} />
+      <MethodCards channel={channel} onPick={pickMethod} disabled={(mth) => methodBlocked(mth, channel)} />
     ) : (
       <div className="flex flex-col gap-3">
         <p className="text-[12.5px] text-text-muted">{t('channels.drawer.chooseIntro')}</p>

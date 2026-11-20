@@ -950,6 +950,10 @@ public static class VoiceMessagingEndpoints
             AppDbContext db, ScopingService sc, ClaimsPrincipal me, HttpContext ctx) =>
         {
             var channel = (body.Str("channel") ?? "").Trim().ToLowerInvariant();
+            // the role's channel policy: only channels (connected directly) the role is given
+            if (ChatBranch.Data.Channels.ChannelMethods.Find(channel) != null
+                && ShellScope.ConnectError(db, me, channel, ChatBranch.Data.Channels.ChannelMethods.Direct) is { } notAllowed)
+                return notAllowed;
             // a company admin links inboxes for their own companies only
             if (ShellScope.CompanyLevelError(db, sc, me, await InboxEndpoints.EntityId(db, body.Str("entity"))) is { } outside)
                 return outside;
@@ -1240,7 +1244,8 @@ public static class VoiceMessagingEndpoints
             Audit(db, me, ctx, "account.update", $"email:{account.Name}",
                 $"keys: {string.Join(", ", touched.OrderBy(k => k))}");
             return Results.Ok(AccountPayload(account));
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel();
 
         // ---- DELETE /api/messaging/accounts/{id} ----
         app.MapDelete("/api/messaging/accounts/{id}", async (string id, AppDbContext db,
@@ -1265,7 +1270,8 @@ public static class VoiceMessagingEndpoints
             await db.SaveChangesAsync();
             Audit(db, me, ctx, "account.delete", label, "");
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel();
 
         // ---- POST /api/messaging/accounts/{id}/test ----
         // Every channel is live: Messenger / Instagram (GET /me with the page
@@ -1293,7 +1299,8 @@ public static class VoiceMessagingEndpoints
                       "testing is not wired up in this backend yet."
                     : $"This {account.Channel} account is not fully configured yet.",
             }, statusCode: 501);
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");   // a Test talks to the provider (and can send mail)
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel();   // a Test talks to the provider (and can send mail)
 
         // ---- POST /api/messaging/accounts/{id}/set-webhook ----
         app.MapPost("/api/messaging/accounts/{id}/set-webhook", async (string id,
@@ -1317,7 +1324,8 @@ public static class VoiceMessagingEndpoints
                 }, statusCode: 400);
             // setWebhook with a secret_token; the bot token (the path secret) is never echoed back
             return await MessagingAccountTransport.SetWebhookAsync(account, body, ctx);
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel();
 
         MapEmailSettings(app);
     }

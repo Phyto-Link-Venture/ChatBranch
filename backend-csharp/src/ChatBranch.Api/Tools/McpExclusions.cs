@@ -132,6 +132,8 @@ public static class McpExclusions
 
         // ---- RBAC, keys, sessions -------------------------------------------
         new("PUT", "/api/auth/permissions", Rbac),
+        new("GET", "/api/auth/channel-access", Rbac),
+        new("PUT", "/api/auth/roles/{slug}/channels", Rbac),
         new("POST", "/api/auth/roles", Rbac),
         new("PATCH", "/api/auth/roles/{slug}", Rbac),
         new("DELETE", "/api/auth/roles/{slug}", Rbac),

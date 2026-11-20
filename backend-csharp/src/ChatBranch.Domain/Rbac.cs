@@ -146,6 +146,13 @@ public class Role
     public string Label { get; set; } = "";
     public bool IsSystem { get; set; }
     public DateTime CreatedAt { get; set; }
+    /// <summary>
+    /// Which channels — and which connection methods of each — people holding this role
+    /// may connect and use (crm_role.channel_access, JSON {channel: [method…]}).
+    /// "" = every channel and method (the default). Parsed by
+    /// ChatBranch.Data.Channels.RoleChannelPolicy; never applies to a superadmin.
+    /// </summary>
+    public string ChannelAccess { get; set; } = "";
 }
 
 public class RolePermission

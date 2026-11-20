@@ -316,6 +316,91 @@ public static class AdminEndpoints
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(RbacManage);
 
+        // ---- GET /api/auth/channel-access ---------------------------------
+        // {catalog: [{channel, label, methods: [{id, label, official}]}],
+        //  roles: {slug: null | {channel: [method…]}}} — which channels, and which
+        // connection methods of each, every role may connect and use
+        // (Role.ChannelAccess; null = every channel). Superadmin is never limited.
+        app.MapGet("/api/auth/channel-access", async (AppDbContext db) =>
+            Results.Ok(await ChannelAccessSnapshotAsync(db)))
+            .RequireAuthorization(AuthPolicies.Authenticated)
+            .RequireAnyCapability(UserReadCaps);
+
+        // ---- PUT /api/auth/roles/{slug}/channels --------------------------
+        // {channels: null | {channel: [method…]}} — null gives the role every channel
+        // again. Unknown channels / methods are a 400. Anti-escalation: below
+        // superadmin a holder of rbac.manage hands out only channels and methods their
+        // own role is given, and never touches the superadmin row (never limited).
+        app.MapPut("/api/auth/roles/{slug}/channels", async (string slug, JsonElement body,
+            ClaimsPrincipal me, AppDbContext db) =>
+        {
+            var actor = me.FindFirstValue(ClaimTypes.Role) ?? "";
+            if (!await HasCapabilityAsync(db, actor, RbacManage)) return RbacDenied();
+            if (slug == Roles.SuperAdmin) return Bad("The superadmin role always has every channel.");
+            var known = await LoadRolesAsync(db);
+            if (!BuiltinRoles.Contains(slug) && known.All(r => r.Slug != slug)) return NotFound("No such role.");
+
+            JsonElement? raw = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("channels", out var c)
+                ? c : null;
+            if (raw == null) return Bad("channels is required: null (every channel) or {channel: [method, …]}.");
+            var (stored, error) = ChatBranch.Data.Channels.RoleChannelPolicy.FromRequest(raw);
+            if (error != null) return Bad(error);
+            var next = ChatBranch.Data.Channels.RoleChannelPolicy.Parse(stored);
+
+            if (actor != Roles.SuperAdmin && ShellScope.RolePolicy(db, actor) is { } mine)
+            {
+                if (next == null)
+                    return Results.Json(new
+                    {
+                        detail = "Your own role is limited to some channels — you can't give a role every channel.",
+                    }, statusCode: 403);
+                foreach (var (ch, methods) in next.Allowed)
+                foreach (var m in methods)
+                    if (!mine.Allows(ch, m))
+                        return Results.Json(new
+                        {
+                            detail = $"You can only give channels your own role has — {ChatBranch.Data.Channels.ChannelMethods.Label(ch, m)} is not one of yours.",
+                        }, statusCode: 403);
+            }
+
+            try
+            {
+                var row = await db.Roles.FirstOrDefaultAsync(r => r.Slug == slug);
+                if (row == null)
+                {
+                    // a built-in without its row (an old store): create it to hold the policy
+                    row = new Role
+                    {
+                        Slug = slug, Label = SystemRoleLabels.GetValueOrDefault(slug, slug), IsSystem = true,
+                        CreatedAt = DateTime.UtcNow,
+                    };
+                    db.Roles.Add(row);
+                }
+                if (row.ChannelAccess != stored)
+                {
+                    row.ChannelAccess = stored!;
+                    db.AuditLogs.Add(new AuditLog
+                    {
+                        Actor = me.Identity?.Name ?? "system", Action = "role.channels", Target = slug,
+                        Detail = next == null ? "every channel"
+                            : string.Join("; ", next.Allowed.Where(kv => kv.Value.Count > 0)
+                                .Select(kv => $"{kv.Key}: {string.Join(", ", kv.Value)}")),
+                        CreatedAt = DateTime.UtcNow,
+                    });
+                    await db.SaveChangesAsync();
+                }
+            }
+            catch (Exception)
+            {
+                return Bad("Could not save the role's channels — the role store is unavailable.");
+            }
+            return Results.Ok(new
+            {
+                slug,
+                channels = ChatBranch.Data.Channels.RoleChannelPolicy.ToPayload(next),
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(RbacManage);
+
         // ---- GET /api/auth/permissions ------------------------------------
         // {catalog, roles, matrix} — the catalog, the dynamic role list, and
         // the effective matrix (stored rows overlaid on the code defaults).
@@ -813,6 +898,28 @@ public static class AdminEndpoints
             .Include(p => p.Entities)
             .FirstOrDefaultAsync(p => p.UserId == uid);
         return profile?.Entities.Select(e => e.Id).ToList() ?? new List<int>();
+    }
+
+    /// The channel catalog + every role's channel policy (GET /api/auth/channel-access).
+    internal static async Task<object> ChannelAccessSnapshotAsync(AppDbContext db)
+    {
+        var rows = await LoadRolesAsync(db);
+        var roles = new Dictionary<string, object?>();
+        foreach (var slug in OrderedRoleSlugs(rows))
+            roles[slug] = slug == Roles.SuperAdmin
+                ? null
+                : ChatBranch.Data.Channels.RoleChannelPolicy.ToPayload(
+                    ChatBranch.Data.Channels.RoleChannelPolicy.Parse(rows.FirstOrDefault(r => r.Slug == slug)?.ChannelAccess));
+        return new
+        {
+            catalog = ChatBranch.Data.Channels.ChannelMethods.Catalog.Select(c => new
+            {
+                channel = c.Channel,
+                label = c.Label,
+                methods = c.Methods.Select(m => new { id = m.Id, label = m.Label, official = m.Official }),
+            }),
+            roles,
+        };
     }
 
     // ---- helpers ----------------------------------------------------------

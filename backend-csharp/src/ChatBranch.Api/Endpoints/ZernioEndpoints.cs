@@ -286,6 +286,8 @@ public static partial class ZernioEndpoints
                 {
                     detail = $"platform must be one of {string.Join(", ", ZernioKeys.ConnectPlatforms.Append("sms").OrderBy(p => p))}.",
                 }, statusCode: 400);
+            // the role's channel policy: a managed connection of a channel the role is given
+            if (ShellScope.ConnectError(db, me, platform, Providers.Zernio) is { } notAllowed) return notAllowed;
             var (entityId, err) = await ActScope(db, sc, me, Str(body, "entity") ?? ctx.Request.Query["entity"]);
             if (err != null) return err;
             var (profileId, perr) = await accounts.EnsureProfileAsync(entityId);
@@ -414,6 +416,7 @@ public static partial class ZernioEndpoints
             ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, ZernioAccounts accounts) =>
         {
             if (!zernio.IsConfigured) return NotConfigured(zernio);
+            if (ShellScope.ConnectError(db, me, "telegram", Providers.Zernio) is { } notAllowed) return notAllowed;
             var chat = Cred(body, "chat_id").Trim();
             if (chat.Length == 0) return Results.Json(new { detail = "chat_id is required." }, statusCode: 400);
             var (entityId, err) = await ActScope(db, sc, me, Str(body, "entity"));
@@ -434,6 +437,7 @@ public static partial class ZernioEndpoints
             ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, ZernioAccounts accounts) =>
         {
             if (!zernio.IsConfigured) return NotConfigured(zernio);
+            if (ShellScope.ConnectError(db, me, "whatsapp", Providers.Zernio) is { } notAllowed) return notAllowed;
             var token = Cred(body, "access_token").Trim();
             var waba = Cred(body, "waba_id").Trim();
             var pnid = Cred(body, "phone_number_id").Trim();
@@ -474,6 +478,7 @@ public static partial class ZernioEndpoints
             ScopingService sc, ClaimsPrincipal me, IZernioClient zernio, ZernioAccounts accounts) =>
         {
             if (!zernio.IsConfigured) return NotConfigured(zernio);
+            if (ShellScope.ConnectError(db, me, "sms", Providers.Zernio) is { } notAllowed) return notAllowed;
             var numberId = Cred(body, "phone_number_id").Trim();
             if (numberId.Length == 0) return Results.Json(new { detail = "phone_number_id is required." }, statusCode: 400);
             var (entityId, err) = await ActScope(db, sc, me, Str(body, "entity"));
@@ -542,7 +547,8 @@ public static partial class ZernioEndpoints
             await db.SaveChangesAsync();
             AuditTrail.Write(db, "account.delete", label, "managed connection disconnected", entityId: row.EntityId);
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel(FindAccount);
 
         // Bind an account to an entity ({entity: slug | id}, or null / "" for the organization):
         // Zernio moves it to that entity's profile, and its conversations follow.
@@ -575,7 +581,8 @@ public static partial class ZernioEndpoints
                 $"moved {Level(from)} → {Level(target)} (connection profile {ZernioKeys.Cfg(row, ZernioKeys.ProfileIdKey)})",
                 entityId: target);
             return Results.Ok(await FullRow(db, row));
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel(FindAccount);
 
         // Which Facebook Page's Messenger conversations reach the inbox (Zernio's selectedPageId).
         app.MapPost("/api/social/accounts/{id}/pages/{pageId}/select", async (string id, string pageId,
@@ -591,7 +598,8 @@ public static partial class ZernioEndpoints
             AuditTrail.Write(db, "account.update", $"{row.Channel}:{row.Name}", $"inbox Page → {page!.Name} ({page.PageId})",
                 entityId: row.EntityId);
             return Results.Ok(await FullRow(db, row));
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel(FindAccount);
     }
 
     /// <summary>A Messenger account + one of its Pages, or the 404 (also for an account a bound caller cannot see).</summary>

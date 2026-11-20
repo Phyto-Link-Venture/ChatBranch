@@ -3,6 +3,7 @@
 import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useState } from 'react'
 import { getAuth, setAuth, userHasCap, type AuthUser, type Role } from './auth'
+import { readPolicy, type ChannelPolicy } from './channelAccess'
 
 /**
  * Hydration-safe capability gate. Like useRole(): nothing is read from
@@ -18,6 +19,8 @@ export function useAccess(): {
   role: Role
   user: AuthUser | null
   can: (cap?: string) => boolean
+  /** The role's channel policy (null = every channel). */
+  channelAccess: ChannelPolicy
 } {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [ready, setReady] = useState(false)
@@ -30,10 +33,10 @@ export function useAccess(): {
     let alive = true
     fetch(`${API}/auth/whoami`, { headers: { Authorization: `Bearer ${cached.token}` } })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { capabilities?: unknown } | null) => {
+      .then((d: { capabilities?: unknown; channel_access?: unknown } | null) => {
         if (!alive || !d || !Array.isArray(d.capabilities)) return
         const caps = d.capabilities.filter((c): c is string => typeof c === 'string')
-        const next = { ...cached, capabilities: caps }
+        const next = { ...cached, capabilities: caps, channel_access: readPolicy(d.channel_access) }
         setAuth(next)
         setUser(next)
       })
@@ -55,5 +58,6 @@ export function useAccess(): {
     [user],
   )
 
-  return { ready, role: user?.role ?? 'agent', user, can }
+  const channelAccess = user?.role === 'superadmin' ? null : (user?.channel_access ?? null)
+  return { ready, role: user?.role ?? 'agent', user, can, channelAccess }
 }

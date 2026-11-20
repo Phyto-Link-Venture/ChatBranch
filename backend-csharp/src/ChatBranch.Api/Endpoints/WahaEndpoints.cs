@@ -63,13 +63,16 @@ public static class WahaEndpoints
         app.MapPost("/api/whatsapp/accounts/waha", Create)
             .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability);
         app.MapPut("/api/whatsapp/accounts/{id:int}/waha", Update)
-            .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability);
+            .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability)
+            .RequireAccountChannel();
         app.MapPost("/api/whatsapp/accounts/{id:int}/waha/start", Start)
-            .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability);
+            .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability)
+            .RequireAccountChannel();
         app.MapGet("/api/whatsapp/accounts/{id:int}/waha/status", Status)
             .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.view");
         app.MapPost("/api/whatsapp/accounts/{id:int}/waha/logout", Logout)
-            .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability);
+            .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability)
+            .RequireAccountChannel();
     }
 
     // ---- small helpers ----------------------------------------------------------------
@@ -223,6 +226,7 @@ public static class WahaEndpoints
 
     private static async Task<IResult> Create(HttpContext ctx, AppDbContext db, ScopingService sc, ClaimsPrincipal me)
     {
+        if (ShellScope.ConnectError(db, me, Channels.WhatsApp, Providers.Waha) is { } notAllowed) return notAllowed;
         var body = await ReadBody(ctx);
         var name = (Str(body, "name") ?? "").Trim();
         if (name.Length == 0) return Bad("name is required for a WAHA number.");

@@ -47,6 +47,8 @@ public static class WidgetAdminEndpoints
         app.MapPost("/api/widgets", async (JsonElement body, AppDbContext db, ClaimsPrincipal me,
             HttpContext ctx) =>
         {
+            if (ShellScope.ConnectError(db, me, Channels.Website, ChatBranch.Data.Channels.ChannelMethods.Direct) is { } notAllowed)
+                return notAllowed;
             var name = (Str(body, "name") ?? "").Trim();
             if (name.Length == 0)
                 return Results.Json(new { detail = "name is required." }, statusCode: 400);
@@ -136,7 +138,8 @@ public static class WidgetAdminEndpoints
             // the response names the entity, so load it (only the FK moved)
             await db.Entry(row).Reference(a => a.Entity).LoadAsync();
             return Results.Ok(Payload(row, ctx, await db.Threads.CountAsync(t => t.AccountId == row.Id)));
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel();
 
         // ---- delete -----------------------------------------------------------
         app.MapDelete("/api/widgets/{id:int}", async (int id, AppDbContext db, ClaimsPrincipal me, ScopingService sc) =>
@@ -157,7 +160,8 @@ public static class WidgetAdminEndpoints
             });
             await db.SaveChangesAsync();
             return Results.Ok(new { ok = true, conversations_kept = convos });
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel();
     }
 
     // ---- helpers ------------------------------------------------------------

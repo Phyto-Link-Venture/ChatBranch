@@ -27,6 +27,7 @@ export const channels = {
     addChannel: 'Add a channel',
     addHint: 'Pick a channel — then how to connect it, then the setup.',
     addNeedsPermission: 'You need the “Manage channel accounts” permission to add inboxes.',
+    roleNotAllowed: 'Your role isn’t given this channel or connection method — ask an admin.',
     addAnother: 'Add another inbox',
     managedFailed: 'Couldn\'t load the managed connections: {reason}',
     qrWarning: "Unofficial — breaks WhatsApp's terms. Use a spare number.",

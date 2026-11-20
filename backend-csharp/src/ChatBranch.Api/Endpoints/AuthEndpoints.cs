@@ -160,6 +160,9 @@ public static class AuthEndpoints
                 // "" | change_password | enroll_2fa — the dashboard shows the account-setup screen until ""
                 restriction = SessionGate.RestrictionOf(ctx),
                 two_factor = int.TryParse(me.FindFirstValue("user_id"), out var uid) && TwoFactorService.IsEnrolled(db, uid),
+                // the role's channel policy: null = every channel; else {channel: [method…]} —
+                // the Channels page offers only these (the server enforces it either way)
+                channel_access = ChatBranch.Data.Channels.RoleChannelPolicy.ToPayload(ShellScope.RolePolicy(db, role)),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 

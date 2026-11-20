@@ -115,6 +115,17 @@ export const admin: Dict<typeof source> = {
       addHint: '系统会根据名称生成一个 URL 安全的标识（slug）。自定义角色在分配时按客服级别处理。',
       renameHint: '只会更改显示名称。',
     },
+    channels: {
+      title: '渠道权限',
+      hint: '拥有“{role}”角色的人可以连接和使用哪些渠道，以及每个渠道的哪些连接方式。他们只能看到这些渠道上的对话。',
+      every: '所有渠道',
+      only: '仅限以下渠道',
+      none: '请至少勾选一个渠道，或选择“所有渠道”。',
+      officialOnly: '仅官方',
+      unofficial: '非官方',
+      save: '保存渠道权限',
+      saved: '渠道权限已保存。',
+    },
     grid: {
       roles: '角色',
       hint: '按资源领域为此角色授予权限',

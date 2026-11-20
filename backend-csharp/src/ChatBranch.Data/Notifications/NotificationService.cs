@@ -171,8 +171,26 @@ public static class NotificationService
 
             var now = DateTime.UtcNow;
             var written = 0;
+            // the role's channel policy (Role.ChannelAccess): a role not given this
+            // conversation's channel / connection method never hears about it
+            var policies = new Dictionary<string, Channels.RoleChannelPolicy?>();
+            string? threadMethod = null;
+            if (opts.Thread is { AccountId: int policyAccount })
+                threadMethod = await db.ChannelAccounts.AsNoTracking().Where(a => a.Id == policyAccount)
+                    .Select(a => a.Provider).FirstOrDefaultAsync(ct) is string prov
+                    ? Channels.ChannelMethods.Of(opts.Thread.Channel, prov) : null;
             foreach (var r in recipients)
             {
+                if (opts.Thread != null && r.Role is not ("" or Roles.SuperAdmin))
+                {
+                    if (!policies.TryGetValue(r.Role, out var policy))
+                        policies[r.Role] = policy = Channels.RoleChannelPolicy.Parse(await db.Roles.AsNoTracking()
+                            .Where(x => x.Slug == r.Role).Select(x => x.ChannelAccess).FirstOrDefaultAsync(ct));
+                    if (policy != null && !(threadMethod != null
+                            ? policy.Allows(opts.Thread.Channel, threadMethod)
+                            : policy.AllowsChannel(opts.Thread.Channel)))
+                        continue;
+                }
                 var prefs = UserNotificationPrefs.FromProfileJson(r.Preferences);
                 if (!prefs.Enabled(category)) continue;
                 // someone limited to some channels never hears about a conversation on another
@@ -278,7 +296,8 @@ public static class NotificationService
 
     // ---- internals ------------------------------------------------------------
 
-    private sealed record Recipient(int UserId, string Username, string? Preferences, List<int>? Channels = null);
+    private sealed record Recipient(int UserId, string Username, string? Preferences, List<int>? Channels = null,
+        string Role = "");
 
     private static async Task<List<Recipient>> RecipientsAsync(AppDbContext db,
         NotificationAudience audience, CancellationToken ct)
@@ -295,7 +314,7 @@ public static class NotificationService
                     Channels = u.Profile != null ? u.Profile.ChannelAccountIds : null })
                 .ToListAsync(ct);
             foreach (var u in rows)
-                byId[u.Id] = new Recipient(u.Id, u.Username, u.Prefs, u.Role == Roles.SuperAdmin ? null : u.Channels);
+                byId[u.Id] = new Recipient(u.Id, u.Username, u.Prefs, u.Role == Roles.SuperAdmin ? null : u.Channels, u.Role);
         }
 
         if (audience.RoleSlugs.Count > 0)
@@ -316,7 +335,7 @@ public static class NotificationService
                     && (audience.EntityId is not int about || !sc.EntitySubtreeIds(p.Entities).Contains(about)))
                     continue;
                 byId[p.UserId] = new Recipient(p.UserId, p.Username, p.Preferences,
-                    p.Role == Roles.SuperAdmin ? null : p.ChannelAccountIds);
+                    p.Role == Roles.SuperAdmin ? null : p.ChannelAccountIds, p.Role);
             }
         }
 

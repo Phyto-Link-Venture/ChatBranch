@@ -58,6 +58,6 @@ public static class ThreadAccessFilter
     /// </summary>
     public static bool InScope(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
         ChatBranch.Domain.Thread thread) =>
-        ShellScope.ThreadVisible(thread.EntityId, thread.AccountId,
-            ShellScope.ThreadEntityIds(db, sc, me, null), ShellScope.ChannelAccountIds(db, me));
+        ShellScope.ThreadVisible(thread.EntityId, thread.Channel, thread.AccountId,
+            ShellScope.ThreadEntityIds(db, sc, me, null), ShellScope.Access(db, me));
 }

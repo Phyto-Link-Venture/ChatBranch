@@ -393,6 +393,11 @@ public static partial class ZernioEndpoints
             if (err != null) return err;
             var wantsSms = BoolOf(body, "wants_sms", false);
             var connectWhatsapp = BoolOf(body, "connect_whatsapp", true);
+            // the role's channel policy: the number becomes a managed WhatsApp (and maybe SMS) inbox
+            if (connectWhatsapp && ShellScope.ConnectError(db, me, "whatsapp", Providers.Zernio) is { } waNotAllowed)
+                return waNotAllowed;
+            if (wantsSms && ShellScope.ConnectError(db, me, "sms", Providers.Zernio) is { } smsNotAllowed)
+                return smsNotAllowed;
             var areaCode = (Str(body, "area_code") ?? "").Trim();
             var exact = (Str(body, "phone_number") ?? "").Trim();
 

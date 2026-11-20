@@ -511,7 +511,7 @@ Admins keep the tenant-wide view. Tests: `QaScopeFixesTests`.
 | `/api/settings?keys=` (raw key/value store, secrets masked; a bound person who is not a company admin is refused) | `settings.raw.view` | no page — API callers |
 | `/api/settings/security` (the two-step sign-in policy + enrollment counts; organization-level — a bound person is refused) | `security.manage` | Settings → Security |
 | `/api/settings/system-email` (the sign-in emails' SMTP mailbox, password masked; organization-level — a bound person is refused) | `app_keys.manage` | Settings → System email |
-| `/api/auth/roles`, `/api/auth/permissions` | `users.view`, `users.manage`, `rbac.manage` | Permissions, Users |
+| `/api/auth/roles`, `/api/auth/permissions`, `/api/auth/channel-access` | `users.view`, `users.manage`, `rbac.manage` | Permissions, Users |
 | `/api/auth/audit` (the legacy Users-page feed) | `users.view`, `users.manage` | API callers |
 | `/api/testlab/scenarios`, `/status`, `/runs`, `/runs/{id}` | `testlab.run` | Test lab |
 | `/api/analytics/usage` (the cost ledger), `/api/billing/ai/settings` | `billing.manage` | Analytics → AI usage, Settings → AI billing |
@@ -540,6 +540,38 @@ token, no data), `/api/developers/keys` (own keys; `?scope=tenant` needs
 PUBLIC key a browser subscribes with) and `/api/push/devices` (your own
 devices — another login's are never listed, and a delete of one answers 404).
 The anonymous GETs are the documented list in `API_CONVENTIONS.md`.
+
+## Role channel access
+
+A role can be limited to some channels — and some connection methods of each —
+on Permissions → a role → **Channel access** (`Role.ChannelAccess`,
+`crm_role.channel_access`, JSON `{channel: [method…]}`; `""` = every channel, the
+default). Methods: WhatsApp's providers (`cloud`, `ycloud`, `twilio`, `zernio` —
+official; `baileys`, `waha` — unofficial); every other channel `direct` (its own
+credentials) or `zernio` (a managed connection). The vocabulary is ONE place,
+`Data/Channels/ChannelMethods.cs` — ask `ChannelMethods.Of(account)`, never the
+`Provider` column of a non-WhatsApp account (it keeps the historical `cloud`).
+
+* **Use** — `ShellScope.Access(db, me)` returns the caller's `ChannelAccess`: the
+  role's policy (HARD — a conversation on an account of a channel / method the role
+  isn't given is never theirs, unattributed or not; an account-less one only on a
+  channel the role has) combined with the person's own allow-list
+  (`Profile.ChannelAccountIds`, SOFT as before). Every conversation rule
+  (`ThreadVisible`, `ScopeThreads`, `VisibleThreads`, `ThreadAccessFilter.InScope`,
+  `ThreadResolver`) and every account picker / send check (`AccountAllowed`,
+  `ChannelAccountIds`) reads it; notifications skip recipients whose role lacks the
+  conversation's channel / method.
+* **Connect** — `ShellScope.ConnectError` (403 `channel_not_allowed`) in every
+  create (`POST /api/whatsapp/accounts`, `…/waha`, `/api/messaging/accounts`,
+  `/api/widgets`, `/api/social/connect*`, number purchase) and a WhatsApp provider
+  switch; `.RequireAccountChannel()` on every route naming an existing account
+  (edit, test, pair, webhook, delete).
+* **API** — `GET /api/auth/channel-access` (catalog + every role's policy; the
+  Users/Permissions read caps) and `PUT /api/auth/roles/{slug}/channels
+  {channels: null | {…}}` (`rbac.manage`; superadmin's row refused — never limited;
+  below superadmin only channels / methods the editor's own role has, and never
+  `null` when their own role is limited). `whoami.channel_access` lets the Channels
+  page grey out what the role can't add. Tests `RoleChannelAccessTests`.
 
 ## API keys and scopes
 

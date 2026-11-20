@@ -254,7 +254,7 @@ public static class InboxThreadsEndpoints
     internal sealed record EntityScope(List<int>? Ids, int? Picked)
     {
         /// <summary>The caller's channel allow-list (null = every channel in scope).</summary>
-        public List<int>? Accounts { get; init; }
+        public ShellScope.ChannelAccess Accounts { get; init; } = ShellScope.ChannelAccess.None;
     }
 
     internal static async Task<EntityScope> ScopeEntityIdsAsync(AppDbContext db, ScopingService sc,
@@ -279,7 +279,7 @@ public static class InboxThreadsEndpoints
                 if (picked.Count == 0) picked = assigned;
             }
         }
-        var accounts = ShellScope.ChannelAccountIds(db, me);
+        var accounts = ShellScope.Access(db, me);
         if (picked.Count == 0) return new EntityScope(null, null) { Accounts = accounts };
         return new EntityScope(sc.EntitySubtreeIds(picked), picked.Count == 1 ? picked[0] : null)
             { Accounts = accounts };

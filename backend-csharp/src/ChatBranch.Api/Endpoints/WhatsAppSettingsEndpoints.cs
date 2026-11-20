@@ -600,6 +600,8 @@ public static class WhatsAppSettingsEndpoints
                     detail = "A managed WhatsApp connection is made with POST /api/social/connect {platform: \"whatsapp\"}.",
                 }, statusCode: 400);
             if (!WhatsAppProviders.Known(provider)) provider = Providers.Cloud;
+            // the role's channel policy (e.g. "official WhatsApp only")
+            if (ShellScope.ConnectError(db, me, Channels.WhatsApp, provider) is { } notAllowed) return notAllowed;
             var name = (AsString(body, "name") ?? "").Trim();
             var pnid = (AsString(body, "phone_number_id") ?? "").Trim();
             var token = (AsString(body, "access_token") ?? "").Trim();
@@ -702,6 +704,10 @@ public static class WhatsAppSettingsEndpoints
             var body = await ReadBody(ctx);
             if (RoleError(body) is IResult roleErr) return roleErr;
             if (ShellScope.CompanyLevelError(db, sc, me, row.EntityId) is { } outside) return outside;
+            // switching the number to another provider: the role must be given that one too
+            if (TryString(body, "provider", out var newProvider) && WhatsAppProviders.Known(newProvider)
+                && ShellScope.ConnectError(db, me, Channels.WhatsApp, newProvider.Trim().ToLowerInvariant()) is { } notAllowed)
+                return notAllowed;
             // a managed connection: its credentials (and its outlet — its profile) are not edited here
             if (ChatBranch.Data.Zernio.ZernioNative.Is(row)
                 && new[] { "phone_number_id", "waba_id", "access_token", "app_secret", "api_version", "provider", "entity",
@@ -840,7 +846,8 @@ public static class WhatsAppSettingsEndpoints
             var saved = await db.ChannelAccounts.AsNoTracking().Include(a => a.Entity)
                 .FirstAsync(a => a.Id == row.Id);
             return Results.Ok(AccountPayload(saved));
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel();
 
         app.MapDelete("/api/whatsapp/accounts/{id:int}", async (int id, HttpContext ctx,
             AppDbContext db, ClaimsPrincipal me) =>
@@ -872,7 +879,8 @@ public static class WhatsAppSettingsEndpoints
 
             await Audit(db, ctx, me, "account.delete", $"whatsapp:{id}");
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel();
 
         // Credential check (views.test_account): a Cloud number is proven by
         // fetching its profile off Graph (GET /{phone_number_id}); the result
@@ -955,7 +963,8 @@ public static class WhatsAppSettingsEndpoints
                     : $"Couldn't check the credentials — {r.Detail}. Try again in a moment.",
                 health_status = row.HealthStatus,
             }, statusCode: r.ErrorCode != null ? 400 : 502);
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");   // a Test talks to the provider (and can send mail)
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel();   // a Test talks to the provider (and can send mail)
 
         // ---- Baileys pairing control (proxied to the Node gateway) ---------
         // Baileys is a supported channel: start/status/logout drive the sidecar
@@ -1000,7 +1009,8 @@ public static class WhatsAppSettingsEndpoints
             await Audit(db, ctx, me, "account.baileys_start", $"whatsapp:{id}",
                 pairPhone.Length > 0 ? $"{st.State} (by phone number)" : st.State);
             return Results.Ok(BaileysStatePayload(st));
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel();
 
         app.MapGet("/api/whatsapp/accounts/{id:int}/baileys/status", async (int id, AppDbContext db,
             ChatBranch.Data.Sidecars.IBaileysGateway gw) =>
@@ -1023,7 +1033,8 @@ public static class WhatsAppSettingsEndpoints
             var st = await gw.LogoutAsync(key);
             await Audit(db, ctx, me, "account.baileys_logout", $"whatsapp:{id}", st.State);
             return Results.Ok(BaileysStatePayload(st));
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage")
+            .RequireAccountChannel();
 
         // ---- Baileys on-demand history (proxied to the Node gateway) -------
         // WhatsApp's replay on pair is SHALLOW: it sends the chat list and a message or
@@ -1099,7 +1110,8 @@ public static class WhatsAppSettingsEndpoints
                 return Results.Json(new { detail = WhatsAppHistoryFetch.Reason(run.Error) },
                     statusCode: run.Conflict ? 409 : 502);
             return Results.Ok(WhatsAppHistoryFetch.Payload(run));
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(WhatsAppHistoryFetch.Capability);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(WhatsAppHistoryFetch.Capability)
+            .RequireAccountChannel();
 
         app.MapPost("/api/whatsapp/accounts/{id:int}/baileys/history-fetch/stop", async (int id, HttpContext ctx,
             AppDbContext db, ClaimsPrincipal me, ChatBranch.Data.Sidecars.IBaileysGateway gw) =>
@@ -1118,7 +1130,8 @@ public static class WhatsAppSettingsEndpoints
                 return Results.Json(new { detail = WhatsAppHistoryFetch.Reason(run.Error) },
                     statusCode: run.Conflict ? 409 : 502);
             return Results.Ok(WhatsAppHistoryFetch.Payload(run));
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(WhatsAppHistoryFetch.Capability);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(WhatsAppHistoryFetch.Capability)
+            .RequireAccountChannel();
 
         // ---- template authoring --------------------------------------------
         // A live WABA (configured Cloud account with a waba_id) writes to Meta's

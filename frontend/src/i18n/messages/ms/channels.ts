@@ -27,6 +27,7 @@ export const channels: Dict<typeof source> = {
     addChannel: 'Tambah saluran',
     addHint: 'Pilih saluran — kemudian cara menyambungnya, kemudian persediaan.',
     addNeedsPermission: 'Anda memerlukan kebenaran “Urus akaun saluran” untuk menambah peti masuk.',
+    roleNotAllowed: 'Peranan anda tidak diberi saluran atau kaedah sambungan ini — minta pentadbir.',
     addAnother: 'Tambah peti masuk lain',
     managedFailed: 'Tidak dapat memuatkan sambungan terurus: {reason}',
     qrWarning: 'Tidak rasmi — melanggar terma WhatsApp. Gunakan nombor simpanan.',

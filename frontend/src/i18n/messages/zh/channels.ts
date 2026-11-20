@@ -26,6 +26,7 @@ export const channels: Dict<typeof source> = {
     addChannel: '添加渠道',
     addHint: '先选渠道，再选连接方式，然后完成设置。',
     addNeedsPermission: '你需要“管理渠道账号”权限才能添加收件箱。',
+    roleNotAllowed: '你的角色没有此渠道或连接方式的权限——请联系管理员。',
     addAnother: '再添加一个收件箱',
     managedFailed: '无法加载托管连接：{reason}',
     qrWarning: '非官方方式——违反 WhatsApp 条款。请使用备用号码。',

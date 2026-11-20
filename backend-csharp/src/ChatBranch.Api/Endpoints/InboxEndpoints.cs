@@ -124,8 +124,9 @@ public static class InboxEndpoints
             var rows = store.ListThreads(channel, entityId, status,
                                          limit is int n && n > 0 ? n : 100);
             // the channel allow-list narrows further (unattributed conversations stay visible)
-            if (ShellScope.ChannelAccountIds(db, me) is List<int> mine)
-                rows = rows.Where(t => ShellScope.ThreadVisible(t.EntityId, t.AccountId, null, mine)).ToList();
+            var access = ShellScope.Access(db, me);
+            if (access.Limited)
+                rows = rows.Where(t => ShellScope.ThreadVisible(t.EntityId, t.Channel, t.AccountId, null, access)).ToList();
             return Results.Ok(new { threads = await ThreadSummaries(db, sc, rows, entityId) });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.view");
 

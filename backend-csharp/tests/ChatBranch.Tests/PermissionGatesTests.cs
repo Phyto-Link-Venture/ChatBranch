@@ -193,6 +193,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/v1/brands", new[] { "entities.view" }),
         ("/api/auth/roles", new[] { "users.view", "users.manage", "rbac.manage" }),
         ("/api/auth/permissions", new[] { "users.view", "users.manage", "rbac.manage" }),
+        ("/api/auth/channel-access", new[] { "users.view", "users.manage", "rbac.manage" }),
         // Channels + assignment
         ("/api/whatsapp/accounts", new[] { "chats.view", "channels.view", "templates.manage" }),
         ("/api/whatsapp/accounts/999999/baileys/status", new[] { "channels.view" }),

@@ -244,8 +244,8 @@ public static class WhatsAppMediaEndpoints
         Thread thread)
     {
         if (!await ShellScope.HasCapAsync(db, me, "chats.view")) return false;
-        return ShellScope.ThreadVisible(thread.EntityId, thread.AccountId,
-            ShellScope.ThreadEntityIds(db, sc, me, null), ShellScope.ChannelAccountIds(db, me));
+        return ShellScope.ThreadVisible(thread.EntityId, thread.Channel, thread.AccountId,
+            ShellScope.ThreadEntityIds(db, sc, me, null), ShellScope.Access(db, me));
     }
 
     /// <summary>A recorded call the caller may see: placed for one of their entities

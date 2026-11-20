@@ -57,6 +57,8 @@ public class PermissionMatrixTests : IClassFixture<ApiFactory>
         new("DELETE", "/api/auth/roles/no-such-role", G("rbac.manage"), NotAdmins: true),
         new("GET", "/api/auth/permissions", G("users.view", "users.manage", "rbac.manage")),
         new("PUT", "/api/auth/permissions", G("rbac.manage"), new { matrix = new { } }, NotAdmins: true),
+        new("GET", "/api/auth/channel-access", G("users.view", "users.manage", "rbac.manage")),
+        new("PUT", "/api/auth/roles/no-such-role/channels", G("rbac.manage"), new { channels = (object?)null }, NotAdmins: true),
         new("GET", "/api/auth/audit", G("users.view", "users.manage")),
         // entities, contacts, record sync
         new("POST", "/api/v1/brands", G("entities.manage"), new { name = "Main", slug = "main" }),

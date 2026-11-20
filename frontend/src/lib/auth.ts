@@ -16,6 +16,7 @@
  * role→capability default that mirrors the server seed.
  */
 import { API } from '@/lib/apiBase'
+import { readPolicy, type ChannelPolicy } from '@/lib/channelAccess'
 import { clearAssistantCache } from './assistantCache'
 import { clearPlaygroundCache } from './playgroundCache'
 import type { MessageKey, TFunction } from '@/i18n'
@@ -37,6 +38,8 @@ export interface AuthUser {
   capabilities?: string[]
   /** Set while the account-setup screen must come first (see SessionRestriction). */
   restriction?: SessionRestriction
+  /** The role's channel policy (lib/channelAccess): null / absent = every channel. */
+  channel_access?: ChannelPolicy
 }
 
 /** A refused sign-in: `code` is the server's stable reason (invalid_credentials,
@@ -335,19 +338,30 @@ const asRestriction = (v: unknown): SessionRestriction =>
 
 async function fetchIdentity(
   token: string,
-): Promise<{ capabilities?: string[]; name?: string; restriction?: SessionRestriction }> {
+): Promise<{ capabilities?: string[]; name?: string; restriction?: SessionRestriction; channelAccess?: ChannelPolicy }> {
   for (const path of ['auth/whoami', 'v1/whoami']) {
     try {
       const res = await fetch(`${API}/${path}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) continue
-      const data = (await res.json().catch(() => ({}))) as { capabilities?: unknown; name?: unknown; restriction?: unknown }
+      const data = (await res.json().catch(() => ({}))) as {
+        capabilities?: unknown
+        name?: unknown
+        restriction?: unknown
+        channel_access?: unknown
+      }
       const caps = Array.isArray(data.capabilities)
         ? data.capabilities.filter((c): c is string => typeof c === 'string')
         : undefined
       const name = typeof data.name === 'string' && data.name ? data.name : undefined
-      if (caps) return { capabilities: caps, name, restriction: asRestriction(data.restriction) }
+      if (caps)
+        return {
+          capabilities: caps,
+          name,
+          restriction: asRestriction(data.restriction),
+          channelAccess: readPolicy(data.channel_access),
+        }
     } catch {
       /* try the next endpoint */
     }
@@ -416,6 +430,7 @@ async function completeLogin(data: SessionAnswer): Promise<AuthUser> {
     undefined
   const ident = await fetchIdentity(user.token)
   user.capabilities = inline || ident.capabilities
+  user.channel_access = ident.channelAccess ?? null
   if (ident.restriction !== undefined) user.restriction = ident.restriction
   // a fresh sign-in starts with no assistant cache — whoever used this browser
   // before, their chat stays on the server under their own login — and no

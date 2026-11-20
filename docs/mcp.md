@@ -728,6 +728,8 @@ conversation route.
 | `POST /api/whatsapp/accounts/{id:int}/waha/logout` | pairing a personal WhatsApp number: needs a person at the phone, scanning a QR or typing a pairing code |
 | `GET /api/whatsapp/accounts/{id:int}/waha/status` | pairing a personal WhatsApp number: needs a person at the phone, scanning a QR or typing a pairing code (the status carries the pairing QR / code) |
 | `PUT /api/auth/permissions` | RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one |
+| `GET /api/auth/channel-access` | RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one |
+| `PUT /api/auth/roles/{slug}/channels` | RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one |
 | `POST /api/auth/roles` | RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one |
 | `PATCH /api/auth/roles/{slug}` | RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one |
 | `DELETE /api/auth/roles/{slug}` | RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one |

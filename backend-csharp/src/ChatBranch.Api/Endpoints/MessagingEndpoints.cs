@@ -247,8 +247,8 @@ public static class MessagingEndpoints
     private static Func<Thread, bool> ThreadFilter(AppDbContext db, ScopingService sc, ClaimsPrincipal me)
     {
         var ids = ShellScope.ThreadEntityIds(db, sc, me, null);
-        var accounts = ShellScope.ChannelAccountIds(db, me);
-        return t => ShellScope.ThreadVisible(t.EntityId, t.AccountId, ids, accounts);
+        var access = ShellScope.Access(db, me);
+        return t => ShellScope.ThreadVisible(t.EntityId, t.Channel, t.AccountId, ids, access);
     }
 
     private static Task<bool> ContactVisibleAsync(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int id) =>

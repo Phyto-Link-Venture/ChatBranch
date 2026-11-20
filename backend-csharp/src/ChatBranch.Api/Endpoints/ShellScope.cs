@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using ChatBranch.Data;
+using ChatBranch.Data.Channels;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 using Thread = ChatBranch.Domain.Thread;
@@ -236,64 +237,196 @@ internal static class ShellScope
             ? qs
             : qs.Where(t => t.EntityId == null || (t.EntityId != null && entityIds.Contains(t.EntityId.Value)));
 
-    // ---- channel allow-list ---------------------------------------------------
+    // ---- channel access ---------------------------------------------------------
     //
-    // A person may be limited to some channel accounts (Profile.ChannelAccountIds).
-    // It narrows the conversation rule only, on top of the entity scope:
-    //   * an unattributed conversation (no entity) stays everybody's;
-    //   * a conversation inside their entity scope is theirs only when it runs on
-    //     one of their accounts, or on no account yet (nothing to filter on);
-    //   * an empty list = no channel narrowing (the default); superadmin never.
+    // Two limits narrow the conversation rule, on top of the entity scope:
+    //
+    // * the ROLE's channel policy (Role.ChannelAccess — channels and connection
+    //   methods, e.g. "SMS" or "WhatsApp, official numbers only"). HARD: a
+    //   conversation on an account whose channel + method the role is not given is
+    //   never theirs — unattributed or not — and an account-less conversation is
+    //   theirs only on a channel the role has;
+    // * the PERSON's allow-list (Profile.ChannelAccountIds). SOFT, as it always was:
+    //   an unattributed conversation (no entity) stays everybody's; inside their
+    //   entity scope it is theirs only on one of their accounts, or on no account yet.
+    //
+    // Superadmin is never limited by either. No policy + no list = no narrowing.
 
-    /// <summary>The caller's channel allow-list, or null for "every channel in scope".</summary>
-    internal static List<int>? ChannelAccountIds(AppDbContext db, ClaimsPrincipal me)
+    /// <summary>The caller's channel limits (see the block above).</summary>
+    internal sealed class ChannelAccess
     {
-        if (RoleOf(me) == Roles.SuperAdmin) return null;
-        var name = me.Identity?.Name;
-        if (string.IsNullOrWhiteSpace(name)) return null;
-        var ids = db.Profiles.AsNoTracking()
-            .Where(p => p.User != null && p.User.Username == name)
-            .Select(p => p.ChannelAccountIds)
-            .FirstOrDefault();
-        return ids is { Count: > 0 } ? ids : null;
+        public static readonly ChannelAccess None = new(null, null, null);
+
+        /// <summary>The role's policy, or null = every channel.</summary>
+        public RoleChannelPolicy? Policy { get; }
+        /// <summary>Accounts the role's policy allows (null = no policy).</summary>
+        public List<int>? RoleAccounts { get; }
+        /// <summary>The person's own allow-list (null = none set).</summary>
+        public List<int>? UserAccounts { get; }
+
+        public ChannelAccess(RoleChannelPolicy? policy, List<int>? roleAccounts, List<int>? userAccounts)
+        {
+            Policy = policy;
+            RoleAccounts = roleAccounts;
+            UserAccounts = userAccounts;
+        }
+
+        public bool Limited => RoleAccounts != null || UserAccounts != null;
+
+        /// <summary>The accounts the caller may pick / send on / list: both limits
+        /// applied (null = any; an empty list = none).</summary>
+        public List<int>? Accounts =>
+            RoleAccounts == null ? UserAccounts
+            : UserAccounts == null ? RoleAccounts
+            : RoleAccounts.Intersect(UserAccounts).ToList();
+
+        public bool AccountOk(int? accountId) =>
+            accountId is not int id || Accounts is not List<int> ok || ok.Contains(id);
+
+        /// <summary>The channel half of the conversation rule (the entity half is apart).</summary>
+        public bool ThreadOk(int? entityId, string? channel, int? accountId)
+        {
+            if (Policy != null)
+            {
+                if (accountId is int a ? !RoleAccounts!.Contains(a) : !Policy.AllowsChannel(channel))
+                    return false;
+            }
+            return UserAccounts == null || entityId == null || accountId == null
+                   || UserAccounts.Contains(accountId.Value);
+        }
     }
 
-    /// <summary>The conversation rule in memory: entity scope + channel allow-list
-    /// (null lists = no narrowing; an unattributed conversation is always visible).</summary>
-    internal static bool ThreadVisible(int? entityId, int? accountId, List<int>? entityIds, List<int>? accountIds) =>
-        entityId == null
-        || ((entityIds == null || entityIds.Contains(entityId.Value))
-            && (accountIds == null || accountId == null || accountIds.Contains(accountId.Value)));
+    /// <summary>The role's channel policy (null = every channel; superadmin always null).</summary>
+    internal static RoleChannelPolicy? RolePolicy(AppDbContext db, string role)
+    {
+        if (role is "" or Roles.SuperAdmin) return null;
+        try
+        {
+            return RoleChannelPolicy.Parse(db.Roles.AsNoTracking()
+                .Where(r => r.Slug == role).Select(r => r.ChannelAccess).FirstOrDefault());
+        }
+        catch (Exception)
+        {
+            return null;   // an un-upgraded role store must not lock anyone out
+        }
+    }
+
+    /// <summary>The caller's channel limits — the role's policy and their own allow-list.</summary>
+    internal static ChannelAccess Access(AppDbContext db, ClaimsPrincipal me)
+    {
+        if (me.Identity?.IsAuthenticated != true) return ChannelAccess.None;
+        var role = RoleOf(me);
+        if (role == Roles.SuperAdmin) return ChannelAccess.None;
+        List<int>? user = null;
+        var name = me.Identity?.Name;
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            var ids = db.Profiles.AsNoTracking()
+                .Where(p => p.User != null && p.User.Username == name)
+                .Select(p => p.ChannelAccountIds)
+                .FirstOrDefault();
+            if (ids is { Count: > 0 }) user = ids;
+        }
+        var policy = RolePolicy(db, role);
+        List<int>? roleAccounts = null;
+        if (policy != null)
+            roleAccounts = db.ChannelAccounts.AsNoTracking()
+                .Select(a => new { a.Id, a.Channel, a.Provider }).ToList()
+                .Where(a => policy.Allows(a.Channel, ChannelMethods.Of(a.Channel, a.Provider)))
+                .Select(a => a.Id).ToList();
+        return new ChannelAccess(policy, roleAccounts, user);
+    }
+
+    /// <summary>The accounts the caller may use, or null for "every channel in scope"
+    /// (an empty list = none: their role is given no account that exists).</summary>
+    internal static List<int>? ChannelAccountIds(AppDbContext db, ClaimsPrincipal me) => Access(db, me).Accounts;
+
+    /// <summary>The conversation rule in memory: entity scope + channel access
+    /// (null entity list = no entity narrowing).</summary>
+    internal static bool ThreadVisible(int? entityId, string? channel, int? accountId, List<int>? entityIds,
+        ChannelAccess access) =>
+        (entityId == null || entityIds == null || entityIds.Contains(entityId.Value))
+        && access.ThreadOk(entityId, channel, accountId);
 
     /// <summary>The conversation rule as a query (see <see cref="ThreadVisible"/>).</summary>
     internal static IQueryable<Thread> ScopeThreads(IQueryable<Thread> qs, List<int>? entityIds,
-        List<int>? accountIds)
+        ChannelAccess access)
     {
-        if (accountIds == null) return ScopeThreads(qs, entityIds);
-        return entityIds == null
-            ? qs.Where(t => t.EntityId == null || t.AccountId == null || accountIds.Contains(t.AccountId.Value))
-            : qs.Where(t => t.EntityId == null
-                            || (entityIds.Contains(t.EntityId.Value)
-                                && (t.AccountId == null || accountIds.Contains(t.AccountId.Value))));
+        qs = ScopeThreads(qs, entityIds);
+        if (access.Policy != null)
+        {
+            var roleAccounts = access.RoleAccounts!;
+            var roleChannels = access.Policy.Channels;
+            qs = qs.Where(t => t.AccountId != null
+                ? roleAccounts.Contains(t.AccountId.Value)
+                : roleChannels.Contains(t.Channel));
+        }
+        if (access.UserAccounts is List<int> mine)
+            qs = qs.Where(t => t.EntityId == null || t.AccountId == null || mine.Contains(t.AccountId.Value));
+        return qs;
     }
 
     /// <summary>The conversations the caller may see (entity scope, optionally narrowed to
-    /// <paramref name="pickedEntityId"/>, plus their channel allow-list).</summary>
+    /// <paramref name="pickedEntityId"/>, plus their channel access).</summary>
     internal static IQueryable<Thread> VisibleThreads(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
         IQueryable<Thread> qs, int? pickedEntityId = null) =>
-        ScopeThreads(qs, ThreadEntityIds(db, sc, me, pickedEntityId), ChannelAccountIds(db, me));
+        ScopeThreads(qs, ThreadEntityIds(db, sc, me, pickedEntityId), Access(db, me));
 
     /// <summary>May the caller use this channel account (send on it, pick it, move a chat to it)?
-    /// True when they have no allow-list or it lists the account. Entity scope is checked apart.</summary>
+    /// True when neither their role nor their allow-list rules it out. Entity scope is checked apart.</summary>
     internal static bool AccountAllowed(AppDbContext db, ClaimsPrincipal me, int? accountId) =>
-        accountId is not int id || ChannelAccountIds(db, me) is not List<int> mine || mine.Contains(id);
+        accountId is not int || Access(db, me).AccountOk(accountId);
 
-    /// <summary>The 403 for a named account outside the caller's channel allow-list (null = fine).</summary>
+    /// <summary>The 403 for a named account outside the caller's channel access (null = fine).</summary>
     internal static IResult? AccountNotAllowed(AppDbContext db, ClaimsPrincipal me, int? accountId) =>
         AccountAllowed(db, me, accountId)
             ? null
             : Results.Json(new { detail = "That channel isn't one of yours — ask a manager for access." },
                 statusCode: StatusCodes.Status403Forbidden);
+
+    /// <summary>
+    /// The CONNECT half of the role's channel policy: may the caller add (or edit) an
+    /// account of this channel through this connection method? null = fine, else a 403
+    /// naming what their role is given. Superadmin and roles with no policy always pass.
+    /// </summary>
+    internal static IResult? ConnectError(AppDbContext db, ClaimsPrincipal me, string? channel, string method)
+    {
+        var policy = RolePolicy(db, RoleOf(me));
+        var ch = (channel ?? "").Trim().ToLowerInvariant();
+        if (policy == null || policy.Allows(ch, method)) return null;
+        var detail = policy.AllowsChannel(ch)
+            ? $"Your role can't connect {ChannelMethods.Label(ch, method)} — ask an admin to allow that connection method."
+            : $"Your role can't use {ChannelMethods.Find(ch)?.Label ?? ch} — ask an admin for access to this channel.";
+        return Results.Json(new { detail, code = "channel_not_allowed" }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    /// <summary><see cref="ConnectError"/> for an existing account (edit, re-pair, delete).</summary>
+    internal static IResult? ConnectError(AppDbContext db, ClaimsPrincipal me, ChannelAccount account) =>
+        ConnectError(db, me, account.Channel, ChannelMethods.Of(account));
+
+    /// <summary>
+    /// Route filter for a route naming an existing channel account by <c>{id}</c> (edit,
+    /// test, pair, re-register, delete): an account whose channel / connection method the
+    /// caller's role is not given is refused with <see cref="ConnectError"/>. A missing
+    /// account falls through to the handler's own 404. <paramref name="find"/> overrides
+    /// the default lookup (a numeric primary key).
+    /// </summary>
+    internal static TBuilder RequireAccountChannel<TBuilder>(this TBuilder builder,
+        Func<AppDbContext, string, Task<ChannelAccount?>>? find = null) where TBuilder : IEndpointConventionBuilder =>
+        builder.AddEndpointFilter(async (ctx, next) =>
+        {
+            var http = ctx.HttpContext;
+            var db = http.RequestServices.GetRequiredService<AppDbContext>();
+            if (RolePolicy(db, RoleOf(http.User)) == null) return await next(ctx);
+            var raw = http.Request.RouteValues["id"]?.ToString() ?? "";
+            var account = find != null
+                ? await find(db, raw)
+                : int.TryParse(raw, out var pk)
+                    ? await db.ChannelAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == pk)
+                    : null;
+            if (account != null && ConnectError(db, http.User, account) is { } refused) return refused;
+            return await next(ctx);
+        });
 
     /// <summary>The chat deep link the inbox understands (/chats?channel=…&amp;key=…&amp;thread_id=…):
     /// a customer has one conversation per company, so the id picks which.</summary>

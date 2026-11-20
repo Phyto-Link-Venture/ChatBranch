@@ -77,8 +77,8 @@ public static class ThreadResolver
         if (rows.Count == 0) return threadId != null ? Pick.Missing : Pick.NoneYet;
 
         var allowed = ShellScope.ThreadEntityIds(db, sc, me, null);
-        var channels = ShellScope.ChannelAccountIds(db, me);
-        var visible = rows.Where(r => ShellScope.ThreadVisible(r.EntityId, r.AccountId, allowed, channels)).ToList();
+        var channels = ShellScope.Access(db, me);
+        var visible = rows.Where(r => ShellScope.ThreadVisible(r.EntityId, channel, r.AccountId, allowed, channels)).ToList();
         int? CompanyOf(Row r) => r.CompanyEntityId ?? sc.CompanyOf(r.EntityId);
 
         if (threadId is int tid)
