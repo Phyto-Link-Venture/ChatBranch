@@ -39,6 +39,29 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: '1.5.0',
+    date: '2026-11-20',
+    title: { en: 'Channel access by role', ms: 'Akses saluran mengikut peranan', zh: '按角色设置渠道访问权限' },
+    changes: [
+      {
+        kind: 'new',
+        text: {
+          en: 'Limit a role to some channels and how each is connected, for example SMS and official WhatsApp numbers only, never QR. Set it in Permissions → a role → Channel access.',
+          ms: 'Hadkan sesuatu peranan kepada saluran tertentu dan cara setiap satu disambungkan, contohnya SMS dan nombor WhatsApp rasmi sahaja, tanpa QR. Tetapkannya dalam Kebenaran → peranan → Akses saluran.',
+          zh: '可将角色限定于部分渠道及其连接方式，例如只允许短信和官方 WhatsApp 号码，不允许扫码连接。在“权限 → 角色 → 渠道访问权限”中设置。',
+        },
+      },
+      {
+        kind: 'improved',
+        text: {
+          en: 'The Channels page greys out what your role can’t add and tells you why.',
+          ms: 'Halaman Saluran memudarkan apa yang tidak boleh ditambah oleh peranan anda dan menerangkan sebabnya.',
+          zh: '“渠道”页面会将您的角色无法添加的项目显示为灰色，并说明原因。',
+        },
+      },
+    ],
+  },
+  {
     version: '1.4.0',
     date: '2026-11-17',
     title: { en: 'Versions and What’s new', ms: 'Versi dan Apa yang baharu', zh: '版本与新功能' },

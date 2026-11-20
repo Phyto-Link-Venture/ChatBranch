@@ -53,6 +53,7 @@ public static class ProductReleases
         (new SemVer(1, 2, 0), new DateOnly(2026, 11, 10)),
         (new SemVer(1, 3, 0), new DateOnly(2026, 11, 17)),
         (new SemVer(1, 4, 0), new DateOnly(2026, 11, 17)),
+        (new SemVer(1, 5, 0), new DateOnly(2026, 11, 20)),
     };
 
     /// <summary>The major a company is on until its admin moves it. Companies with no

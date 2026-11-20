@@ -2678,6 +2678,15 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 ## Notes
 
+- **Every `feat:` / `fix:` commit ships its What's new entry in the same push.**
+  Add the version + customer-facing notes (en/ms/zh, plain words) to
+  `frontend/src/content/releases.ts` and the same version to
+  `backend-csharp/src/ChatBranch.Domain/Releases.cs` (`UpdatesTests` checks they
+  match). A feature = next MINOR (1.5.0 → 1.6.0), fix-only = next PATCH
+  (1.5.0 → 1.5.1); several commits in one push can share one version. CI's
+  "What's new entry" job fails a push with a feat/fix commit that doesn't touch
+  `releases.ts`; scopes `ci|test|tests|deps|lint|docs|build` are exempt, and a
+  commit customers can't notice says `[no release note]` in its message.
 - Dev slowness is normal **Next.js on-demand route compilation** (each route
   compiles on first visit). Use `next dev --turbo` or a prod build for speed.
 - **Thread-pool floor.** The send seams (`OutboundSender`, the queue drain, the

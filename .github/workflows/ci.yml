@@ -67,6 +67,48 @@ jobs:
           has '^backend/baileys_service/' && out gateway true || out gateway false
           has '^backend/voice_agent/' && out agent true || out agent false
 
+  release-notes:
+    name: What's new entry
+    # A feat: or fix: commit must ship its customer-facing note on /whats-new in the
+    # same push: frontend/src/content/releases.ts (+ the version in
+    # backend-csharp/src/ChatBranch.Domain/Releases.cs; UpdatesTests checks both
+    # match). Scopes ci/test/tests/deps/lint/docs/build are exempt, and a commit
+    # with nothing a customer would notice can say "[no release note]" in its message.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check feat/fix commits have a release note
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          case "$EVENT" in
+            push) from="$BEFORE" ;;
+            pull_request) from="$BASE" ;;
+            *) echo "Not a push or PR — skipped"; exit 0 ;;
+          esac
+          if [ -z "$from" ] || [ "$from" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$from^{commit}" 2>/dev/null; then
+            echo "No previous commit to compare with — skipped"; exit 0
+          fi
+          need=""
+          for c in $(git rev-list --no-merges "$from..HEAD"); do
+            subj=$(git log -1 --format=%s "$c")
+            git log -1 --format=%B "$c" | grep -qiF '[no release note]' && continue
+            grep -qE '^(feat|fix)(\((ci|test|tests|deps|lint|docs|build)\))!?:' <<< "$subj" && continue
+            grep -qE '^(feat|fix)(\([^)]*\))?!?:' <<< "$subj" && need="$need"$'\n'"  $(git log -1 --format='%h %s' "$c")"
+          done
+          if [ -z "$need" ]; then echo "No feat/fix commits — nothing to check"; exit 0; fi
+          if git diff --name-only "$from" HEAD | grep -qx 'frontend/src/content/releases.ts'; then
+            echo "Release notes updated for:$need"; exit 0
+          fi
+          echo "::error file=frontend/src/content/releases.ts::These feat/fix commits have no What's new entry:$need"
+          echo "Add the version + notes to frontend/src/content/releases.ts and backend-csharp/src/ChatBranch.Domain/Releases.cs, or put [no release note] in a commit message that changes nothing customers see."
+          exit 1
+
   api:
     name: C# API (${{ matrix.db }} ${{ matrix.shard }})
     needs: changes
