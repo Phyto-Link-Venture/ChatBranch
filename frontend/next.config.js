@@ -92,6 +92,13 @@ const nextConfig = {
       { source: '/:path*', has: embed, headers: [{ key: 'Content-Security-Policy', value: csp("'none'") }] },
       { source: '/help/manual', has: embed, headers: [{ key: 'Content-Security-Policy', value: csp('*') }] },
       { source: '/persona', headers: [{ key: 'Permissions-Policy', value: permissions('(self)') }] },
+      // App icons (public/icons): not content-hashed, so a day's cache rather than
+      // /_next/static's immutable year — Next would otherwise send max-age=0 and every
+      // page view revalidates them. sw.js and the manifest stay uncached.
+      {
+        source: '/icons/:path*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }],
+      },
     ]
   },
 }
