@@ -5,6 +5,27 @@ import { useCallback, useEffect, useState } from 'react'
 import { getAuth, setAuth, userHasCap, type AuthUser, type Role } from './auth'
 import { readPolicy, type ChannelPolicy } from './channelAccess'
 
+type Whoami = { capabilities?: unknown; channel_access?: unknown } | null
+
+/** The whoami read in flight, shared by every useAccess() mounted in the same
+ *  render (a page, its cards and the shell's widgets mount together) — one
+ *  request instead of one per hook. Only an UNSETTLED read is shared: the next
+ *  mount after it answers asks again, exactly as before. */
+let inflight: { token: string; p: Promise<Whoami> } | null = null
+function readWhoami(token: string): Promise<Whoami> {
+  if (inflight && inflight.token === token) return inflight.p
+  const p = fetch(`${API}/auth/whoami`, { headers: { Authorization: `Bearer ${token}` } }).then(
+    (r) => (r.ok ? (r.json() as Promise<Whoami>) : null),
+  )
+  const entry = { token, p }
+  inflight = entry
+  const done = () => {
+    if (inflight === entry) inflight = null
+  }
+  p.then(done, done)
+  return p
+}
+
 /**
  * Hydration-safe capability gate. Like useRole(): nothing is read from
  * localStorage until after mount, so the server render and the first client
@@ -31,9 +52,8 @@ export function useAccess(): {
     setReady(true)
     if (!cached) return
     let alive = true
-    fetch(`${API}/auth/whoami`, { headers: { Authorization: `Bearer ${cached.token}` } })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { capabilities?: unknown; channel_access?: unknown } | null) => {
+    readWhoami(cached.token)
+      .then((d) => {
         if (!alive || !d || !Array.isArray(d.capabilities)) return
         const caps = d.capabilities.filter((c): c is string => typeof c === 'string')
         const next = { ...cached, capabilities: caps, channel_access: readPolicy(d.channel_access) }
