@@ -115,6 +115,7 @@ import { tagMeta } from '@/lib/tags'
 import PendingDraftBanner from '@/components/chats/PendingDraftBanner'
 import IdentityBanner from '@/components/chats/IdentityBanner'
 import { subscribeChatStream } from '@/lib/chatStream'
+import { pollWhileVisible, unchangedJson } from '@/lib/visiblePoll'
 import { AiBubbleFeedback, useAiFeedback } from '@/components/ai-learning/BubbleFeedback'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 // quoted replies, reactions, the emoji picker and message cards (bubble extras)
@@ -867,7 +868,10 @@ function ChatsPage() {
   const activeContactId = active?.contact_id ?? null
   // …of THIS conversation's company only: the merged view never mixes two companies' chats
   const activeCompany = active ? companyParam(active.company) : null
+  // the last answer's JSON: an identical poll skips the setState (and the re-render of this whole page)
+  const combinedJson = useRef<string | null>(null)
   useEffect(() => {
+    combinedJson.current = null
     if (!activeContactId || !activeCompany) {
       setCombined(null)
       return
@@ -876,14 +880,14 @@ function ChatsPage() {
     const load = () =>
       api<CombinedConversation>(`messaging/contacts/${activeContactId}/conversation?company=${encodeURIComponent(activeCompany)}`)
         .then((c) => {
-          if (!cancelled) setCombined(c)
+          if (!cancelled && !unchangedJson(combinedJson, c)) setCombined(c)
         })
         .catch(() => {})
-    load()
-    const timer = setInterval(load, 2500)
+    // every 2.5 s while the tab is visible; a hidden tab waits and catches up on return
+    const stop = pollWhileVisible(load, 2500)
     return () => {
       cancelled = true
-      clearInterval(timer)
+      stop()
     }
   }, [activeContactId, activeCompany])
 
@@ -970,7 +974,9 @@ function ChatsPage() {
 
   // Past SIP calls for the open contact — polled so a finished call surfaces.
   const sipContactId = active?.contact_id ?? null
+  const sipJson = useRef<string | null>(null)
   useEffect(() => {
+    sipJson.current = null
     if (sipContactId == null || !activeCompany) {
       setSipCalls([])
       return
@@ -979,14 +985,14 @@ function ChatsPage() {
     const load = () =>
       api<{ calls: SipCall[] }>(`contacts/${sipContactId}/calls?company=${encodeURIComponent(activeCompany)}`)
         .then((d) => {
-          if (!cancelled) setSipCalls(d.calls ?? [])
+          const calls = d.calls ?? []
+          if (!cancelled && !unchangedJson(sipJson, calls)) setSipCalls(calls)
         })
         .catch(() => {})
-    load()
-    const timer = setInterval(load, 8000)
+    const stop = pollWhileVisible(load, 8000)
     return () => {
       cancelled = true
-      clearInterval(timer)
+      stop()
     }
   }, [sipContactId, activeCompany])
 
