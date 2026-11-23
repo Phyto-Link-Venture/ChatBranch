@@ -249,6 +249,9 @@ public class AppDbContext : DbContext
         b.Entity<KnowledgeItem>().ToTable("crm_knowledgeitem");
         b.Entity<FlowRun>().ToTable("crm_flowrun");
         b.Entity<OutboundJob>().ToTable("crm_outboundjob");
+        // the queue claim (status = queued, not_before due) and the flow engine's due-run sweep
+        b.Entity<OutboundJob>().HasIndex(j => new { j.Status, j.NotBefore }).HasDatabaseName("ix_outboundjob_status_not_before");
+        b.Entity<FlowRun>().HasIndex(r => new { r.Status, r.WaitUntil }).HasDatabaseName("ix_flowrun_status_wait");
         b.Entity<FlowStepEvent>().ToTable("crm_flowstepevent");
         b.Entity<FlowStepEvent>().HasIndex(e => new { e.WorkflowId, e.Day })
             .HasDatabaseName("ix_flowstepevent_workflow_day");
@@ -410,6 +413,11 @@ public class AppDbContext : DbContext
             .HasDatabaseName("uniq_message_idempotency");
         // receipts look a message up by its provider id alone (statuses carry no thread)
         b.Entity<Message>().HasIndex(m => m.ExternalId).HasDatabaseName("ix_message_external_id");
+        // per-conversation reads (the open chat, the inbox list's last-message subqueries):
+        // the partial (thread_id, external_id) index above can't serve "thread_id = X"
+        b.Entity<Message>().HasIndex(m => new { m.ThreadId, m.CreatedAt }).HasDatabaseName("ix_message_thread_created");
+        // the SSE change token's MAX(updated_at) + the AI follow-up pass's recent-threads scan
+        b.Entity<Thread>().HasIndex(t => t.UpdatedAt).HasDatabaseName("ix_thread_updated");
         // ONE conversation per customer PER COMPANY: (channel, key, company) is
         // unique, and (channel, key) once more among the unattributed threads —
         // NULLs are distinct in SQL, hence the second, filtered index (the same

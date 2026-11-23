@@ -588,6 +588,17 @@ public static class Seed
             + "\"entity_id\" INTEGER NOT NULL, \"pinned_major\" INTEGER NOT NULL, \"minor_mode\" TEXT NOT NULL, "
             + "\"held_version\" TEXT NOT NULL, \"updated_by\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
         AddUniqueIndexIfMissing(db, "uniq_updatepolicy_entity", "crm_updatepolicy", "\"entity_id\"", "\"entity_id\" > 0");
+        // ---- hot-path read indexes (additive; AppDbContext has the same four) -----------
+        // crm_message had no plain thread_id index — only the partial (thread_id, external_id)
+        // one, which a "thread_id = X" query can't use — so every per-conversation read
+        // (the open chat, the inbox list's last-message / last-inbound subqueries, the
+        // contact's merged conversation) scanned the whole table on PostgreSQL.
+        AddIndexIfMissing(db, "ix_message_thread_created", "crm_message", "\"thread_id\", \"created_at\"");
+        // the SSE change token's MAX(updated_at) and the AI follow-up pass's recent-threads scan
+        AddIndexIfMissing(db, "ix_thread_updated", "crm_thread", "\"updated_at\"");
+        // the outbound queue claim (every 5 s) and the flow engine's due-run sweep (every 10 s)
+        AddIndexIfMissing(db, "ix_outboundjob_status_not_before", "crm_outboundjob", "\"status\", \"not_before\"");
+        AddIndexIfMissing(db, "ix_flowrun_status_wait", "crm_flowrun", "\"status\", \"wait_until\"");
         // ---- one mirror per Zernio account ---------------------------------------
         // The WhatsApp onboarding callback and the account.connected webhook can both mirror
         // the same Zernio account at once (Zernio/ZernioAccounts.Upsert treats the loser's
