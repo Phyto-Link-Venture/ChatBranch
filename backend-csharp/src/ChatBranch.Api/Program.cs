@@ -32,6 +32,8 @@ builder.Services.AddDbContext<AppDbContext>(o => o.Use(dbProvider, conn));
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new ChatBranch.Api.UtcDateTimeConverter()));
 builder.Services.AddScoped<ScopingService>();
 builder.Services.AddScoped<ChatBranch.Data.Stores.ThreadStore>();
+// the SSE change token, computed once per second for every open /api/whatsapp/stream
+builder.Services.AddSingleton<ChatBranch.Api.Endpoints.StreamChangeToken>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.PersonaService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.KnowledgeService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.AssistantService>();

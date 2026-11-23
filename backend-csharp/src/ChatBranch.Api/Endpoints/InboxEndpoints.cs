@@ -235,7 +235,8 @@ public static class InboxEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- SSE change stream (all channels) ---------------------------------
-        app.MapGet("/api/whatsapp/stream", async (HttpContext ctx, ThreadStore store, CancellationToken ct) =>
+        app.MapGet("/api/whatsapp/stream", async (HttpContext ctx, ThreadStore store, StreamChangeToken tokens,
+            CancellationToken ct) =>
         {
             ctx.Response.Headers.ContentType = "text/event-stream";
             ctx.Response.Headers.CacheControl = "no-cache";
@@ -243,7 +244,8 @@ public static class InboxEndpoints
             var idle = 0;
             while (!ct.IsCancellationRequested && idle < 300) // ~10min cap
             {
-                var token = store.ChangeToken();
+                // shared across the process's open streams for a second (StreamChangeToken)
+                var token = tokens.Get(store);
                 if (token != last)
                 {
                     last = token;
