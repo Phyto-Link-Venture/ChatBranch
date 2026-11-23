@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { usePathname, useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Menu, MessageSquare, TrendingUp, Users } from 'lucide-react'
@@ -10,7 +11,6 @@ import { useEntityQuery } from '@/lib/EntityContext'
 import { SideNav } from './SideNav'
 import { TopBar } from './TopBar'
 import { TopNav } from './TopNav'
-import { CommandPalette } from './CommandPalette'
 import { HOME, canSee, firstVisibleHref, isActive, NAV_GROUPS, routeDef } from './nav'
 import { RouteGuard } from './RouteGuard'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
@@ -19,8 +19,6 @@ import { syncGuidesFromServer } from '@/lib/tours'
 import { syncTimeZoneFromServer } from '@/lib/timeZone'
 import { resetNotifications } from './notificationsStore'
 import { useLive } from './liveStore'
-import { CampaignModal } from '@/components/CampaignModal'
-import { AssistantDock } from '@/components/assistant/AssistantDock'
 import { InstallHint } from './InstallHint'
 import { TourProvider } from '@/components/tour/TourProvider'
 
@@ -44,6 +42,15 @@ import { TourProvider } from '@/components/tour/TourProvider'
  *
  * Auth guard: every non-public route requires a signed-in user.
  */
+
+// The floating pieces render nothing until opened (or until mounted, for the
+// dock), so they load as their own chunks after the page instead of riding in
+// every page's first JavaScript. ssr: false — none of them draws on the server.
+const CommandPalette = dynamic(() => import('./CommandPalette').then((m) => m.CommandPalette), { ssr: false })
+const CampaignModal = dynamic(() => import('@/components/CampaignModal').then((m) => m.CampaignModal), { ssr: false })
+const AssistantDock = dynamic(() => import('@/components/assistant/AssistantDock').then((m) => m.AssistantDock), {
+  ssr: false,
+})
 
 const FULL_BLEED: string[] = ['/chats', '/journeys', '/flow-builder', '/settings']
 
