@@ -22,6 +22,7 @@
 
 import { API } from '@/lib/apiBase'
 import { authHeaders, getAuth } from './auth'
+import { readPreferences } from './preferencesRead'
 import type { MessageKey } from '@/i18n'
 
 export const THEME_IDS = ['paper', 'graphite', 'soft', 'ocean', 'forest', 'midnight', 'rose', 'sand', 'nord', 'contrast', 'pixel', 'riso', 'lacquer', 'clay'] as const
@@ -566,9 +567,8 @@ export function customisedCount(a: Appearance): number {
 export async function syncAppearanceFromServer(): Promise<Appearance | null> {
   if (!getAuth()) return null
   try {
-    const res = await fetch(`${API}/auth/preferences`, { headers: { ...authHeaders() } })
-    if (!res.ok) return null
-    const data = (await res.json()) as { appearance?: unknown; org_default?: unknown }
+    const data = (await readPreferences()) as { appearance?: unknown; org_default?: unknown } | null
+    if (!data) return null
     const chosen = data.appearance ?? data.org_default
     if (!chosen) return null
     const a = normalize(chosen)

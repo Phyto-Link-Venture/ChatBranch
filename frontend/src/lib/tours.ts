@@ -14,6 +14,7 @@
 import { API } from '@/lib/apiBase'
 import type { MessageKey } from '@/i18n'
 import { authHeaders } from './auth'
+import { readPreferences } from './preferencesRead'
 
 export interface TourStep {
   /** `data-tour` value of the element to spotlight; none = a centred card. */
@@ -390,9 +391,8 @@ function saveGuides(guides: { auto?: boolean; seen?: string[] }) {
  *  browser, and send up anything this browser already knew. */
 export async function syncGuidesFromServer(user: string): Promise<void> {
   try {
-    const res = await fetch(`${API}/auth/preferences`, { headers: authHeaders() })
-    if (!res.ok) return
-    const data = (await res.json()) as { guides?: { auto?: boolean; seen?: string[] } }
+    const data = (await readPreferences()) as { guides?: { auto?: boolean; seen?: string[] } } | null
+    if (!data) return
     const g = data.guides
     if (!g) return
     const serverSeen = new Set(g.seen ?? [])

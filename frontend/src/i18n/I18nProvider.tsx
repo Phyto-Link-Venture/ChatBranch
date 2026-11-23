@@ -3,6 +3,7 @@
 import { API } from '@/lib/apiBase'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { authHeaders } from '@/lib/auth'
+import { readPreferences } from '@/lib/preferencesRead'
 import { en, type Messages } from './messages/en'
 import { DEFAULT_LOCALE, LOCALE_STORE_KEY, browserLocale, intlTag, isLocale, type Locale } from './locales'
 import type { Dict, MessageKey, Vars } from './types'
@@ -169,9 +170,8 @@ async function saveUserLocale(l: Locale | null): Promise<void> {
  */
 export async function syncLocaleFromServer(): Promise<Locale | null> {
   try {
-    const res = await fetch(`${API}/auth/preferences`, { headers: authHeaders() })
-    if (!res.ok) return null
-    const data = (await res.json()) as { locale?: unknown; org_locale?: unknown }
+    const data = (await readPreferences()) as { locale?: unknown; org_locale?: unknown } | null
+    if (!data) return null
     const chosen = isLocale(data.locale) ? data.locale : isLocale(data.org_locale) ? data.org_locale : null
     if (chosen) {
       writeCached(chosen)

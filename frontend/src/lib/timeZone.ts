@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from 'react'
 import { API } from './apiBase'
 import { authHeaders } from './auth'
+import { readPreferences } from './preferencesRead'
 
 /**
  * Which time zone the dashboard SHOWS times in. Every date and time goes through
@@ -209,9 +210,8 @@ export function useTimeZoneState(): TimeZoneState {
 /** Once per sign-in: the person's own choice + the business zone, from their account. */
 export async function syncTimeZoneFromServer(): Promise<void> {
   try {
-    const res = await fetch(`${API}/auth/preferences`, { headers: authHeaders() })
-    if (!res.ok) return
-    const data = (await res.json()) as { time_zone?: unknown; org_time_zone?: unknown }
+    const data = (await readPreferences()) as { time_zone?: unknown; org_time_zone?: unknown } | null
+    if (!data) return
     setTimeZoneState({
       choice: typeof data.time_zone === 'string' ? data.time_zone : '',
       org: typeof data.org_time_zone === 'string' ? data.org_time_zone : '',
