@@ -1,4 +1,5 @@
 using ChatBranch.Api.Auth;
+using ChatBranch.Api.Diagnostics;
 using ChatBranch.Api.Endpoints;
 using ChatBranch.Api.Security;
 using ChatBranch.Data;
@@ -267,6 +268,8 @@ using (var scope = app.Services.CreateScope())
 
 var security = app.Services.GetRequiredService<SecurityOptions>();
 app.UseTrustedProxies(security, app.Logger); // FIRST: the real client IP / https, only from TRUSTED_PROXIES
+// a warning line for any request slower than SLOW_REQUEST_MS (default 2000, 0 = off; Diagnostics/SlowRequestLog)
+app.UseSlowRequestLog(ChatBranch.Api.Diagnostics.SlowRequestLog.ThresholdMs(app.Configuration));
 app.UseSecurityHeaders(security); // nosniff, referrer, CSP for data, HSTS on https (Security/SecurityHeaders)
 if (compressResponses) app.UseResponseCompression(); // Brotli/gzip for JSON + text, never SSE or media (above)
 app.UseCors(CorsPolicy);
