@@ -502,13 +502,15 @@ function ContactsList() {
   // Tag choices: every tag in use across the caller's contacts.
   const [allTags, setAllTags] = useState<string[]>([])
   useEffect(() => {
+    // after the first list arrives — on mount it would only be fetched again a moment later
+    if (loading) return
     fetch(`${API}/contacts?limit=2000`, { headers: authHeaders() })
       .then((r) => (r.ok ? r.json() : { contacts: [] }))
       .then((d: { contacts?: { tags?: string[] }[] }) =>
         setAllTags(Array.from(new Set((d.contacts ?? []).flatMap((c) => c.tags ?? []))).sort((a, b) => a.localeCompare(b))),
       )
       .catch(() => setAllTags([]))
-  }, [rows.length])
+  }, [rows.length, loading])
 
   const openCreate = () => {
     setEditing(null)
