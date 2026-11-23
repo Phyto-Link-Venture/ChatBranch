@@ -229,6 +229,30 @@ builder.Services.AddCors(o =>
         .AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
 });
 
+// ---- response compression (Brotli, then gzip) ----------------------------------
+// The JSON lists (inbox, contacts, messages) compress 5-10x and the reverse proxy
+// in front passes API responses through untouched. Only the default text types
+// are compressed (JSON, JS, HTML, CSS, XML, plain text): text/event-stream (the
+// /api/whatsapp/stream SSE) is NOT in that list, so it keeps flushing per event,
+// and media / PDFs / audio are never touched; a ranged response (Content-Range)
+// is skipped by the middleware itself. Fastest level: CPU over the last few bytes.
+// Bearer-token auth (no cookies) keeps BREACH out of reach. RESPONSE_COMPRESSION=0
+// turns it off.
+var compressResponses = builder.Configuration["RESPONSE_COMPRESSION"] != "0";
+if (compressResponses)
+{
+    builder.Services.AddResponseCompression(o =>
+    {
+        o.EnableForHttps = true;
+        o.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+        o.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+    });
+    builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProviderOptions>(o =>
+        o.Level = System.IO.Compression.CompressionLevel.Fastest);
+    builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProviderOptions>(o =>
+        o.Level = System.IO.Compression.CompressionLevel.Fastest);
+}
+
 var app = builder.Build();
 
 // ---- seed the demo tenant/users on boot (idempotent) ------------------------
@@ -242,6 +266,7 @@ using (var scope = app.Services.CreateScope())
 var security = app.Services.GetRequiredService<SecurityOptions>();
 app.UseTrustedProxies(security, app.Logger); // FIRST: the real client IP / https, only from TRUSTED_PROXIES
 app.UseSecurityHeaders(security); // nosniff, referrer, CSP for data, HSTS on https (Security/SecurityHeaders)
+if (compressResponses) app.UseResponseCompression(); // Brotli/gzip for JSON + text, never SSE or media (above)
 app.UseCors(CorsPolicy);
 app.UseApiKeyGate(); // an IP locked out for bad API keys gets 429 before any key lookup
 app.UseAuthentication();
