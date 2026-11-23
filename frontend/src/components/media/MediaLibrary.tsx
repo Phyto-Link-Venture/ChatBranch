@@ -57,6 +57,12 @@ export function MediaLibrary() {
   const entity = useEntityQuery()
   const [files, setFiles] = useState<LibraryFile[] | null>(null)
   const [search, setSearch] = useState('')
+  // what the list request uses: the box, settled for 280 ms (one request per pause, not per keystroke)
+  const [searchQuery, setSearchQuery] = useState('')
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchQuery(search), 280)
+    return () => clearTimeout(timer)
+  }, [search])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState('')
@@ -68,7 +74,7 @@ export function MediaLibrary() {
   const load = useCallback(async () => {
     try {
       const params = new URLSearchParams(entity)
-      if (search.trim()) params.set('q', search.trim())
+      if (searchQuery.trim()) params.set('q', searchQuery.trim())
       const query = params.toString()
       const res = await fetch(`${API}/media/library${query ? `?${query}` : ''}`, { headers: authHeaders() })
       if (expireSessionOn401(res)) return
@@ -80,7 +86,7 @@ export function MediaLibrary() {
       setFiles([])
     }
     // the entity picker is part of what the list means, so it belongs in here
-  }, [search, entity])
+  }, [searchQuery, entity])
 
   useEffect(() => {
     void load()
@@ -210,7 +216,7 @@ export function MediaLibrary() {
           </div>
         ) : files.length === 0 ? (
           <p className="px-4 py-12 text-center text-[12.5px] text-text-muted">
-            {search.trim() ? t('library.media.noMatches') : t('library.media.empty')}
+            {searchQuery.trim() ? t('library.media.noMatches') : t('library.media.empty')}
           </p>
         ) : (
           <ul className="divide-y divide-line">
