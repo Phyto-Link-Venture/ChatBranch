@@ -118,6 +118,13 @@ const SECRET = process.env.BAILEYS_SECRET || 'baileys-local-dev'
 // process managers keep working after the port to the C# API.
 const API_URL = (process.env.API_URL || process.env.DJANGO_URL || 'http://127.0.0.1:8090')
   .replace(/\/$/, '')
+// Upper bounds on a push to the API, so a hung API connection can't hold a
+// message (or its retries) for undici's 5-minute default. Inbound pushes retry
+// (postWithRetry) and the API dedupes on the WhatsApp id, so a slow first try
+// is never stored twice; status / call events are fire-and-forget. The media
+// upload and the history import keep the default (big bodies, counted answers).
+const API_PUSH_TIMEOUT_MS = Number(process.env.API_PUSH_TIMEOUT_MS) || 60_000
+const API_EVENT_TIMEOUT_MS = Number(process.env.API_EVENT_TIMEOUT_MS) || 15_000
 const AUTH_ROOT = path.join(HERE, '..', 'data', 'whatsapp', 'baileys')
 // "Keep phone notifications": how long a number stays online after its last send / typing
 const PRESENCE_IDLE_MS = Number(process.env.BAILEYS_PRESENCE_IDLE_MS || DEFAULT_IDLE_MS)
@@ -355,6 +362,7 @@ async function pushInbound(id, m) {
   const r = await postWithRetry(() => fetch(`${API_URL}/api/whatsapp/baileys/inbound`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+    signal: AbortSignal.timeout(API_PUSH_TIMEOUT_MS),
     body: JSON.stringify(body),
   }), { attempts: 3, baseDelayMs: 500 })
   if (!r.ok) {
@@ -397,6 +405,7 @@ async function pushGroupInbound(id, m, jid, parsed) {
   const r = await postWithRetry(() => fetch(`${API_URL}/api/whatsapp/baileys/inbound`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+    signal: AbortSignal.timeout(API_PUSH_TIMEOUT_MS),
     body: JSON.stringify(body),
   }), { attempts: 3, baseDelayMs: 500 })
   if (!r.ok) {
@@ -438,6 +447,7 @@ async function pushFromPhone(id, m) {
   const r = await postWithRetry(() => fetch(`${API_URL}/api/whatsapp/baileys/from-phone`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+    signal: AbortSignal.timeout(API_PUSH_TIMEOUT_MS),
     body: JSON.stringify({
       account_id: id, wa_id: waId, text: parsed.text, msg_id: m.key?.id || '',
       reply_to: parsed.replyTo, ts: messageSeconds(m),
@@ -475,6 +485,7 @@ async function pushRecall(id, m, recall) {
   const r = await postWithRetry(() => fetch(`${API_URL}/api/whatsapp/baileys/recall`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+    signal: AbortSignal.timeout(API_PUSH_TIMEOUT_MS),
     body: JSON.stringify({ account_id: id, wa_id: waId, msg_id: recall.id, from_me: recall.fromMe }),
   }), { attempts: 3, baseDelayMs: 500 })
   if (r.ok) logEvent('recall', { acct: id, id: recall.id, by: recall.fromMe ? 'us' : 'customer' })
@@ -975,6 +986,7 @@ async function pushStatusEvent(id, event, reason = '') {
     await fetch(`${API_URL}/api/whatsapp/baileys/status-event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+      signal: AbortSignal.timeout(API_EVENT_TIMEOUT_MS),
       // `number` = this account's OWN paired MSISDN (captured as a.me on
       // connect). Django has no other way to learn it — Baileys accounts carry
       // no external_id — and it backs the {{account_number}} placeholder so a
@@ -1206,6 +1218,7 @@ async function startAccount(id, phone = null) {
       await fetch(`${API_URL}/api/whatsapp/baileys/message-status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+        signal: AbortSignal.timeout(API_EVENT_TIMEOUT_MS),
         body: JSON.stringify({ wa_id: waId, msg_id: key.id, status: statusLabel }),
       })
     } catch (e) {
@@ -1286,6 +1299,7 @@ async function pushEdit(id, m, edit) {
   const r = await postWithRetry(() => fetch(`${API_URL}/api/whatsapp/baileys/edited`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+    signal: AbortSignal.timeout(API_PUSH_TIMEOUT_MS),
     body: JSON.stringify({ account_id: id, wa_id: waId, msg_id: edit.id, from_me: edit.fromMe, text: edit.text }),
   }), { attempts: 3, baseDelayMs: 500 })
   if (r.ok) logEvent('edited', { acct: id, id: edit.id, by: edit.fromMe ? 'us' : 'customer' })
@@ -1480,6 +1494,7 @@ async function pushCallEvent(id, event, detail) {
     await fetch(`${API_URL}/api/whatsapp/baileys/call-event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
+      signal: AbortSignal.timeout(API_EVENT_TIMEOUT_MS),
       body: JSON.stringify({ account_id: id, event, ...detail }),
     })
   } catch (e) {
